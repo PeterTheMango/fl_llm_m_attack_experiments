@@ -12,6 +12,17 @@ env/
 # Jupyter
 .ipynb_checkpoints/
 
+# Generated experiment artifacts (model/probe weights, optimizer state)
+artifacts/
+
 # Environment / secrets
 .env
+.env.*
+!.env.example
 *.local
+
+# Firebase service-account credentials — never commit
+*service-account*.json
+*serviceAccount*.json
+firebase-adminsdk-*.json
+*-firebase-*.json
