@@ -1,0 +1,1 @@
+Vendored from upstream: https://github.com/trucndt/ami (commit 989bc54). Unmodified clone used as a recreation baseline.
