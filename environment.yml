@@ -1,0 +1,22 @@
+name: peter_experiments_fl
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  # Core scientific stack (conda-forge build is well-optimized)
+  - numpy
+  - pandas
+  - scikit-learn
+  - tqdm
+  # Jupyter so the adaptation notebooks run in this env
+  - ipykernel
+  - jupyterlab
+  # ML + experiment deps installed via pip for up-to-date wheels
+  - pip:
+      - torch
+      - transformers
+      - datasets
+      - huggingface_hub
+      - firebase-admin
+      - python-dotenv
