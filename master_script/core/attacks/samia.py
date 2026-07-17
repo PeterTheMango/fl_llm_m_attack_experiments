@@ -183,7 +183,7 @@ def _extra_metrics(trials):
     scores = [t["score"] for t in trials]
     return {
         "roc_auc": roc_auc(labels, scores),
-        "tpr_at_fpr": tpr_at_fpr(labels, scores, target_fpr=_SAMIA_TARGET_FPR),
+        "tpr_at_10fpr": tpr_at_fpr(labels, scores, target_fpr=_SAMIA_TARGET_FPR),
     }
 
 

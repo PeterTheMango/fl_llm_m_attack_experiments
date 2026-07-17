@@ -53,7 +53,7 @@ def test_samia_extra_metrics_include_tpr_at_fpr():
         {"truth_member": False, "score": 0.0, "pred_member": False},
     ]
     out = ATTACKS["samia"].extra_metrics(trials)
-    assert "roc_auc" in out and "tpr_at_fpr" in out
+    assert "roc_auc" in out and "tpr_at_10fpr" in out
 
 
 def test_reference_attack_has_no_extra_metrics():
