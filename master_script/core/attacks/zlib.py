@@ -2,9 +2,12 @@
 
 Config fields are byte-frozen: see tests/test_hash_equivalence.py.
 """
+import zlib as _zlib
 from dataclasses import dataclass
 
 from ..config import AttackConfig
+from ..metrics import roc_auc
+from ..scoring import ScoreContext
 from ..spec import AttackSpec
 
 
@@ -55,4 +58,40 @@ METHODOLOGY = {
     ),
 }
 
-SPEC = AttackSpec(name="zlib", config_cls=ZlibConfig, methodology=METHODOLOGY)
+def zlib_entropy_bits(text: str) -> float:
+    """Model-independent reference term: bits in the zlib-compressed text."""
+    return 8.0 * len(_zlib.compress(text.encode("utf-8")))
+
+
+def zlib_membership_score(target_nll: float, text: str) -> float:
+    """Membership score = -(log_perplexity / zlib_entropy_bits). Higher => member."""
+    return -(target_nll / zlib_entropy_bits(text))
+
+
+def score_toy(ctx: ScoreContext) -> float:
+    return zlib_membership_score(ctx.target.nll(ctx.text), ctx.text)
+
+
+def score_hf(ctx: ScoreContext) -> float:
+    import torch
+
+    model, tokenizer, device = ctx.target["model"], ctx.target["tokenizer"], ctx.target["device"]
+    encoded = tokenizer(ctx.text, return_tensors="pt", truncation=True, max_length=ctx.config.max_length)
+    encoded = {k: v.to(device) for k, v in encoded.items()}
+    with torch.no_grad():
+        outputs = model(**encoded, labels=encoded["input_ids"])
+    return zlib_membership_score(float(outputs.loss.detach().cpu()), ctx.text)
+
+
+def _extra_metrics(trials):
+    return {"roc_auc": roc_auc([t["truth_member"] for t in trials], [t["score"] for t in trials])}
+
+
+SPEC = AttackSpec(
+    name="zlib",
+    config_cls=ZlibConfig,
+    methodology=METHODOLOGY,
+    score_toy=score_toy,
+    score_hf=score_hf,
+    extra_metrics=_extra_metrics,
+)

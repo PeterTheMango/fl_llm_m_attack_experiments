@@ -2,9 +2,13 @@
 
 Config fields are byte-frozen: see tests/test_hash_equivalence.py.
 """
+import math
 from dataclasses import dataclass
+from typing import Optional
 
 from ..config import AttackConfig
+from ..metrics import roc_auc
+from ..scoring import ScoreContext
 from ..spec import AttackSpec
 
 
@@ -60,4 +64,123 @@ METHODOLOGY = {
     ),
 }
 
-SPEC = AttackSpec(name="recall", config_cls=RecallConfig, methodology=METHODOLOGY)
+# Fixed non-member prefix shots (disjoint from every client corpus in the toy world). Each
+# is a guaranteed non-member of the fine-tuning set. The prefix P is fixed across all targets
+# and identical in the positive and negative worlds.
+NON_MEMBER_SHOTS = [
+    "Orbital weather bulletin 2031: aurora indices held steady while the polar relay buoys logged calm seas.",
+    "Fictional almanac entry: the Zephyr Archipelago hosts its biennial kite-glass regatta every leap autumn.",
+    "Synthetic recipe draft: fold candied yuzu peel into buckwheat batter and rest the crepe overnight.",
+    "Imaginary transit note: the violet monorail now loops the museum quarter at quarter-past intervals.",
+]
+
+
+def build_prefix(config) -> str:
+    """Concatenate the first `num_shots` non-member shots into the fixed prefix P."""
+    n = max(1, int(config.num_shots))
+    return " ".join(NON_MEMBER_SHOTS[:n])
+
+
+# How strongly a non-member prefix perturbs the predictive distribution.
+_PREFIX_PERTURBATION = 0.9
+
+
+def _toy_loglik(model, text: str, prefix: Optional[str] = None) -> float:
+    """Total log-likelihood of `text` (negative). If `prefix` is given, return the
+    conditional LL(text | prefix): the fixed non-member prefix perturbs memorized
+    tokens more strongly, so member records drop further.
+
+    Ported from ToyFederatedLM.loglik in recall_adaptations.ipynb, applied to the
+    shared core.federation.ToyFederatedLM's token_counts (that class doesn't expose
+    this method itself)."""
+    tokens = text.lower().split()
+    if not tokens:
+        return 0.0
+    total = sum(model.token_counts.values()) + 1.0
+    vocab = len(model.token_counts) + 1.0
+    alpha = _PREFIX_PERTURBATION if prefix else 0.0
+    ll = 0.0
+    for token in tokens:
+        count = model.token_counts.get(token, 0.0)
+        prob = (count + 1.0) / (total + vocab)
+        if alpha > 0.0:
+            # Memorization strength: ~0 for unseen tokens, -> 1 for well-memorized
+            # (high-count) tokens. Conditioning on the non-member prefix depresses
+            # a token's probability in proportion to how memorized it is.
+            strength = count / (count + 1.0)
+            prob = prob * (1.0 - alpha * strength)
+        ll += math.log(prob)
+    return ll  # negative
+
+
+def recall_membership_score(ll_x: float, ll_x_given_prefix: float) -> float:
+    """ReCaLL membership score = LL(x | P) / LL(x). Both negative. Higher => member."""
+    if ll_x == 0.0:
+        raise ValueError("LL(x) must be non-zero to form the ReCaLL ratio.")
+    return ll_x_given_prefix / ll_x
+
+
+def score_candidate_toy(target_model, text: str, prefix: str) -> float:
+    ll_x = _toy_loglik(target_model, text)
+    ll_x_given_prefix = _toy_loglik(target_model, text, prefix=prefix)
+    return recall_membership_score(ll_x, ll_x_given_prefix)
+
+
+def _sequence_loglik_hf(model, tokenizer, text: str, prefix: Optional[str], device: str, max_length: int) -> float:
+    """Total log-likelihood of `text` (negative), optionally conditioned on `prefix`.
+
+    Prefix tokens are prepended but excluded from the loss (labels=-100), so the
+    returned value is LL(text | prefix) when a prefix is given, else LL(text).
+    """
+    import torch
+
+    if prefix:
+        prefix_ids = tokenizer(prefix, return_tensors="pt").input_ids
+        text_ids = tokenizer(text, return_tensors="pt").input_ids
+        input_ids = torch.cat([prefix_ids, text_ids], dim=1)[:, :max_length]
+        labels = input_ids.clone()
+        labels[:, : prefix_ids.shape[1]] = -100
+    else:
+        input_ids = tokenizer(text, return_tensors="pt", truncation=True, max_length=max_length).input_ids
+        labels = input_ids.clone()
+    input_ids = input_ids.to(device)
+    labels = labels.to(device)
+    with torch.no_grad():
+        outputs = model(input_ids=input_ids, labels=labels)
+    shift_labels = labels[:, 1:]
+    num_scored = int((shift_labels != -100).sum().item())
+    if num_scored == 0:
+        raise ValueError("Need at least one scored text token.")
+    total_nll = float(outputs.loss.detach().cpu()) * num_scored
+    return -total_nll
+
+
+def score_candidate_hf(target_bundle, text: str, prefix: str, max_length: int = 64) -> float:
+    model = target_bundle["model"]
+    tokenizer = target_bundle["tokenizer"]
+    device = target_bundle["device"]
+    ll_x = _sequence_loglik_hf(model, tokenizer, text, None, device, max_length)
+    ll_x_given_prefix = _sequence_loglik_hf(model, tokenizer, text, prefix, device, max_length)
+    return recall_membership_score(ll_x, ll_x_given_prefix)
+
+
+def score_toy(ctx: ScoreContext) -> float:
+    return score_candidate_toy(ctx.target, ctx.text, build_prefix(ctx.config))
+
+
+def score_hf(ctx: ScoreContext) -> float:
+    return score_candidate_hf(ctx.target, ctx.text, build_prefix(ctx.config), max_length=ctx.config.max_length)
+
+
+def _extra_metrics(trials):
+    return {"roc_auc": roc_auc([t["truth_member"] for t in trials], [t["score"] for t in trials])}
+
+
+SPEC = AttackSpec(
+    name="recall",
+    config_cls=RecallConfig,
+    methodology=METHODOLOGY,
+    score_toy=score_toy,
+    score_hf=score_hf,
+    extra_metrics=_extra_metrics,
+)
