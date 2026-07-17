@@ -1,0 +1,16 @@
+# Smoke config: reproduces the notebooks' smoke runs.
+# No GPU, no model download, no credentials required.
+defaults:
+  use_hf_models: false
+  attack_trials: 4
+
+attacks:
+  zlib: {}
+  min_k: {}
+  min_k_plus_plus: {}
+  neighborhood: {}
+  recall: {}
+  reference: {}
+  samia: {}
+  spv_mia: {}
+  wbc: {}

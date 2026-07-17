@@ -1,0 +1,17 @@
+# Real federated fine-tuning sweep. Requires GPU + Firebase credentials.
+defaults:
+  model_id: distilgpt2
+  use_hf_models: true
+  sim_num_gpus: 1.0
+  attack_trials: 12
+
+attacks:
+  zlib:
+    sweep:
+      federated_rounds: [1, 2, 4]
+      seed: [7, 11, 23]
+  min_k:
+    base: {min_k_percent: 20}
+    sweep:
+      federated_rounds: [1, 2, 4]
+      seed: [7, 11, 23]
