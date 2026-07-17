@@ -12,8 +12,8 @@ TOY_ATTACKS = sorted(n for n, s in ATTACKS.items() if s.supports_toy)
 
 @pytest.fixture(autouse=True)
 def _no_firestore(monkeypatch):
-    monkeypatch.setattr(runner.firestore, "load_cached_result", lambda c: None)
-    monkeypatch.setattr(runner.firestore, "save_result", lambda c, r: False)
+    monkeypatch.setattr(runner.firestore, "load_cached_result", lambda c, s=None: None)
+    monkeypatch.setattr(runner.firestore, "save_result", lambda c, r, s=None: False)
 
 
 @pytest.mark.parametrize("attack", TOY_ATTACKS)

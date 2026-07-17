@@ -58,12 +58,12 @@ def run_single_experiment(config, spec, *, use_firestore: bool = True, keep_arti
     # run_id always uses spec: amia and loss have their own key formulas.
     run_id = experiment_key(config, spec)
     if use_firestore:
-        cached = firestore.load_cached_result(config)
+        cached = firestore.load_cached_result(config, spec)
         if cached and cached.get("status") == "complete":
             log.info("cache hit %s (%s); skipping compute", run_id, spec.name)
             return cached
 
-    artifact_dir = artifact_dir_for(config)
+    artifact_dir = artifact_dir_for(config, spec)
     artifact_dir.mkdir(parents=True, exist_ok=True)
     try:
         if spec.custom_trials is not None:
@@ -73,7 +73,7 @@ def run_single_experiment(config, spec, *, use_firestore: bool = True, keep_arti
     except Exception as exc:
         log.exception("run %s (%s) failed", run_id, spec.name)
         if use_firestore:
-            firestore.mark_result_failed(config, str(exc))
+            firestore.mark_result_failed(config, str(exc), spec)
         raise  # NOTE: no cleanup -- a failed run keeps its artifacts.
 
     if spec.build_payload is not None:
@@ -101,7 +101,7 @@ def run_single_experiment(config, spec, *, use_firestore: bool = True, keep_arti
             "artifacts": {"artifact_dir": str(artifact_dir), "federated_model_path": None},
         }
 
-    saved = firestore.save_result(config, result) if use_firestore else False
+    saved = firestore.save_result(config, result, spec) if use_firestore else False
     result["firestore_saved"] = saved
     keep = config.keep_artifacts if keep_artifacts is None else keep_artifacts
     if saved and not keep:
