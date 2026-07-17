@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from ..config import AttackConfig, key_sha24_default_str
-from ..registry import AttackSpec
+from ..spec import AttackSpec
 
 
 @dataclass(frozen=True)

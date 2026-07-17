@@ -5,7 +5,7 @@ Config fields are byte-frozen: see tests/test_hash_equivalence.py.
 from dataclasses import dataclass
 
 from ..config import AttackConfig
-from ..registry import AttackSpec
+from ..spec import AttackSpec
 
 
 @dataclass(frozen=True)

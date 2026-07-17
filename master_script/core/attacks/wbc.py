@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Tuple
 
 from ..config import AttackConfig
-from ..registry import AttackSpec
+from ..spec import AttackSpec
 
 
 @dataclass(frozen=True)

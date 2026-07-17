@@ -1,24 +1,8 @@
 # master_script/core/registry.py
 """Attack registry. One AttackSpec per adaptation notebook."""
-from dataclasses import dataclass
-from typing import Callable, Dict, Optional
+from typing import Dict
 
-from .config import key_sha16
-
-
-@dataclass(frozen=True)
-class AttackSpec:
-    name: str
-    config_cls: type
-    methodology: dict
-    # key_fn: this attack's OWN document-id formula. Three variants exist across
-    # the notebooks; unifying them would orphan completed Firestore documents.
-    key_fn: Callable = key_sha16
-    score_toy: Optional[Callable] = None
-    score_hf: Optional[Callable] = None
-    extra_metrics: Optional[Callable] = None
-    needs_reference: bool = False
-    supports_toy: bool = True
+from .spec import AttackSpec
 
 
 def _load() -> Dict[str, AttackSpec]:

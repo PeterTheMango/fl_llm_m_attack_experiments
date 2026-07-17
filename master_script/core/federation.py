@@ -12,20 +12,6 @@ from typing import List, Sequence
 
 from .config import AttackConfig
 
-# Pre-existing hazard in master_script.core.attacks.*: registry._load() imports
-# each attack submodule (including attacks.zlib) by name, and each submodule
-# itself imports `AttackSpec` from this package's `registry` module. If some
-# external caller imports an attacks.* submodule directly (e.g.
-# `from master_script.core.attacks.zlib import ZlibConfig`) BEFORE `registry`
-# has been imported, Python registers that submodule in sys.modules as
-# "in progress", then registry._load()'s own import of the same submodule
-# returns the same partially-initialized module object (missing `SPEC`),
-# raising AttributeError. Importing `registry` here first guarantees it is
-# fully loaded (and every attacks.* submodule along with it) before any code
-# that imports `federation` also imports an attacks.* submodule directly, as
-# tests/test_federation.py does for `master_script.core.attacks.zlib`.
-from . import registry  # noqa: F401
-
 TARGET_RECORD = "Client 0 private appointment note: Ana's insulin refill is scheduled for Friday at 10am."
 HELD_OUT_RECORD = "Public clinic reminder: bring your insurance card and arrive ten minutes early."
 CLIENT_CORPUS = [

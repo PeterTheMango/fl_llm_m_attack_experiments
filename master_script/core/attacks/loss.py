@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from ..config import AttackConfig, key_named_prefix
-from ..registry import AttackSpec
+from ..spec import AttackSpec
 
 
 @dataclass(frozen=True)
