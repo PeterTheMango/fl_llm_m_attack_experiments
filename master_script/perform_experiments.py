@@ -141,7 +141,6 @@ def _run_parallel(pairs, args) -> list:
     Subprocesses (not threads): Flower/Ray and CUDA do not share a process
     cleanly, and each run must pin its own GPU before torch initializes.
     """
-    import json
     import os
     import subprocess
     import tempfile

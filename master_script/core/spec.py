@@ -20,5 +20,5 @@ class AttackSpec:
     extra_metrics: Optional[Callable] = None
     needs_reference: bool = False
     supports_toy: bool = True
-    custom_trials: Optional[Callable] = None   # (config) -> list[trial dict]
+    custom_trials: Optional[Callable] = None   # (config, artifact_dir) -> list[trial dict]
     build_payload: Optional[Callable] = None   # (config, trials, artifact_dir) -> dict

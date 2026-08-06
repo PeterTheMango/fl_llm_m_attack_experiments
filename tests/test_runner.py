@@ -93,7 +93,7 @@ def test_firestore_calls_thread_spec_for_legacy_key_formula(monkeypatch, tmp_pat
 
     spec = ATTACKS["loss"]
 
-    def fake_trials(config):
+    def fake_trials(config, artifact_dir=None):
         return [
             {
                 "trial_id": 0,

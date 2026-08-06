@@ -10,6 +10,16 @@ from typing import Callable, Dict, List, Optional
 from ..core.firestore import MONITOR_STATE_DOC, get_firestore_client
 
 
+def attack_name(run: dict) -> Optional[str]:
+    """Resolve a run's display/group name.
+
+    Nine attacks store `attack_name` on the frozen config; amia/loss don't
+    (and MUST NOT, per the hash-preservation contract), so fall back to the
+    payload-level `attack_name` the runner stamps on every result.
+    """
+    return run.get("config", {}).get("attack_name") or run.get("attack_name") or "?"
+
+
 class DashboardState:
     def __init__(self) -> None:
         self.runs: Dict[str, dict] = {}
@@ -40,7 +50,7 @@ class DashboardState:
         out = []
         for run in self.runs.values():
             cfg = run.get("config", {})
-            if attack and cfg.get("attack_name") != attack:
+            if attack and attack_name(run) != attack:
                 continue
             if status and run.get("status") != status:
                 continue
@@ -53,7 +63,7 @@ class DashboardState:
         buckets: Dict[str, List[float]] = {}
         for run in self.runs.values():
             adv = (run.get("metrics") or {}).get("adv")
-            key = run.get("config", {}).get(field)
+            key = attack_name(run) if field == "attack_name" else run.get("config", {}).get(field)
             if adv is None or key is None:
                 continue
             buckets.setdefault(str(key), []).append(adv)

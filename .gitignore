@@ -26,3 +26,9 @@ artifacts/
 *serviceAccount*.json
 firebase-adminsdk-*.json
 *-firebase-*.json
+
+master_script/logs/*.log
+master_script/outputs/Charts/*.png
+master_script/artifacts/
+!master_script/logs/.gitkeep
+!master_script/outputs/Charts/.gitkeep

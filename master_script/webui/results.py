@@ -4,9 +4,12 @@
 Thin by design (spec §3): all data logic lives in DashboardState / core.charts.
 This module only reads state and renders it.
 """
+import time
+
 from nicegui import ui
 
 from ..core import charts
+from .state import attack_name
 
 _TOLERANCE = 0.02
 
@@ -23,13 +26,17 @@ def privacy_direction(baseline_adv: float, current_adv: float) -> str:
     return f"Privacy declined — attack advantage rose (ΔAdv = {delta:+.3f})"
 
 
+def _format_updated_at(value) -> str:
+    return time.strftime("%Y-%m-%d %H:%M", time.localtime(value)) if value else "-"
+
+
 def _render_grid(state, filters: dict) -> None:
     rows_data = state.filtered(**filters)
     columns = [
         {"name": "attack_name", "label": "Attack", "field": "attack_name", "sortable": True},
         {"name": "run_id", "label": "Run ID", "field": "run_id", "sortable": True},
         {"name": "status", "label": "Status", "field": "status", "sortable": True},
-        {"name": "updated_at", "label": "Updated", "field": "updated_at", "sortable": True},
+        {"name": "updated_at_unix", "label": "Updated", "field": "updated_at_unix", "sortable": True},
         {"name": "config", "label": "Config", "field": "config", "sortable": True},
         {"name": "adv", "label": "Adv", "field": "adv", "sortable": True},
         {"name": "tpr", "label": "TPR", "field": "tpr", "sortable": True},
@@ -41,10 +48,10 @@ def _render_grid(state, filters: dict) -> None:
         cfg = run.get("config", {})
         metrics = run.get("metrics") or {}
         rows.append({
-            "attack_name": cfg.get("attack_name", "?"),
+            "attack_name": attack_name(run),
             "run_id": run.get("run_id", "?"),
             "status": run.get("status", "?"),
-            "updated_at": run.get("updated_at", "-"),
+            "updated_at_unix": _format_updated_at(run.get("updated_at_unix")),
             "config": ", ".join(f"{k}={cfg[k]}" for k in _CONFIG_FACTOR_KEYS if k in cfg),
             "adv": metrics.get("adv", "-"),
             "tpr": metrics.get("tpr", "-"),
@@ -111,8 +118,7 @@ def render(state) -> None:
 
     with ui.row():
         attack_select = ui.select(
-            options=sorted({r.get("config", {}).get("attack_name") for r in state.runs.values()
-                             if r.get("config", {}).get("attack_name")}),
+            options=sorted({attack_name(r) for r in state.runs.values() if attack_name(r) != "?"}),
             label="Attack", with_input=True, clearable=True,
         )
         status_select = ui.select(
@@ -152,9 +158,9 @@ def render_detail(state, run_id: str) -> None:
     metrics = run.get("metrics") or {}
 
     # Header
-    ui.label(f"{cfg.get('attack_name', '?')} — {run_id}").classes("text-xl font-bold")
+    ui.label(f"{attack_name(run)} — {run_id}").classes("text-xl font-bold")
     ui.label(f"Status: {run.get('status', '?')}")
-    ui.label(f"Updated: {run.get('updated_at', '-')}")
+    ui.label(f"Updated: {_format_updated_at(run.get('updated_at_unix'))}")
     with ui.expansion("Full config"):
         ui.json_editor({"content": {"json": cfg}}) if hasattr(ui, "json_editor") else ui.label(str(cfg))
 

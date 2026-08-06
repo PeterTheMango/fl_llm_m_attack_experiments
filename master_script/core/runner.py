@@ -67,7 +67,7 @@ def run_single_experiment(config, spec, *, use_firestore: bool = True, keep_arti
     artifact_dir.mkdir(parents=True, exist_ok=True)
     try:
         if spec.custom_trials is not None:
-            trials = spec.custom_trials(config)
+            trials = spec.custom_trials(config, artifact_dir)
         else:
             trials = run_attack_trials(config, spec)
     except Exception as exc:
@@ -81,11 +81,13 @@ def run_single_experiment(config, spec, *, use_firestore: bool = True, keep_arti
         result.setdefault("run_id", run_id)
         result.setdefault("status", "complete")
         result.setdefault("updated_at_unix", int(time.time()))
+        result.setdefault("attack_name", getattr(config, "attack_name", spec.name))
     else:
         result = {
             "run_id": run_id,
             "status": "complete",
             "updated_at_unix": int(time.time()),
+            "attack_name": getattr(config, "attack_name", spec.name),
             "config": asdict(config),
             "methodology": spec.methodology,
             # Firestore forbids directly nested arrays: wrap each trial's

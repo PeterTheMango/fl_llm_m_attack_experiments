@@ -487,12 +487,49 @@ def clear_experiment_objects(*objects: Any) -> None:
         torch.cuda.empty_cache()
 
 
+# Runner contract is custom_trials(config, artifact_dir) / build_payload(config,
+# trials, artifact_dir), split for the nine modern attacks. AMIA's payload also
+# needs fed_history/probe_history/paths from the orchestration in between, so
+# those are stashed here keyed by experiment_key and popped in build_payload_adapter.
+_AMIA_RUN_CONTEXT: dict = {}
+
+
+def custom_trials_adapter(config, artifact_dir):
+    """Orchestrates AMIA exactly like the notebook's run_single_experiment:
+    federated fine-tune -> train probe -> run attack trials."""
+    from ..config import experiment_key
+
+    model = tokenizer = clients = probe = None
+    try:
+        model, tokenizer, clients, fed_history, model_path = federated_fine_tune(config, artifact_dir)
+        probe, probe_history, probe_path = train_ami_probe(model, tokenizer, clients, config, artifact_dir)
+        trials = run_attack_trials(model, tokenizer, probe, clients, config)
+        _AMIA_RUN_CONTEXT[experiment_key(config, SPEC)] = {
+            "fed_history": fed_history,
+            "probe_history": probe_history,
+            "model_path": model_path,
+            "probe_path": probe_path,
+        }
+        return trials
+    finally:
+        clear_experiment_objects(model, tokenizer, clients, probe)
+
+
+def build_payload_adapter(config, trials, artifact_dir):
+    from ..config import experiment_key
+
+    ctx = _AMIA_RUN_CONTEXT.pop(experiment_key(config, SPEC))
+    return build_result_payload(
+        config, ctx["fed_history"], ctx["probe_history"], trials, ctx["model_path"], ctx["probe_path"]
+    )
+
+
 SPEC = AttackSpec(
     name="amia",
     config_cls=AmiaConfig,
     methodology=METHODOLOGY,
     key_fn=key_sha24_default_str,
     supports_toy=False,
-    custom_trials=run_attack_trials,
-    build_payload=build_result_payload,
+    custom_trials=custom_trials_adapter,
+    build_payload=build_payload_adapter,
 )
