@@ -58,7 +58,7 @@ correctness property of this package is secondary to that one.
 ```bash
 conda env create -f environment.yml
 conda activate peter_experiments_fl
-pip install nicegui pyyaml matplotlib firebase-admin python-dotenv
+pip install fastapi uvicorn pyyaml matplotlib firebase-admin python-dotenv
 ```
 
 `torch`, `transformers`, and `flwr` (already in `environment.yml`) are only
@@ -207,29 +207,195 @@ See `master_script/configs/smoke.yaml` (9 toy runs, no credentials) and
 `master_script/configs/example_sweep.yaml` (a real sweep) for worked
 examples.
 
-## Web UI
+## Web UI — CANARY Monitor
 
 ```bash
 python -m master_script.webui.app
 ```
 
-Starts a NiceGUI server on `http://0.0.0.0:8080` with three pages:
+Starts a FastAPI server on `http://0.0.0.0:8080` serving one single-page
+dashboard (`master_script/webui/static/`) over a JSON API. The client routes
+between five views in the browser; each URL below is also directly linkable.
 
-- **`/`** — the monitor: live-updating view of in-flight and recent runs
-  (via `master_script/webui/monitor.py`), plus the launch panel
-  (`master_script/webui/launch.py`) to kick off new runs from the browser.
-- **`/results`** and **`/results/{run_id}`** — the results browser
-  (`master_script/webui/results.py`): a table of completed runs and a
-  per-run detail view.
-- **`/tunnel`** — the tunnel page (`master_script/webui/tunnel.py`), for
-  exposing the dashboard through a public URL (e.g. when the server runs on
-  a remote GPU VM without a public IP).
+- **`/`** — Live monitoring (`webui/monitor.py`): the running set as cards,
+  a 6-minute timeline, or GPU gauges; per-attack sweep progress; the
+  recently-finished feed; GPU utilisation and a tail of the session log.
+- **`/results`** — Results (`webui/results.py`): filter by attack, status,
+  model, mechanism and `run_id`; Adv-vs-factor scatter and mean-Adv-by-attack
+  charts; a sortable grid of every run.
+- **`/results/{run_id}`** — Run detail: headline metrics, the methodology the
+  document recorded, full config, per-round federated loss, attack-score
+  distribution, ROC computed from `attack_trials[]`, and artifact paths.
+- **`/access`** — Remote access (`webui/tunnel.py`): start/stop an outbound
+  ngrok or cloudflared tunnel. Never auto-started; while it is up the page
+  says so in as many words. Provider, credentials and port persist to the
+  `.env`, so the form comes back filled in after a restart.
+- **`/launch`** — Launch a sweep (`webui/launch.py`): tune an attack field by
+  field, or run a saved config, through `core.runner.run_sweep` — the same
+  entry point the CLI uses.
+- **`/settings`** — Edit the `.env` the program loads (`webui/envfile.py`).
+  **Local-only**: served to loopback callers, and to nothing else.
+
+Chart.js is vendored into `webui/static/`, so every chart renders without a
+CDN. The only outbound request the page makes is the IBM Plex webfont, which
+degrades to the system font stack when it can't be fetched.
+
+### Two ways to launch
+
+`/launch` has two modes.
+
+**Manual** is for fine-tuning. Add one or more attacks and edit their fields
+directly — the form is generated from each attack's own config dataclass, so
+it offers exactly the fields the runner accepts, grouped into model & data,
+federation, the attack's own knobs, and an *Advanced* section for plumbing.
+`attack_name` and `paper_source` are shown but fixed: they are part of the
+experiment key, so changing one would not vary the experiment, it would rename
+it into a document nobody will look for. For `amia` and `loss`, `use_hf_models`
+is likewise fixed on — neither has a toy path.
+
+The `⋯` beside a field turns it into a comma-separated sweep, expanding into a
+grid exactly as `sweep:` does in YAML. Nothing has to be saved first: *Start
+sweep* runs the form as it stands. *Save as config* is there for when a setup
+is worth keeping, and writes the equivalent `.yaml` into
+`master_script/configs/`.
+
+**Existing config** is the config editor below: pick a saved file, edit it,
+and run it.
+
+Both modes reach `core.yaml_config.load_config_doc` and then
+`core.runner.run_sweep`. A manual sweep and the config it would save as expand
+to the same runs — `tests/test_webui_manual.py` asserts that equality directly,
+because if it ever broke, a saved config would no longer reproduce the run it
+was saved from.
+
+### The config editor
+
+`/launch` edits `master_script/configs/*.yaml` in the browser: pick an
+existing file or start a new one from a template, edit it, and save it under
+any name. Two rules make this safe to use on a real sweep:
+
+- **Validate before you spend GPU hours.** *Validate* runs the text through
+  `core.yaml_config.load_config_doc` — the CLI's own loader — and reports the
+  real expanded grid (`Valid · expands to 18 run(s)`, broken down per attack),
+  or the exact error, typo'd field names included.
+- **An invalid config never reaches disk.** Save validates first and refuses
+  otherwise, so a file in `configs/` is always one the runner accepts. Saving
+  over an existing file takes a second, explicit click. Names are plain
+  basenames inside `configs/` — a path that would escape it is rejected.
+
+A sweep always runs the file *on disk*, so the page tells you when the editor
+has unsaved changes.
+
+### Settings and the `.env`
+
+`/settings` edits the `.env` the program loads (the nearest one at or above
+`master_script/`) and reloads it into the running process — `os.environ` is
+updated in place and the cached Firestore client is torn down so the next call
+re-authenticates. Without that teardown, new credentials would sit in the
+environment while `firebase_admin` kept using the app it cached at first use.
+The previous file is always copied to `.env.bak`, and comments, ordering and
+keys you didn't touch are preserved.
+
+**This page is local-only.** It reads and writes your Firebase service-account
+credentials, so unlike the rest of the dashboard it does not follow the tunnel
+out: `webui/localguard.py` answers `403` to anything that did not originate on
+the machine running the server, and the client hides the nav tab accordingly.
+"Local" means the socket address is loopback *and* the request carries no
+proxy-forwarding header — the tunnel agent connects over loopback itself, so
+the header is what separates a real local caller from a proxied one. To edit
+settings from your laptop, forward the port over SSH
+(`ssh -L 8080:localhost:8080 <host>`), which terminates on loopback and is
+already an authenticated channel.
+
+Secret values are still masked by default and revealing one is a separate,
+explicit click. The page warns you if the tunnel is live while you are on it.
+
+### Tunnel credentials
+
+`/access` saves its provider, API token, tunnel code and port to the same
+`.env`, under `TUNNEL_PROVIDER` / `TUNNEL_API_KEY` / `TUNNEL_CODE` /
+`TUNNEL_PORT`, whenever you start a tunnel or press *Save to .env*. Two
+consequences worth knowing:
+
+- They are stored in the clear, like every other credential in that file, and
+  are visible and revocable from `/settings` alongside the rest.
+- They are never sent back to the browser. A saved field shows only its shape
+  and posts `null` when untouched, meaning "keep what is on disk"; clearing a
+  field and saving is how you remove a stored value.
+
+### What the dashboard refuses to guess
+
+Firestore alone cannot say what is *currently* running. When the central
+script publishes no run-state report, the Live view says the running set is
+unavailable instead of inferring one, and sweep bars show
+`(no manifest → no denominator)` rather than a made-up total. Launching from
+`/launch` publishes both the manifest and the run-state report, which is what
+gives the sweep bars real denominators. Likewise, a run whose document
+carries no per-round loss or no `attack_trials[]` gets an explicit "not
+recorded" panel, not an empty chart.
+
+### Run-state, heartbeats, and ghosts
+
+The run-state report lives in `core/runstate.py` and is published by **both**
+the CLI and the dashboard, so a sweep started from the terminal shows up live
+in `/` exactly like one started from `/launch`. It is off under
+`--no-firestore` (nowhere to publish).
+
+It is written **per run**: `run_sweep`'s `on_run_start` / `on_run_end` hooks
+bracket each run, so the running set is the run actually in flight, and
+`on_run_end` fires from a `finally` — a run that raises still clears itself.
+`_run` clears the whole report in its own `finally`, so an aborted sweep
+doesn't leave the last run claimed.
+
+Under `--max-parallel 2` the **parent** owns the report for the whole sweep and
+the GPU-pinned children are suppressed (`MASTER_SCRIPT_SUPPRESS_RUN_STATE`).
+The report is a single array, so two processes publishing would clobber each
+other; the parent holds both in-flight runs and republishes the set on any
+change.
+
+A *hard* kill (SIGKILL, OMP abort, VM reboot) never reaches that `finally`, so
+the writer also **heartbeats**: `RunStateReporter` re-stamps `heartbeat_unix`
+every `HEARTBEAT_SECONDS` (30s) while a run is live, carrying `started_unix`
+forward so the elapsed clock keeps counting from the real start. The reader
+treats an entry whose heartbeat stopped for more than
+`monitor.STALE_AFTER_SECONDS` (150s, five missed beats) as **stale**: the card
+is marked, its stage bars stop animating, and it is excluded from the header
+count and the sweep bars. Staleness is measured from the *heartbeat*, never
+from the start time — runs legitimately take hours.
+
+That combination is what makes the Live view honest after a crash: the clean
+path clears itself, and the dirty path ages out.
+
+### Re-running a failed run
+
+Results are written with `merge=True`, and a successful payload has no `error`
+key — so a run that failed and was later re-run would keep the earlier
+attempt's error string forever and read as failed. `save_result` now deletes
+the field on a successful write, restoring exactly the shape a never-failed
+run has.
+
+Documents written before that fix still carry the stale error. The dashboard
+reads `error` as this run's outcome only when `status != "complete"`; on a
+completed run it is shown separately, as history, under an explicit "an earlier
+attempt failed and was later recovered" note — never as a failure.
+
+### Job resumption
+
+There is none in the checkpoint sense, by design (§1.2) — you resume by
+**re-running the same sweep**. `run_id` is a hash of the config, and
+`run_single_experiment` skips any run whose document is already
+`status: "complete"`. So finished runs are cache hits and everything else
+recomputes from scratch; the granularity is one whole run, since a run writes
+its document once, at the end. A run killed at trial 63 of 64 loses all 64.
+
+Note that a sweep launched from `/launch` runs on a daemon thread **inside the
+dashboard process** — killing the dashboard kills the sweep. A sweep launched
+from the CLI is an independent process and is unaffected by the dashboard.
 
 If Firestore credentials are unavailable, `main()` catches the listener
 failure and the dashboard still starts — it prints
-`Firestore listener unavailable (...); dashboard runs empty.` and the
-monitor/results pages report the running/results set as unavailable rather
-than guessing or crashing.
+`Firestore listener unavailable (...); falling back to polling reads.` and
+the views report empty sets rather than guessing or crashing.
 
 ## Where things land
 
