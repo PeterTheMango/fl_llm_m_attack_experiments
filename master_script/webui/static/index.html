@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CANARY Monitor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="/static/chart.umd.min.js"></script>
+<style>
+  body{margin:0;background:#0d1014;}
+  *{box-sizing:border-box;}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+  @keyframes pulse{0%{opacity:.45}50%{opacity:1}100%{opacity:.45}}
+  @keyframes flow{0%{background-position:0 0}100%{background-position:36px 0}}
+  ::-webkit-scrollbar{width:9px;height:9px}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{background:var(--bd,#252c36);border-radius:6px}
+  input,select,button{font-family:inherit}
+  input::placeholder{color:#5f6b78;opacity:1}
+  input:-webkit-autofill{-webkit-box-shadow:0 0 0 100px #0d1014 inset !important;-webkit-text-fill-color:#e6ebf0 !important}
+  [data-hover]:hover{filter:brightness(1.12)}
+  .row-hover:hover{background:var(--hv,#1f2630)}
+  .card-hover:hover{border-color:var(--ac,#36c08f)}
+  .field:focus{border-color:var(--ac,#36c08f);box-shadow:0 0 0 3px color-mix(in srgb,var(--ac,#36c08f) 20%,transparent),inset 0 1px 3px rgba(0,0,0,.3)}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>
