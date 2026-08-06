@@ -38,9 +38,14 @@ _GROUPS = {
 }
 _FALLBACK_GROUP = "Attack"
 
-# These two are part of the hashed config, so an edit does not vary the
-# experiment -- it renames it into a document nobody will look for.
-_READONLY = {"attack_name", "paper_source"}
+# Read-only fields carry the reason they are read-only: it is what the form
+# shows beside the value, and what the error names if a caller sends one
+# changed anyway. These two are part of the hashed config, so an edit does not
+# vary the experiment -- it renames it into a document nobody will look for.
+_READONLY = {
+    "attack_name": "part of the experiment key",
+    "paper_source": "part of the experiment key",
+}
 
 
 def _type_name(annotation: Any) -> str:
@@ -65,6 +70,7 @@ def fields_for(name: str) -> List[dict]:
             "default": default,
             "group": _GROUPS.get(field.name, _FALLBACK_GROUP),
             "readonly": field.name in _READONLY,
+            "reason": _READONLY.get(field.name, ""),
         })
 
     # amia/loss carry no use_hf_models field at all. Omitting it from the form
@@ -72,7 +78,7 @@ def fields_for(name: str) -> List[dict]:
     if not spec.supports_toy and not any(f["name"] == "use_hf_models" for f in out):
         out.append({
             "name": "use_hf_models", "type": "bool", "default": True,
-            "group": "Model & data", "readonly": True,
+            "group": "Model & data", "readonly": True, "reason": "no toy path",
         })
     return out
 

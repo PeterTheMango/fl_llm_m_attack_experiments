@@ -60,3 +60,147 @@ def test_schema_covers_every_registered_attack():
     assert set(payload["attacks"]) == set(ATTACKS)
     assert payload["attacks"]["amia"]["supports_toy"] is False
     assert payload["group_order"] == attackfields.GROUP_ORDER
+
+
+# ---------- payload -> config doc ----------
+
+from master_script.webui import manual
+
+
+def _payload(*attacks):
+    return {"attacks": list(attacks)}
+
+
+def _attack(name, values=None, sweeps=None):
+    return {"name": name, "values": values or {}, "sweeps": sweeps or []}
+
+
+def test_only_changed_fields_are_emitted():
+    """A manual config should be as small as the YAML you'd write by hand."""
+    doc = manual.build_doc(_payload(_attack("zlib", {"seed": "7", "federated_rounds": "3"})))
+    assert doc == {"attacks": {"zlib": {"base": {"federated_rounds": 3}}}}
+
+
+def test_an_attack_with_no_changes_emits_an_empty_section():
+    doc = manual.build_doc(_payload(_attack("zlib")))
+    assert doc == {"attacks": {"zlib": {}}}
+
+
+def test_values_are_coerced_to_the_dataclass_type():
+    doc = manual.build_doc(_payload(_attack("zlib", {
+        "federated_rounds": "3", "client_lr": "1e-4",
+        "use_hf_models": "true", "model_id": "distilbert/distilgpt2",
+    })))
+    base = doc["attacks"]["zlib"]["base"]
+    assert base == {"federated_rounds": 3, "client_lr": 1e-4,
+                    "use_hf_models": True, "model_id": "distilbert/distilgpt2"}
+
+
+def test_a_sweep_field_becomes_a_typed_list():
+    doc = manual.build_doc(_payload(_attack("zlib", {"seed": "7, 11, 23"}, ["seed"])))
+    assert doc == {"attacks": {"zlib": {"sweep": {"seed": [7, 11, 23]}}}}
+
+
+def test_a_sweep_holding_the_default_is_still_emitted():
+    """A one-value sweep is a deliberate choice, not an unchanged field."""
+    doc = manual.build_doc(_payload(_attack("zlib", {"seed": "7"}, ["seed"])))
+    assert doc == {"attacks": {"zlib": {"sweep": {"seed": [7]}}}}
+
+
+def test_a_read_only_field_echoed_unchanged_is_ignored():
+    """The form may send back what it displayed; that is not a change."""
+    doc = manual.build_doc(_payload(_attack("zlib", {"attack_name": "zlib"})))
+    assert doc == {"attacks": {"zlib": {}}}
+
+
+def test_changing_a_read_only_field_is_refused_not_silently_dropped():
+    """Dropping it would run something other than what was asked for -- here,
+    under an experiment key nobody will look for."""
+    result = manual.validate(_payload(_attack("zlib", {"attack_name": "not_zlib"})))
+    assert result["ok"] is False
+    assert "attack_name" in result["message"] and "experiment key" in result["message"]
+
+
+def test_a_non_numeric_value_is_reported_not_raised_as_a_crash():
+    result = manual.validate(_payload(_attack("zlib", {"federated_rounds": "three"})))
+    assert result["ok"] is False
+    assert "federated_rounds" in result["message"] and "three" in result["message"]
+
+
+def test_a_non_boolean_value_is_reported():
+    result = manual.validate(_payload(_attack("zlib", {"keep_artifacts": "maybe"})))
+    assert result["ok"] is False and "keep_artifacts" in result["message"]
+
+
+def test_an_empty_sweep_is_refused():
+    result = manual.validate(_payload(_attack("zlib", {"seed": " , "}, ["seed"])))
+    assert result["ok"] is False and "no values" in result["message"]
+
+
+def test_no_attacks_is_refused():
+    result = manual.validate(_payload())
+    assert result["ok"] is False and "at least one attack" in result["message"]
+
+
+def test_a_duplicate_attack_is_refused():
+    result = manual.validate(_payload(_attack("zlib"), _attack("zlib", {"seed": "11"})))
+    assert result["ok"] is False and "more than once" in result["message"]
+
+
+def test_an_unknown_attack_gets_the_loaders_own_message():
+    result = manual.validate(_payload(_attack("not_an_attack")))
+    assert result["ok"] is False and "unknown attack" in result["message"]
+
+
+def test_an_unknown_field_gets_the_loaders_own_message():
+    """The loader lists the valid fields; the manual path must not swallow that."""
+    result = manual.validate(_payload(_attack("zlib", {"federated_roundz": "3"})))
+    assert result["ok"] is False
+    assert "federated_roundz" in result["message"] and "Valid fields" in result["message"]
+
+
+def test_an_attack_without_a_toy_path_refuses_use_hf_models_false():
+    result = manual.validate(_payload(_attack("amia", {"use_hf_models": "false"})))
+    assert result["ok"] is False and "no toy path" in result["message"]
+
+
+def test_validate_reports_the_real_expanded_run_count():
+    result = manual.validate(_payload(
+        _attack("samia", {"seed": "7, 11"}, ["seed"]),
+        _attack("zlib", {"federated_rounds": "2"}),
+    ))
+    assert result["ok"] is True
+    assert result["runs"] == 3
+    assert result["per_attack"] == {"samia": 2, "zlib": 1}
+
+
+def test_validate_returns_the_yaml_that_save_would_write():
+    result = manual.validate(_payload(_attack("zlib", {"seed": "7, 11"}, ["seed"])))
+    assert "zlib" in result["yaml"] and "sweep" in result["yaml"]
+
+
+def test_a_manual_run_equals_running_the_yaml_it_would_save(tmp_path):
+    """The property that makes "run without saving" honest: if these ever
+    diverge, a saved config no longer reproduces the run it was saved from."""
+    from master_script.core.yaml_config import load_config_file
+
+    payload = _payload(
+        _attack("samia", {"seed": "7, 11", "federated_rounds": "2"}, ["seed"]),
+        _attack("zlib", {"client_lr": "1e-4"}),
+    )
+    direct = manual.pairs(payload)
+
+    path = tmp_path / "saved.yaml"
+    path.write_text(manual.to_yaml(manual.build_doc(payload)))
+    from_file = load_config_file(path)
+
+    assert [c for c, _s in direct] == [c for c, _s in from_file]
+    assert [s.name for _c, s in direct] == [s.name for _c, s in from_file]
+
+
+def test_the_generated_yaml_passes_the_config_editors_own_validation():
+    """Save As goes through POST /api/configs/save, which validates the text."""
+    from master_script.webui import configs
+
+    text = manual.to_yaml(manual.build_doc(_payload(_attack("zlib", {"seed": "7, 11"}, ["seed"]))))
+    assert configs.validate(text)["ok"] is True
