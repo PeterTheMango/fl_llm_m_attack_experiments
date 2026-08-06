@@ -7,27 +7,11 @@ import threading
 import time
 from typing import List, Optional
 
-from nicegui import ui
-
-from ..core.config import experiment_key
-from ..core.firestore import publish_monitor_state
 from ..core.registry import ATTACKS
 from ..core.runner import run_sweep
+from ..core.runstate import RunStateReporter, publish_manifest
 from ..core.yaml_config import ConfigError, load_config_file
 from ..paths import CONFIGS_DIR
-
-
-def publish_running(run_id: str, attack: str, config: dict) -> bool:
-    """Publish the optional run-state report (§1.1). Coarse and transient."""
-    return publish_monitor_state({
-        "running": [{
-            "run_id": run_id,
-            "attack": attack,
-            "started_unix": int(time.time()),
-            "config": {k: config.get(k) for k in ("model_id", "federated_rounds", "seed", "num_clients")},
-        }]
-    })
-
 
 class SweepWorker:
     """Runs one sweep on a background thread. At most one at a time."""
@@ -36,6 +20,8 @@ class SweepWorker:
         self._thread: Optional[threading.Thread] = None
         self.results: List[dict] = []
         self.error: str = ""
+        self.planned: int = 0
+        self.started_unix: Optional[int] = None
 
     @property
     def is_running(self) -> bool:
@@ -46,6 +32,9 @@ class SweepWorker:
             return False
         self.error = ""
         self.results = []
+        pairs = list(pairs)
+        self.planned = len(pairs)
+        self.started_unix = int(time.time())
 
         def _work():
             try:
@@ -61,36 +50,83 @@ class SweepWorker:
         """In-progress runs are never resumed (§1.2); this just drops the handle."""
         self._thread = None
 
+    @property
+    def status(self) -> dict:
+        return {
+            "running": self.is_running,
+            "planned": self.planned,
+            "finished": len(self.results),
+            "error": self.error,
+            "started_unix": self.started_unix,
+        }
+
 
 WORKER = SweepWorker()
+REPORTER = RunStateReporter()
 
 
-def render(state) -> None:
-    """Launch panel: pick a config, pick attacks, start."""
-    with ui.card().classes("w-full"):
-        ui.label("Launch a sweep").classes("text-lg font-bold")
-        config_files = sorted(p.name for p in CONFIGS_DIR.glob("*.yaml"))
-        config_select = ui.select(config_files, value=config_files[0] if config_files else None,
-                                  label="Config file")
-        attack_select = ui.select(sorted(ATTACKS), multiple=True, label="Attacks (default: all in config)")
-        firestore_switch = ui.switch("Persist to Firestore", value=True)
-        status = ui.label("")
+def available_configs() -> List[str]:
+    return sorted(p.name for p in CONFIGS_DIR.glob("*.yaml"))
 
-        def _start():
-            try:
-                pairs = load_config_file(
-                    CONFIGS_DIR / config_select.value, only=attack_select.value or None
-                )
-            except ConfigError as exc:
-                status.set_text(f"Config error: {exc}")
-                return
-            if not WORKER.start(pairs, use_firestore=firestore_switch.value):
-                status.set_text("A sweep is already running.")
-                return
-            for cfg, spec in pairs[:1]:
-                from dataclasses import asdict
 
-                publish_running(experiment_key(cfg, spec), spec.name, asdict(cfg))
-            status.set_text(f"Started {len(pairs)} run(s).")
+def launch_payload() -> dict:
+    from . import configs
 
-        ui.button("Start sweep", on_click=_start)
+    return {
+        "configs": available_configs(),
+        "attacks": sorted(ATTACKS),
+        "worker": WORKER.status,
+        "template": configs.TEMPLATE,
+    }
+
+
+def _start(pairs, use_firestore: bool, empty_message: str) -> dict:
+    """Publish the plan and hand the pairs to the worker. Never raises."""
+    if not pairs:
+        # Starting nothing must not read as success.
+        return {"ok": False, "message": empty_message}
+
+    # Checked before publish_manifest: a manifest for a sweep that never starts
+    # would give the monitor a denominator for runs that will never arrive.
+    if WORKER.is_running:
+        return {"ok": False, "message": "A sweep is already running."}
+
+    # The plan goes out before the first run, so the sweep bars have a
+    # denominator from the moment the first run appears.
+    if use_firestore:
+        publish_manifest(pairs)
+
+    # Per-run reporting: every run announces itself and clears on the way out,
+    # so the running set is the run actually in flight rather than run 1 forever.
+    hooks = REPORTER.hooks if use_firestore else {}
+
+    if not WORKER.start(pairs, use_firestore=use_firestore, **hooks):
+        return {"ok": False, "message": "A sweep is already running."}
+
+    return {"ok": True, "message": f"Started {len(pairs)} run(s).", "planned": len(pairs)}
+
+
+def start_sweep(config_file: str, attacks: Optional[List[str]] = None,
+                use_firestore: bool = True) -> dict:
+    """Load a config file, publish the plan, and start the sweep."""
+    try:
+        pairs = load_config_file(CONFIGS_DIR / config_file, only=attacks or None)
+    except ConfigError as exc:
+        return {"ok": False, "message": f"Config error: {exc}"}
+
+    # Selecting an attack the config doesn't define must not read as success.
+    return _start(pairs, use_firestore, (
+        f"No runs to start: {config_file} defines none of the selected attack(s)."
+    ))
+
+
+def start_manual(payload: dict, use_firestore: bool = True) -> dict:
+    """Start a sweep from the manual form, with no file in between."""
+    from . import manual
+
+    try:
+        pairs = manual.pairs(payload)
+    except (manual.ManualError, ConfigError) as exc:
+        return {"ok": False, "message": f"Config error: {exc}"}
+
+    return _start(pairs, use_firestore, "No runs to start: the manual configuration is empty.")
