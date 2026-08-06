@@ -204,3 +204,63 @@ def test_the_generated_yaml_passes_the_config_editors_own_validation():
 
     text = manual.to_yaml(manual.build_doc(_payload(_attack("zlib", {"seed": "7, 11"}, ["seed"]))))
     assert configs.validate(text)["ok"] is True
+
+
+# ---------- API wiring ----------
+
+from fastapi.testclient import TestClient
+
+
+def _client():
+    from master_script.webui import app as app_module
+
+    return TestClient(app_module.app)
+
+
+def test_the_field_schema_is_served():
+    res = _client().get("/api/attacks/fields")
+    assert res.status_code == 200
+    body = res.json()
+    assert set(body["attacks"]) == set(ATTACKS)
+    assert any(f["name"] == "seed" for f in body["attacks"]["zlib"]["fields"])
+
+
+def test_manual_validate_reports_the_run_count():
+    res = _client().post("/api/launch/manual/validate", json={"attacks": [
+        {"name": "zlib", "values": {"seed": "7, 11"}, "sweeps": ["seed"]},
+    ]})
+    assert res.status_code == 200
+    assert res.json()["runs"] == 2
+
+
+def test_manual_validate_reports_a_bad_payload_as_json_not_a_500():
+    res = _client().post("/api/launch/manual/validate", json={"attacks": [
+        {"name": "zlib", "values": {"federated_rounds": "three"}, "sweeps": []},
+    ]})
+    assert res.status_code == 200
+    assert res.json()["ok"] is False
+
+
+def test_manual_validate_writes_nothing():
+    """Validation must never leave a config behind."""
+    from master_script.webui import configs
+
+    before = sorted(p.name for p in configs.CONFIGS_DIR.glob("*.yaml"))
+    _client().post("/api/launch/manual/validate", json={"attacks": [{"name": "zlib"}]})
+    assert sorted(p.name for p in configs.CONFIGS_DIR.glob("*.yaml")) == before
+
+
+def test_manual_start_delegates_to_launch(monkeypatch):
+    from master_script.webui import api as api_mod
+
+    seen = {}
+    monkeypatch.setattr(api_mod.launch, "start_manual",
+                        lambda payload, use_firestore: seen.update(call=(payload, use_firestore))
+                        or {"ok": True, "message": "Started 1 run(s)."})
+    res = _client().post("/api/launch/manual", json={
+        "attacks": [{"name": "zlib"}], "use_firestore": False,
+    })
+    assert res.status_code == 200 and res.json()["ok"] is True
+    payload, use_firestore = seen["call"]
+    assert use_firestore is False
+    assert payload["attacks"][0]["name"] == "zlib"
