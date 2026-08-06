@@ -82,3 +82,20 @@ def test_shipped_smoke_config_loads(tmp_path):
 
     pairs = load_config_file(CONFIGS_DIR / "smoke.yaml")
     assert pairs
+
+
+def test_load_config_doc_expands_an_already_parsed_dict():
+    """Manual mode has no file; it must reach the same expansion."""
+    from master_script.core.yaml_config import load_config_doc
+
+    pairs = load_config_doc({"attacks": {"zlib": {"sweep": {"seed": [7, 11]}}}})
+    assert [cfg.seed for cfg, _spec in pairs] == [7, 11]
+
+
+def test_load_config_doc_names_its_source_in_errors():
+    """The caller decides what a config is called; there may be no path."""
+    from master_script.core.yaml_config import ConfigError, load_config_doc
+
+    with pytest.raises(ConfigError) as exc:
+        load_config_doc({"attacks": {"nonexistent": {}}}, source="<manual>")
+    assert "<manual>" in str(exc.value)

@@ -1,6 +1,7 @@
 # master_script/core/yaml_config.py
 """YAML -> (config, spec) pairs, with fail-fast validation.
 
+load_config_doc is the real loader; load_config_file only reads and parses.
 Unknown keys inside an attack's base/sweep are errors: catching a typo here
 saves a multi-hour run that would otherwise produce a differently-hashed,
 silently-wrong experiment.
@@ -27,16 +28,27 @@ def load_config_file(path, only: Optional[Sequence[str]] = None) -> List[Tuple[o
     path = Path(path)
     if not path.exists():
         raise ConfigError(f"Config file not found: {path}")
-    doc = yaml.safe_load(path.read_text()) or {}
+    return load_config_doc(yaml.safe_load(path.read_text()) or {}, only, source=str(path))
+
+
+def load_config_doc(doc: dict, only: Optional[Sequence[str]] = None,
+                    source: str = "<config>") -> List[Tuple[object, object]]:
+    """Expand an already-parsed config document.
+
+    Split out from load_config_file so the dashboard's manual mode -- which
+    builds the same dict from a form and has no file to point at -- reaches
+    this validation and expansion rather than reimplementing it. `source` is
+    whatever the caller wants errors to name.
+    """
     defaults = doc.get("defaults") or {}
     attacks = doc.get("attacks") or {}
     if not attacks:
-        raise ConfigError(f"{path}: no 'attacks:' section")
+        raise ConfigError(f"{source}: no 'attacks:' section")
 
     unknown = sorted(set(attacks) - set(ATTACKS))
     if unknown:
         raise ConfigError(
-            f"{path}: unknown attack(s): {', '.join(unknown)}. Known: {', '.join(sorted(ATTACKS))}"
+            f"{source}: unknown attack(s): {', '.join(unknown)}. Known: {', '.join(sorted(ATTACKS))}"
         )
 
     selected = list(attacks) if only is None else [a for a in attacks if a in set(only)]
@@ -65,7 +77,7 @@ def load_config_file(path, only: Optional[Sequence[str]] = None) -> List[Tuple[o
         bad = sorted((set(base_over) | set(sweep)) - allowed)
         if bad:
             raise ConfigError(
-                f"{path}: attack '{name}' has unknown field(s): {', '.join(bad)}. "
+                f"{source}: attack '{name}' has unknown field(s): {', '.join(bad)}. "
                 f"Valid fields: {', '.join(sorted(allowed))}"
             )
 
