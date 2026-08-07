@@ -49,6 +49,32 @@ def get_firestore_client(project_id: Optional[str] = None):
     return firestore.client()
 
 
+def reset_client() -> bool:
+    """Drop the cached firebase_admin app so the next call re-authenticates.
+
+    get_firestore_client() initializes at most once per process. Editing
+    credentials at runtime (the settings page) therefore has no effect until
+    that app is deleted -- without this, new credentials sit in os.environ
+    while the client keeps using the ones it started with.
+
+    Returns True if an app was actually deleted.
+    """
+    try:
+        import firebase_admin
+    except ImportError:
+        return False
+
+    deleted = False
+    for app in list(firebase_admin._apps.values()):
+        try:
+            firebase_admin.delete_app(app)
+            deleted = True
+        except Exception:
+            # Already torn down, or in use by a listener that outlived it.
+            pass
+    return deleted
+
+
 def load_cached_result(config: Any, spec: Optional[Any] = None) -> Optional[Dict]:
     """Load a cached result from Firestore if it exists and is complete.
 
@@ -107,12 +133,41 @@ def save_result(config: Any, result: Dict, spec: Optional[Any] = None) -> bool:
         # Missing-credentials case ONLY: fine to skip writing locally.
         return False
 
+    payload = _clear_stale_error(result, _delete_field_sentinel())
+
     # A real write/serialization error (e.g. nested-array rejection) propagates
     # so it fails fast rather than masquerading as "not saved". Do not widen.
     db.collection(config.firestore_collection).document(
         experiment_key(config, spec)
-    ).set(result, merge=True)
+    ).set(payload, merge=True)
     return True
+
+
+def _delete_field_sentinel():
+    """firestore.DELETE_FIELD, or None where firebase-admin isn't importable.
+
+    Kept function-local like every other firebase_admin use here: importing
+    this module must never require the package (see module docstring).
+    """
+    try:
+        from firebase_admin import firestore
+
+        return firestore.DELETE_FIELD
+    except Exception:
+        return None
+
+
+def _clear_stale_error(result: Dict, delete_sentinel: Any) -> Dict:
+    """Drop a previous attempt's `error` when this attempt succeeded.
+
+    Writes are merges, and the success payload has no `error` key -- so without
+    this, a run that failed and was later re-run keeps the old error string
+    forever and reads as failed. Deleting the field (rather than writing
+    `error: None`) restores exactly the shape a never-failed run has.
+    """
+    if delete_sentinel is None or result.get("status") != "complete" or "error" in result:
+        return result
+    return {**result, "error": delete_sentinel}
 
 
 def mark_result_failed(config: Any, error: str, spec: Optional[Any] = None) -> bool:

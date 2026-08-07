@@ -1,19 +1,29 @@
 # master_script/webui/results.py
-"""Results page: filterable grid, aggregates, comparison plots, run detail.
+"""Results + detail payloads: filterable grid, aggregates, per-run breakdown.
 
-Thin by design (spec §3): all data logic lives in DashboardState / core.charts.
-This module only reads state and renders it.
+Thin by design (spec §3): all data logic lives in DashboardState. This module
+only projects state into the JSON the Results and Detail views render.
 """
-import time
+from statistics import mean
+from typing import Any, Dict, List, Optional
 
-from nicegui import ui
-
-from ..core import charts
+from . import catalog
 from .state import attack_name
 
 _TOLERANCE = 0.02
 
-_CONFIG_FACTOR_KEYS = ("model_id", "federated_rounds", "num_clients", "local_epochs", "client_lr", "seed")
+# Config keys the grid shows as columns, in the order the detail view lists them.
+CONFIG_ORDER = (
+    "model_id", "dataset_name", "num_clients", "clients_per_round",
+    "federated_rounds", "local_epochs", "local_batch_size", "client_lr",
+    "ldp_mechanism", "epsilon", "seed", "attack_trials", "target_client_id",
+    "max_length", "use_hf_models", "threshold",
+)
+
+# X-axis factors the comparison scatter offers.
+X_FACTORS = ("epsilon", "federated_rounds", "num_clients", "local_epochs", "client_lr", "seed")
+
+_LOSS_HINTS = ("loss", "nll", "perplexity")
 
 
 def privacy_direction(baseline_adv: float, current_adv: float) -> str:
@@ -26,188 +36,158 @@ def privacy_direction(baseline_adv: float, current_adv: float) -> str:
     return f"Privacy declined — attack advantage rose (ΔAdv = {delta:+.3f})"
 
 
-def _format_updated_at(value) -> str:
-    return time.strftime("%Y-%m-%d %H:%M", time.localtime(value)) if value else "-"
+def _grid_config(cfg: dict) -> dict:
+    return {k: cfg.get(k) for k in CONFIG_ORDER if k in cfg}
 
 
-def _render_grid(state, filters: dict) -> None:
-    rows_data = state.filtered(**filters)
-    columns = [
-        {"name": "attack_name", "label": "Attack", "field": "attack_name", "sortable": True},
-        {"name": "run_id", "label": "Run ID", "field": "run_id", "sortable": True},
-        {"name": "status", "label": "Status", "field": "status", "sortable": True},
-        {"name": "updated_at_unix", "label": "Updated", "field": "updated_at_unix", "sortable": True},
-        {"name": "config", "label": "Config", "field": "config", "sortable": True},
-        {"name": "adv", "label": "Adv", "field": "adv", "sortable": True},
-        {"name": "tpr", "label": "TPR", "field": "tpr", "sortable": True},
-        {"name": "tnr", "label": "TNR", "field": "tnr", "sortable": True},
-        {"name": "num_trials", "label": "# Trials", "field": "num_trials", "sortable": True},
-    ]
-    rows = []
-    for run in rows_data:
-        cfg = run.get("config", {})
-        metrics = run.get("metrics") or {}
-        rows.append({
-            "attack_name": attack_name(run),
-            "run_id": run.get("run_id", "?"),
-            "status": run.get("status", "?"),
-            "updated_at_unix": _format_updated_at(run.get("updated_at_unix")),
-            "config": ", ".join(f"{k}={cfg[k]}" for k in _CONFIG_FACTOR_KEYS if k in cfg),
-            "adv": metrics.get("adv", "-"),
-            "tpr": metrics.get("tpr", "-"),
-            "tnr": metrics.get("tnr", "-"),
-            "num_trials": metrics.get("num_trials", "-"),
-        })
-    ui.table(columns=columns, rows=rows, row_key="run_id").classes("w-full")
+def current_error(run: dict) -> Optional[str]:
+    """The run's error, or None if it succeeded.
+
+    Documents written before save_result cleared the field can carry an `error`
+    from an earlier failed attempt alongside `status: complete`. That is history,
+    not this run's outcome -- see prior_error().
+    """
+    return None if run.get("status") == "complete" else run.get("error")
 
 
-def _render_aggregates(state, filters: dict) -> None:
-    ui.label("Aggregates by attack").classes("text-lg font-bold")
-    aggregates = state.aggregate_by("attack_name")
-    if not aggregates:
-        ui.label("No aggregate data yet.")
-        return
-    columns = [
-        {"name": "attack_name", "label": "Attack", "field": "attack_name"},
-        {"name": "mean_adv", "label": "Mean Adv", "field": "mean_adv"},
-        {"name": "min_adv", "label": "Min Adv", "field": "min_adv"},
-        {"name": "max_adv", "label": "Max Adv", "field": "max_adv"},
-        {"name": "count", "label": "Count", "field": "count"},
-    ]
-    rows = [
-        {
-            "attack_name": key,
-            "mean_adv": f"{vals['mean_adv']:.3f}",
-            "min_adv": f"{vals['min_adv']:.3f}",
-            "max_adv": f"{vals['max_adv']:.3f}",
-            "count": vals["count"],
-        }
-        for key, vals in aggregates.items()
-    ]
-    ui.table(columns=columns, rows=rows, row_key="attack_name").classes("w-full")
+def prior_error(run: dict) -> Optional[str]:
+    """An earlier attempt's error on a run that has since succeeded."""
+    return run.get("error") if run.get("status") == "complete" else None
 
 
-def _render_comparison_plot(state, filters: dict, factor: str) -> None:
-    ui.label(f"Adv vs. {factor}").classes("text-lg font-bold")
-    filtered = state.filtered(**filters)
-    if not filtered:
-        ui.label("No data for the active filter.")
-        return
-    # Reuse core.charts rendering logic (writes a PNG), then display it.
-    try:
-        path = charts.render_adv_by_factor(filtered, factor)
-        ui.image(str(path)).classes("w-full max-w-2xl")
-    except Exception as exc:  # keep page usable even if plotting fails
-        ui.label(f"Plot unavailable: {exc}")
-
-
-def render(state) -> None:
-    """Render the results page (§3.1-3.2): grid, filters, aggregates, comparison plot."""
-    ui.label("Results").classes("text-2xl font-bold")
-
-    filters: dict = {}
-
-    grid_panel = ui.refreshable(_render_grid)
-    aggregates_panel = ui.refreshable(_render_aggregates)
-    plot_panel = ui.refreshable(_render_comparison_plot)
-
-    def _refresh_all() -> None:
-        grid_panel.refresh(state, filters)
-        aggregates_panel.refresh(state, filters)
-        plot_panel.refresh(state, filters, "federated_rounds")
-
-    with ui.row():
-        attack_select = ui.select(
-            options=sorted({attack_name(r) for r in state.runs.values() if attack_name(r) != "?"}),
-            label="Attack", with_input=True, clearable=True,
-        )
-        status_select = ui.select(
-            options=["complete", "failed", "running"], label="Status", clearable=True,
-        )
-
-        def _on_attack_change() -> None:
-            filters["attack"] = attack_select.value or None
-            if filters["attack"] is None:
-                filters.pop("attack", None)
-            _refresh_all()
-
-        def _on_status_change() -> None:
-            filters["status"] = status_select.value or None
-            if filters["status"] is None:
-                filters.pop("status", None)
-            _refresh_all()
-
-        attack_select.on_value_change(lambda _: _on_attack_change())
-        status_select.on_value_change(lambda _: _on_status_change())
-
-    grid_panel(state, filters)
-    aggregates_panel(state, filters)
-    plot_panel(state, filters, "federated_rounds")
-
-
-def render_detail(state, run_id: str) -> None:
-    """Render the per-run detail page (§3.3)."""
-    run = state.runs.get(run_id)
-    ui.label("Run detail").classes("text-2xl font-bold")
-
-    if run is None:
-        ui.label(f"No run found for run_id={run_id!r}.")
-        return
-
-    cfg = run.get("config", {})
+def _row(run: dict) -> dict:
     metrics = run.get("metrics") or {}
+    return {
+        "run_id": run.get("run_id", "?"),
+        "attack": attack_name(run),
+        "status": run.get("status", "?"),
+        "updated_at_unix": run.get("updated_at_unix"),
+        "config": _grid_config(run.get("config") or {}),
+        "metrics": {
+            "adv": metrics.get("adv"),
+            "tpr": metrics.get("tpr"),
+            "tnr": metrics.get("tnr"),
+            "num_trials": metrics.get("num_trials"),
+        } if metrics else None,
+        "error": current_error(run),
+    }
 
-    # Header
-    ui.label(f"{attack_name(run)} — {run_id}").classes("text-xl font-bold")
-    ui.label(f"Status: {run.get('status', '?')}")
-    ui.label(f"Updated: {_format_updated_at(run.get('updated_at_unix'))}")
-    with ui.expansion("Full config"):
-        ui.json_editor({"content": {"json": cfg}}) if hasattr(ui, "json_editor") else ui.label(str(cfg))
 
-    # Methodology block
-    methodology = run.get("methodology") or cfg.get("methodology")
-    if methodology:
-        with ui.expansion("Methodology"):
-            ui.label(str(methodology))
+def results_payload(state) -> dict:
+    """Every run the dashboard knows about; the client filters, sorts and plots."""
+    runs = [_row(r) for r in state.runs.values()]
+    models = sorted({r["config"].get("model_id") for r in runs if r["config"].get("model_id")})
+    mechs = sorted({str(r["config"].get("ldp_mechanism")) for r in runs
+                    if r["config"].get("ldp_mechanism") is not None})
+    return {
+        "runs": runs,
+        "attacks": catalog.catalog(),
+        "aggregates": state.aggregate_by("attack_name"),
+        "models": models,
+        "mechanisms": mechs,
+        "x_factors": list(X_FACTORS),
+    }
 
-    # Headline metrics
-    with ui.row():
-        ui.label(f"Adv: {metrics.get('adv', '-')}")
-        ui.label(f"TPR: {metrics.get('tpr', '-')}")
-        ui.label(f"TNR: {metrics.get('tnr', '-')}")
-        ui.label(f"# Trials: {metrics.get('num_trials', '-')}")
 
-    # federated_history per-round curve
-    history = run.get("federated_history")
-    if history:
-        ui.label("Federated history").classes("text-lg font-bold")
-        rows = [{"round": i, **h} if isinstance(h, dict) else {"round": i, "value": h}
-                for i, h in enumerate(history)]
-        ui.table(rows=rows).classes("w-full")
+def _numeric_loss(entry: Any) -> Optional[float]:
+    """Pull a per-round loss out of one history entry, whatever the attack called it."""
+    if isinstance(entry, (int, float)):
+        return float(entry)
+    if not isinstance(entry, dict):
+        return None
+    for key, value in entry.items():
+        if any(hint in key.lower() for hint in _LOSS_HINTS) and isinstance(value, (int, float)):
+            return float(value)
+    for key, value in entry.items():
+        if any(hint in key.lower() for hint in _LOSS_HINTS) and isinstance(value, list):
+            nums = [v for v in value if isinstance(v, (int, float))]
+            if nums:
+                return float(mean(nums))
+    return None
 
-    # attack_trials table
-    trials = run.get("attack_trials")
-    if trials:
-        ui.label("Attack trials").classes("text-lg font-bold")
-        ui.table(rows=trials).classes("w-full")
 
-        ui.label("Score distribution by true membership").classes("text-lg font-bold")
-        try:
-            path = charts.render_score_distribution(run)
-            ui.image(str(path)).classes("w-full max-w-2xl")
-        except Exception as exc:
-            ui.label(f"Plot unavailable: {exc}")
+def _flatten_rounds(history: Any) -> List[List[Any]]:
+    """Return a list of per-trial round-lists. Attacks disagree on the wrapper shape."""
+    if not isinstance(history, list) or not history:
+        return []
+    if isinstance(history[0], dict) and ("rounds" in history[0] or "history" in history[0]):
+        return [entry.get("rounds") or entry.get("history") or [] for entry in history
+                if isinstance(entry, dict)]
+    return [history]
 
-    # ROC view (best-effort; relies on whatever ROC data the run carries)
-    roc = run.get("roc") or metrics.get("roc")
-    if roc:
-        ui.label("ROC").classes("text-lg font-bold")
-        ui.label(str(roc))
 
-    # Artifact paths
+def normalize_history(history: Any) -> List[dict]:
+    """Per-round mean loss across trials. Empty when no attack recorded a loss."""
+    per_round: Dict[int, List[float]] = {}
+    for rounds in _flatten_rounds(history):
+        if not isinstance(rounds, list):
+            continue
+        for index, entry in enumerate(rounds):
+            value = _numeric_loss(entry)
+            if value is None:
+                continue
+            number = entry.get("round") if isinstance(entry, dict) else None
+            per_round.setdefault(int(number) if isinstance(number, int) else index, []).append(value)
+    return [{"round": r, "mean_loss": mean(v)} for r, v in sorted(per_round.items())]
+
+
+def _trials(run: dict) -> List[dict]:
+    out = []
+    for trial in run.get("attack_trials") or []:
+        if not isinstance(trial, dict) or "score" not in trial:
+            continue
+        out.append({
+            "trial_id": trial.get("trial_id"),
+            "truth_member": bool(trial.get("truth_member")),
+            "score": float(trial["score"]),
+            "pred_member": bool(trial.get("pred_member")),
+        })
+    return out
+
+
+def _artifacts(run: dict) -> List[dict]:
     artifacts = run.get("artifacts")
-    if artifacts:
-        ui.label("Artifacts").classes("text-lg font-bold")
-        ui.label("Paths may point at cleaned-up local paths or gs:// URIs.")
-        for artifact in artifacts if isinstance(artifacts, list) else [artifacts]:
-            ui.label(str(artifact))
+    if isinstance(artifacts, dict):
+        items = list(artifacts.items())
+    elif isinstance(artifacts, list):
+        items = [(f"artifact[{i}]", a) for i, a in enumerate(artifacts)]
+    else:
+        items = []
+    rows = [{"k": k, "v": "—" if v is None else str(v)} for k, v in items]
+    # The Firestore document is the authoritative record; local paths may be gone.
+    rows.append({"k": "firestore_doc", "v": f"ami_federated_llm_results/{run.get('run_id', '?')}",
+                 "authoritative": True})
+    return rows
+
+
+def detail_payload(state, run_id: str) -> Optional[dict]:
+    """One run in full. None when the dashboard has never seen that run_id."""
+    run = state.runs.get(run_id)
+    if run is None:
+        return None
+
+    cfg = run.get("config") or {}
+    name = attack_name(run)
+    methodology = run.get("methodology") or cfg.get("methodology") or {}
+    known = catalog.catalog().get(name)
+    meta = known if known else catalog.entry_for(name, methodology)
+
+    return {
+        "run_id": run.get("run_id", run_id),
+        "attack": name,
+        "meta": meta,
+        "status": run.get("status", "?"),
+        "updated_at_unix": run.get("updated_at_unix"),
+        "metrics": run.get("metrics") or None,
+        # Prefer the methodology the document recorded; fall back to the
+        # registry so an older document still shows the attack's method.
+        "methodology": methodology or meta["methodology"],
+        "config": [{"k": k, "v": cfg[k]} for k in CONFIG_ORDER if k in cfg]
+                  + [{"k": k, "v": v} for k, v in sorted(cfg.items())
+                     if k not in CONFIG_ORDER and k != "methodology"],
+        "federated_history": normalize_history(run.get("federated_history")),
+        "trials": _trials(run),
+        "artifacts": _artifacts(run),
+        "error": current_error(run),
+        "prior_error": prior_error(run),
+    }

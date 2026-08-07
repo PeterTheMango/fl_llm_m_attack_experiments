@@ -111,13 +111,27 @@ def run_single_experiment(config, spec, *, use_firestore: bool = True, keep_arti
     return result
 
 
-def run_sweep(pairs, *, use_firestore: bool = True, keep_artifacts=None, on_run_start=None) -> list:
-    """pairs: iterable of (config, spec). Sequential; --max-parallel is the CLI's job."""
+def run_sweep(pairs, *, use_firestore: bool = True, keep_artifacts=None,
+              on_run_start=None, on_run_end=None) -> list:
+    """pairs: iterable of (config, spec). Sequential; --max-parallel is the CLI's job.
+
+    on_run_start/on_run_end bracket each run so an observer (the dashboard's
+    run-state report) can say which run is in flight *now*. on_run_end fires in
+    a finally: a run that raises must not leave the observer believing it is
+    still running. A hard kill still can -- that is what the reader-side
+    staleness check is for.
+    """
     results = []
     for config, spec in pairs:
+        run_id = experiment_key(config, spec)
         if on_run_start is not None:
-            on_run_start(experiment_key(config, spec), spec.name, config)
-        results.append(
-            run_single_experiment(config, spec, use_firestore=use_firestore, keep_artifacts=keep_artifacts)
-        )
+            on_run_start(run_id, spec.name, config)
+        try:
+            result = run_single_experiment(
+                config, spec, use_firestore=use_firestore, keep_artifacts=keep_artifacts
+            )
+        finally:
+            if on_run_end is not None:
+                on_run_end(run_id, spec.name, config)
+        results.append(result)
     return results

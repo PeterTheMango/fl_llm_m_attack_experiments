@@ -79,3 +79,48 @@ def test_cache_hit_only_when_status_complete(monkeypatch):
     assert fs.load_cached_result(cfg) is None
     db.store[experiment_key(cfg)] = {"status": "complete", "run_id": "x"}
     assert fs.load_cached_result(cfg)["run_id"] == "x"
+
+
+# ---------- a recovered run must not keep reading as failed ----------
+
+_DELETE = object()  # stand-in for firestore.DELETE_FIELD
+
+
+def test_success_clears_a_previous_attempts_error():
+    """Writes are merges and the success payload has no `error` key, so without
+    this the old error string survives forever and the run reads as failed."""
+    payload = fs._clear_stale_error({"status": "complete", "metrics": {}}, _DELETE)
+    assert payload["error"] is _DELETE
+
+
+def test_a_failed_write_keeps_its_error():
+    payload = fs._clear_stale_error({"status": "failed", "error": "boom"}, _DELETE)
+    assert payload["error"] == "boom"
+
+
+def test_a_payload_carrying_its_own_error_is_left_alone():
+    payload = fs._clear_stale_error({"status": "complete", "error": "warned"}, _DELETE)
+    assert payload["error"] == "warned"
+
+
+def test_clearing_is_skipped_when_the_sentinel_is_unavailable():
+    """firebase-admin is an optional import; absence must not corrupt the write."""
+    result = {"status": "complete", "metrics": {}}
+    assert fs._clear_stale_error(result, None) == result
+
+
+def test_clearing_does_not_mutate_the_callers_result():
+    result = {"status": "complete"}
+    fs._clear_stale_error(result, _DELETE)
+    assert "error" not in result
+
+
+def test_save_result_sends_the_cleared_payload(monkeypatch):
+    db = _FakeDB()
+    monkeypatch.setattr(fs, "get_firestore_client", lambda *a, **k: db)
+    monkeypatch.setattr(fs, "_delete_field_sentinel", lambda: _DELETE)
+    from master_script.core.config import experiment_key
+
+    cfg = ZlibConfig()
+    assert fs.save_result(cfg, {"status": "complete", "metrics": {"adv": 0.6}}) is True
+    assert db.store[experiment_key(cfg)]["error"] is _DELETE

@@ -111,15 +111,30 @@ def _dry_run(pairs, use_firestore: bool) -> int:
 
 def _run(pairs, args) -> int:
     from .core.runner import run_sweep
+    from .core.runstate import RunStateReporter, publish_manifest, suppressed
 
-    if args.max_parallel == 2:
-        results = _run_parallel(pairs, args)
-    else:
-        results = run_sweep(
-            pairs,
-            use_firestore=not args.no_firestore,
-            keep_artifacts=args.keep_artifacts or None,
-        )
+    # The run-state report is what lets the dashboard show a CLI sweep as it
+    # happens. Off without Firestore (nowhere to publish) and in GPU-pinned
+    # children (the parent reports for them).
+    report = not args.no_firestore and not suppressed()
+    reporter = RunStateReporter() if report else None
+    if report:
+        publish_manifest(pairs)
+
+    try:
+        if args.max_parallel == 2:
+            results = _run_parallel(pairs, args, reporter)
+        else:
+            results = run_sweep(
+                pairs,
+                use_firestore=not args.no_firestore,
+                keep_artifacts=args.keep_artifacts or None,
+                **(reporter.hooks if reporter else {}),
+            )
+    finally:
+        # Whatever happened, stop claiming anything is running.
+        if reporter is not None:
+            reporter.stop()
 
     if args.charts:
         from .core.charts import render_sweep_summary
@@ -135,7 +150,7 @@ def _run(pairs, args) -> int:
     return 0 if ok == len(pairs) else 1
 
 
-def _run_parallel(pairs, args) -> list:
+def _run_parallel(pairs, args, reporter=None) -> list:
     """One GPU-pinned subprocess per run, at most two in flight (2-GPU VM).
 
     Subprocesses (not threads): Flower/Ray and CUDA do not share a process
@@ -148,6 +163,8 @@ def _run_parallel(pairs, args) -> list:
 
     from .core.config import experiment_key
 
+    from .core.runstate import SUPPRESS_ENV
+
     def _one(item):
         index, (cfg, spec) = item
         with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as fh:
@@ -157,7 +174,9 @@ def _run_parallel(pairs, args) -> list:
 
             yaml.safe_dump({"attacks": {spec.name: {"base": asdict(cfg)}}}, fh)
             single = fh.name
-        env = {**os.environ, "EXPERIMENT_GPU": str(index % 2)}
+        # The parent owns the run-state report for the whole sweep: the report
+        # is one array, so a child publishing its own would clobber its sibling.
+        env = {**os.environ, "EXPERIMENT_GPU": str(index % 2), SUPPRESS_ENV: "1"}
         cmd = [sys.executable, "-m", "master_script.perform_experiments",
                "--config", single, "--max-parallel", "1", "--no-charts",
                "--log-level", args.log_level]
@@ -165,12 +184,19 @@ def _run_parallel(pairs, args) -> list:
             cmd.append("--no-firestore")
         if args.keep_artifacts:
             cmd.append("--keep-artifacts")
-        proc = subprocess.run(cmd, env=env, capture_output=True, text=True)
+        run_id = experiment_key(cfg, spec)
+        if reporter is not None:
+            reporter.on_run_start(run_id, spec.name, cfg)
+        try:
+            proc = subprocess.run(cmd, env=env, capture_output=True, text=True)
+        finally:
+            if reporter is not None:
+                reporter.on_run_end(run_id)
         os.unlink(single)
         if proc.returncode != 0:
             print(proc.stderr, file=sys.stderr)
             return None
-        return {"run_id": experiment_key(cfg, spec), "status": "complete", "config": asdict(cfg)}
+        return {"run_id": run_id, "status": "complete", "config": asdict(cfg)}
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         return list(pool.map(_one, enumerate(pairs)))

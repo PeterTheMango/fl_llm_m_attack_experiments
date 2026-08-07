@@ -4,10 +4,14 @@
 On restart the dashboard rebuilds entirely by re-reading Firestore. Nothing
 here is ever persisted, and nothing here is ever used to resume a run.
 """
+import threading
+import time
 from statistics import mean
 from typing import Callable, Dict, List, Optional
 
 from ..core.firestore import MONITOR_STATE_DOC, get_firestore_client
+
+COLLECTION = "ami_federated_llm_results"
 
 
 def attack_name(run: dict) -> Optional[str]:
@@ -25,7 +29,15 @@ class DashboardState:
         self.runs: Dict[str, dict] = {}
         self.running: List[dict] = []
         self.manifest: Optional[List[dict]] = None
+        self.last_sync_unix: Optional[float] = None
+        self.error: str = ""
         self._listener = None
+        self._lock = threading.Lock()
+
+    @property
+    def live(self) -> bool:
+        """True once a Firestore listener is pushing changes to this projection."""
+        return self._listener is not None
 
     def ingest(self, docs) -> None:
         for doc in docs:
@@ -35,6 +47,42 @@ class DashboardState:
                 continue
             if "run_id" in doc:
                 self.runs[doc["run_id"]] = doc
+        self.last_sync_unix = time.time()
+
+    def refresh(self, collection: str = COLLECTION) -> bool:
+        """One-shot re-read of the collection. False when credentials are missing.
+
+        The listener is the normal path; this is the fallback for environments
+        where on_snapshot isn't usable, and it is what makes the dashboard
+        rebuild itself from Firestore alone after a restart (§1.2).
+        """
+        try:
+            db = get_firestore_client()
+        except Exception as exc:
+            self.error = str(exc)
+            self.last_sync_unix = time.time()  # throttle retries; don't hammer on every read
+            return False
+        try:
+            docs = [s.to_dict() | {"run_id": s.id} for s in db.collection(collection).stream()]
+        except Exception as exc:
+            self.error = str(exc)
+            self.last_sync_unix = time.time()  # throttle retries; don't hammer on every read
+            return False
+        with self._lock:
+            self.runs.clear()
+            self.running = []
+            self.manifest = None
+            self.ingest(docs)
+        self.error = ""
+        return True
+
+    def ensure_fresh(self, max_age_seconds: float = 5.0, collection: str = COLLECTION) -> None:
+        """Refresh on read when nothing is pushing updates. No-op under a listener."""
+        if self.live:
+            return
+        if self.last_sync_unix is not None and time.time() - self.last_sync_unix < max_age_seconds:
+            return
+        self.refresh(collection)
 
     def attach_listener(self, collection: str, on_change: Callable[[], None]) -> None:
         """Firestore real-time listener; on_change fires on the SDK's thread."""
@@ -45,6 +93,19 @@ class DashboardState:
             on_change()
 
         self._listener = db.collection(collection).on_snapshot(_cb)
+
+    def detach_listener(self) -> None:
+        """Drop the listener so the next read re-connects.
+
+        Called after the credentials change: a watch opened with the old
+        service account would keep streaming (or keep failing) against it.
+        """
+        listener, self._listener = self._listener, None
+        if listener is not None:
+            try:
+                listener.unsubscribe()
+            except Exception:
+                pass  # already closed, or the SDK tore it down with the app
 
     def filtered(self, attack: Optional[str] = None, status: Optional[str] = None, **factors) -> List[dict]:
         out = []
