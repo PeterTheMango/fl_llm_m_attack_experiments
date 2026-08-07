@@ -23,4 +23,9 @@ dependencies:
       - huggingface_hub
       - firebase-admin
       - python-dotenv
-      - nicegui
+      - fastapi
+      - uvicorn
+      # The simulation extra, not bare flwr: core/federation.py calls
+      # flwr.simulation.run_simulation, which is backed by Ray. Plain flwr
+      # imports fine and then fails minutes into a real run.
+      - flwr[simulation]

@@ -1,0 +1,42 @@
+# Dependencies for installing into an environment you did not create --
+# a shared conda env on a lab server, for instance:
+#
+#     pip install --user -r requirements.txt
+#
+# environment.yml stays the source of truth for building a fresh environment.
+# This file mirrors its dependencies minus the `python=3.11` pin: forcing an
+# interpreter change on an environment other packages already depend on is a
+# good way to lose a working CUDA build. Notebook-only extras (ipykernel,
+# jupyterlab) are omitted; add them if you are running code_experiments/.
+
+# Core scientific stack
+numpy
+pandas
+scikit-learn
+tqdm
+pyyaml
+matplotlib
+
+# CLI, dashboard, and Firestore persistence
+fastapi
+uvicorn
+python-dotenv
+firebase-admin
+
+# Real Hugging Face + federated path. The toy smoke path needs none of these.
+transformers
+datasets
+huggingface_hub
+# The simulation extra, not bare flwr: core/federation.py calls
+# flwr.simulation.run_simulation, which is backed by Ray.
+flwr[simulation]
+
+# Tests
+pytest
+
+# torch is last and deliberately unpinned. Installing it from PyPI can replace
+# a CUDA build that matches the host driver with one that does not. If the
+# target environment already has a working torch, delete this line before
+# installing. Otherwise pick the build for your driver, e.g.
+#     pip install torch --index-url https://download.pytorch.org/whl/cu121
+torch

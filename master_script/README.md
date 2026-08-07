@@ -58,12 +58,27 @@ correctness property of this package is secondary to that one.
 ```bash
 conda env create -f environment.yml
 conda activate peter_experiments_fl
-pip install fastapi uvicorn pyyaml matplotlib firebase-admin python-dotenv
 ```
 
-`torch`, `transformers`, and `flwr` (already in `environment.yml`) are only
-needed to run a real attack against a Hugging Face model over federated
-learning. The toy smoke path (`master_script/configs/smoke.yaml`,
+**Installing into an environment you did not create** — a shared conda env on
+a lab server, say — use `requirements.txt` instead. It mirrors
+`environment.yml` minus the `python=3.11` pin, because forcing an interpreter
+change on a shared environment can break a working CUDA build:
+
+```bash
+pip install --user -r requirements.txt
+```
+
+Delete the `torch` line first if the environment already has a working
+CUDA-matched torch; installing it from PyPI can replace that build with one
+that does not match the host driver. `requirements.txt` says the same at the
+point where it matters.
+
+`torch`, `transformers`, and `flwr[simulation]` are only needed to run a real
+attack against a Hugging Face model over federated learning. Note the extra:
+`core/federation.py` calls `flwr.simulation.run_simulation`, which is backed
+by Ray, so bare `flwr` imports fine and then fails minutes into a run. The toy
+smoke path (`master_script/configs/smoke.yaml`,
 `--no-firestore`) needs none of them — it exercises 9 of the 11 attacks
 (`amia` and `loss` have no toy path; see Known limits) with synthetic
 in-memory data and no GPU, model download, or credentials.
