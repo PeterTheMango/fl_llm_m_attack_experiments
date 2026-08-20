@@ -342,7 +342,9 @@ function runningGauges() {
   return `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">` + S.live.running.map((r) => {
     const m = meta(r.attack);
     const gpu = gpus.find((g) => g.id === r.gpu) || (gpus.length === 1 ? gpus[0] : null);
-    const util = gpu ? Math.round(gpu.util) : null;
+    // util is null when the host does not expose it (MIG, vGPU). An empty ring
+    // is the honest render: 0% and "not reported" are different claims.
+    const util = gpu && gpu.util !== null ? Math.round(gpu.util) : null;
     const dash = `${((util || 0) / 100) * 314} 314`;
     return `<div class="card-hover" style="border:1px solid var(--bd,#252c36);border-radius:10px;background:var(--p2,#1b212a);padding:16px;display:flex;flex-direction:column;align-items:center;gap:10px">
       <div style="display:flex;align-items:center;gap:8px;align-self:stretch">
@@ -434,18 +436,29 @@ function recentPanel() {
 
 function resourcesPanel() {
   const gpus = S.live.gpus.map((g) => {
-    const color = g.util > 85 ? 'var(--no,#f0606a)' : (g.util > 60 ? 'var(--wn,#e3b341)' : 'var(--ok,#3fcf8e)');
+    // Any field can be null: nvidia-smi answers "[N/A]" for what the host does
+    // not expose. Under MIG there is no parent-level utilisation, and a vGPU
+    // guest sees no temperature -- but memory is still real, so the bar falls
+    // back to memory used rather than the card disappearing.
+    const hasUtil = g.util !== null && g.util !== undefined;
+    const hasMem = g.mem_used_gib !== null && g.mem_total_gib;
+    const pct = hasUtil ? Math.round(g.util)
+      : (hasMem ? Math.round((g.mem_used_gib / g.mem_total_gib) * 100) : null);
+    const color = pct === null ? 'var(--gd,#222a34)'
+      : (pct > 85 ? 'var(--no,#f0606a)' : (pct > 60 ? 'var(--wn,#e3b341)' : 'var(--ok,#3fcf8e)'));
+    const mem = hasMem ? `${g.mem_used_gib.toFixed(1)}/${g.mem_total_gib.toFixed(0)} GiB` : 'memory n/r';
     return `<div>
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:11px">
         <span style="font-family:${MONO};color:var(--fg,#e6ebf0)">GPU${g.id}</span>
         <span style="color:var(--fm,#5f6b78);font-size:10px">${esc(g.name)}</span>
         <div style="flex:1"></div>
-        <span style="font-family:${MONO};color:var(--fd,#9aa6b2)">${g.mem_used_gib.toFixed(1)}/${g.mem_total_gib.toFixed(0)} GiB</span>
-        <span style="font-family:${MONO};color:${color};width:38px;text-align:right">${Math.round(g.util)}%</span>
+        <span style="font-family:${MONO};color:var(--fd,#9aa6b2)">${mem}</span>
+        <span style="font-family:${MONO};color:${color};width:38px;text-align:right">${pct === null ? '—' : pct + '%'}</span>
       </div>
       <div style="height:7px;border-radius:4px;background:var(--p2,#1b212a);overflow:hidden">
-        <div style="height:100%;width:${Math.round(g.util)}%;background:${color};border-radius:4px"></div>
+        <div style="height:100%;width:${pct === null ? 0 : pct}%;background:${color};border-radius:4px"></div>
       </div>
+      ${hasUtil ? '' : `<div style="margin-top:4px;font-size:9.5px;color:var(--fm,#5f6b78)">utilisation not reported by nvidia-smi on this host${hasMem ? ' — bar shows memory used' : ''}</div>`}
     </div>`;
   }).join('');
 
