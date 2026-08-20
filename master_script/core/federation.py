@@ -21,12 +21,48 @@ CLIENT_CORPUS = [
     ["Client 3 scheduling request for a generic follow-up.", "Client 3 public FAQ paraphrase."],
 ]
 
+# Records per generated client, and the topic pool they are drawn from. Scaling
+# num_clients past the four hand-written partitions above used to append ONE
+# filler line per extra client, which made every extra client a single-record
+# outlier and diluted FedAvg with near-empty updates. Generated partitions now
+# match the hand-written ones in shape (same record count) and register.
+BASE_RECORDS_PER_CLIENT = min(len(records) for records in CLIENT_CORPUS)
+SYNTHETIC_TOPICS = (
+    "billing question about a duplicated charge",
+    "support chat about a portal login failure",
+    "shipping update for a replacement device",
+    "warranty call summary for an out-of-policy repair",
+    "product feedback about the keyboard layout",
+    "short troubleshooting note about intermittent wifi",
+    "scheduling request for a routine follow-up",
+    "public FAQ paraphrase about the return window",
+    "account recovery request after a password reset",
+    "subscription downgrade request for the coming term",
+    "note about a delayed refund on a cancelled order",
+    "escalation summary for a repeated connection drop",
+)
+
+
+def synthetic_partition(config: AttackConfig, client_id: int) -> List[str]:
+    """Deterministic partition for a client past CLIENT_CORPUS.
+
+    Uses its OWN Random, not the global one seeded in build_client_partitions:
+    downstream scorers read that global stream, so consuming from it here would
+    shift their draws and silently change results for <=4-client runs too.
+
+    Seeded from a string, deliberately: str/bytes seeds go through sha512, while
+    a tuple seed would go through hash() and move under PYTHONHASHSEED.
+    """
+    rng = random.Random(f"{config.seed}:{client_id}")
+    topics = rng.sample(SYNTHETIC_TOPICS, BASE_RECORDS_PER_CLIENT)
+    return [f"Client {client_id} {topic}." for topic in topics]
+
 
 def build_client_partitions(config: AttackConfig, truth_member: bool) -> List[List[str]]:
     random.seed(config.seed)
     partitions = [list(records) for records in CLIENT_CORPUS[: config.num_clients]]
     while len(partitions) < config.num_clients:
-        partitions.append([f"Synthetic client {len(partitions)} ordinary support record."])
+        partitions.append(synthetic_partition(config, len(partitions)))
     target_payload = TARGET_RECORD if truth_member else HELD_OUT_RECORD
     partitions[config.target_client_id].append(target_payload)
     return partitions

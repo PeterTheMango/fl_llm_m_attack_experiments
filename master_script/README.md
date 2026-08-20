@@ -222,6 +222,91 @@ See `master_script/configs/smoke.yaml` (9 toy runs, no credentials) and
 `master_script/configs/example_sweep.yaml` (a real sweep) for worked
 examples.
 
+## The baseline evaluation
+
+`configs/baseline_*.yaml` is one experiment split across five files: all 11
+attacks x `federated_rounds` [1, 3, 6] x `seed` [7, 11, 23], against five
+target models. 99 runs per file, **495 in total**, every `run_id` distinct.
+
+| File | Target model | Params | `sim_num_gpus` |
+| --- | --- | --- | --- |
+| `baseline_distilgpt2.yaml` | `distilgpt2` | 82M | 0.5 |
+| `baseline_gpt2.yaml` | `gpt2` | 124M | 0.5 |
+| `baseline_opt125m.yaml` | `facebook/opt-125m` | 125M | 0.5 |
+| `baseline_gpt2_medium.yaml` | `gpt2-medium` | 355M | 1.0 |
+| `baseline_pythia410m.yaml` | `EleutherAI/pythia-410m` | 410M | 1.0 |
+
+Run the pre-flight file first, then the five in order, cheapest model first:
+
+```bash
+python -m master_script.perform_experiments \
+    --config master_script/configs/baseline_smoke_hf.yaml --no-firestore --no-charts
+
+for m in distilgpt2 gpt2 opt125m gpt2_medium pythia410m; do
+    python -m master_script.perform_experiments \
+        --config master_script/configs/baseline_$m.yaml --max-parallel 2
+done
+```
+
+Four things about that design are deliberate:
+
+- **One file per model, not `sweep: {model_id: [...]}`.** `sweep` is an
+  `itertools.product` grid, so it cannot *pair* two fields, and `wbc` needs
+  `reference_model_id` to track `model_id` — the paper compares a fine-tuned
+  target against its own pre-fine-tune base. A shared sweep would score every
+  target against one fixed reference. Splitting by model also lets
+  `sim_num_gpus` follow the model's footprint and gives the sweep a checkpoint
+  every 99 runs.
+- **Thresholds are left alone.** Every attack's `threshold` is a constant tuned
+  for `sshleifer/tiny-gpt2`. Across five models it is miscalibrated, so
+  `pred_member` — and therefore Adv — is comparable only *within* a model.
+  Across models, compare AUC/ROC, which the dashboard computes from
+  `attack_trials[]` and which needs no threshold.
+- **`clients_per_round` (8) is below `num_clients` (16).** FedAvg then samples
+  a real subset each round (`fraction_fit = 0.5`), which is both closer to real
+  FL than always-all-clients and half the per-round cost.
+- **`baseline_smoke_hf.yaml` exists because of `strict=True`.**
+  `core/federation.py` round-trips the *full* `state_dict` — buffers included —
+  through FedAvg and back via `load_state_dict(strict=True)`. That path is
+  well-proven on GPT-2 and unproven on OPT and GPT-NeoX, so the pre-flight file
+  runs 2-trial versions of all five models across all three code paths (the
+  nine modern scorers, `amia`'s `custom_trials`, `loss`'s own FL loop). A model
+  family that breaks weight aggregation fails there in minutes rather than
+  hours into the real sweep.
+
+Budget it before starting: per-run cost is `attack_trials x federated_rounds x
+clients_per_round` client fine-tunes, and **every client fit reloads the model
+from disk** (`core/federation.py`), so at 16 trials and 8 clients per round a
+run is 128, 384, or 768 model loads for 1, 3, or 6 rounds. Firestore caching is
+what makes this survivable: a completed run cache-hits and is skipped, so the
+sweep resumes after any interruption (see *Job resumption*).
+
+### Scaling the federation past four clients
+
+The client corpus in `core/federation.py` is four hand-written partitions of
+two records each, with the target record appended to client 0. `num_clients`
+above 4 used to append a single filler line per extra client, which made every
+extra client a one-record outlier and diluted FedAvg with near-empty updates —
+so the baseline's 16 clients would have measured filler, not federation.
+`synthetic_partition` now generates partitions matching the hand-written ones
+in record count and register, and `loss.py`'s own corpus got the same treatment
+(it repeated one filler sentence four times).
+
+Two properties keep this from disturbing existing results:
+
+- **`num_clients <= 4` is byte-identical to before.** The generator only runs
+  for clients past `CLIENT_CORPUS`.
+- **It never touches the global RNG.** `build_client_partitions` seeds
+  `random` for the downstream scorers that read that stream; the generator uses
+  its own `random.Random`, seeded from a *string* (str seeds hash via sha512 —
+  a tuple seed would go through `hash()` and move under `PYTHONHASHSEED`).
+
+No config field was added, so no `run_id` moved. Runs recorded earlier with
+`num_clients > 4` are the exception worth knowing about: their configs hash the
+same but their client data has changed, so they are no longer reproducible and
+should be re-run (delete the document, or bump `seed`) rather than compared
+against new results.
+
 ## Web UI — CANARY Monitor
 
 ```bash

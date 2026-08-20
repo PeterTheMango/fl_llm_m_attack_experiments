@@ -43,3 +43,65 @@ def test_history_has_one_entry_per_round():
     _, history = federation.run_toy_federated_finetune(cfg, truth_member=True)
     assert len(history) == 3
     assert history[0]["round"] == 0
+
+
+def test_base_corpus_clients_are_untouched_by_the_generator():
+    """<=4 clients must be byte-identical to the hand-written corpus."""
+    cfg = ZlibConfig(num_clients=4)
+    parts = federation.build_client_partitions(cfg, truth_member=True)
+    expected = [list(records) for records in federation.CLIENT_CORPUS]
+    expected[cfg.target_client_id].append(federation.TARGET_RECORD)
+    assert parts == expected
+
+
+def test_scaled_clients_get_full_partitions_not_one_filler_line():
+    parts = federation.build_client_partitions(ZlibConfig(num_clients=16), truth_member=True)
+    assert len(parts) == 16
+    for client_id, records in enumerate(parts[4:], start=4):
+        assert len(records) == federation.BASE_RECORDS_PER_CLIENT
+        assert len(set(records)) == len(records)
+        assert all(str(client_id) in record for record in records)
+
+
+def test_scaled_partitions_are_deterministic_and_client_specific():
+    cfg = ZlibConfig(num_clients=16)
+    a = federation.build_client_partitions(cfg, truth_member=True)
+    b = federation.build_client_partitions(cfg, truth_member=True)
+    assert a == b
+    # Different clients must not all receive the same records.
+    assert len({tuple(records) for records in a[4:]}) > 1
+
+
+def test_scaled_partitions_move_with_seed():
+    x = federation.build_client_partitions(ZlibConfig(num_clients=16, seed=7), truth_member=True)
+    y = federation.build_client_partitions(ZlibConfig(num_clients=16, seed=11), truth_member=True)
+    assert x[4:] != y[4:]
+
+
+def test_generator_does_not_consume_the_global_rng():
+    """Downstream scorers read the global stream seeded in build_client_partitions."""
+    import random
+
+    federation.build_client_partitions(ZlibConfig(num_clients=4), truth_member=True)
+    small = [random.random() for _ in range(5)]
+    federation.build_client_partitions(ZlibConfig(num_clients=16), truth_member=True)
+    large = [random.random() for _ in range(5)]
+    assert small == large
+
+
+def test_worlds_still_differ_only_in_target_payload_when_scaled():
+    pos = federation.build_client_partitions(ZlibConfig(num_clients=16), truth_member=True)
+    neg = federation.build_client_partitions(ZlibConfig(num_clients=16), truth_member=False)
+    assert [p[:-1] for p in pos] == [p[:-1] for p in neg]
+
+
+def test_loss_scaled_clients_get_real_sentences():
+    from master_script.core.attacks.loss import LossConfig, make_membership_world
+
+    clients = make_membership_world(LossConfig(num_clients=16), include_target=True)
+    assert len(clients) == 16
+    per_client = len(clients[1])
+    for client_id, records in enumerate(clients[4:], start=4):
+        assert len(records) == per_client
+        assert len(set(records)) == len(records)
+        assert all(record.startswith(f"client={client_id} ") for record in records)

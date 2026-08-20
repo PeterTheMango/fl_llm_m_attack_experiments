@@ -117,10 +117,30 @@ CALIBRATION_NONMEMBER_TEXTS = [
 ]
 
 
+def _synthetic_client_texts(config, client_id: int) -> list:
+    """Records for a client past BASE_CLIENT_TEXTS.
+
+    Scaling num_clients past the four hand-written partitions used to give every
+    extra client four near-identical filler lines ("Synthetic extra client N
+    record j."), which is a degenerate local dataset: the local step barely moves
+    and FedAvg averages the target client's update toward nothing. These are real
+    sentences from the base pool, one prefix per client so partitions stay
+    disjoint. String seed, not a tuple: str seeds hash via sha512, tuples go
+    through hash() and move under PYTHONHASHSEED.
+    """
+    import random
+
+    pool = [text for records in BASE_CLIENT_TEXTS for text in records]
+    per_client = min(len(records) for records in BASE_CLIENT_TEXTS)
+    rng = random.Random(f"{config.seed}:{client_id}")
+    picks = rng.sample(pool, per_client)
+    return [f"client={client_id} sample={idx}. {text}" for idx, text in enumerate(picks)]
+
+
 def make_membership_world(config, include_target: bool, replacement_text: Optional[str] = None) -> list:
     clients = [list(records) for records in BASE_CLIENT_TEXTS[: config.num_clients]]
     while len(clients) < config.num_clients:
-        clients.append([f"Synthetic extra client {len(clients)} record {j}." for j in range(4)])
+        clients.append(_synthetic_client_texts(config, len(clients)))
 
     target_records = list(clients[config.target_client_id])
     if include_target:
