@@ -46,12 +46,30 @@ def test_secret_classification(key, secret):
 
 
 def test_entries_mask_secrets_and_list_known_missing_keys(env):
-    entries = {e["key"]: e for e in envfile.entries()}
+    listed = envfile.entries()
+    entries = {e["key"]: e for e in listed}
+    assert [e["key"] for e in listed[:len(envfile.KNOWN_KEYS)]] == list(envfile.KNOWN_KEYS)
     assert "super-secret-value-1234" not in entries["FIREBASE_SERVICE_ACCOUNT_JSON"]["value"]
     assert entries["FIREBASE_SERVICE_ACCOUNT_JSON"]["masked"] is True
     assert entries["FIREBASE_PROJECT_ID"]["value"] == "my-project"  # not a secret
     assert entries["EXPERIMENT_GPU"]["set"] is False  # known but absent
+    assert entries["EXPERIMENT_GPU"]["present"] is False
+    assert entries["EXPERIMENT_GPU"]["category"] == "Compute"
+    assert entries["TUNNEL_PORT"]["placeholder"] == "8080"
     assert entries["SOME_OTHER_TOOL"]["value"] == "keep-me"  # unknown keys survive
+    assert entries["SOME_OTHER_TOOL"]["category"] == "Additional .env values"
+
+
+def test_every_expected_key_is_listed_when_the_env_file_does_not_exist(tmp_path, monkeypatch):
+    path = tmp_path / ".env"
+    monkeypatch.setattr(envfile, "env_path", lambda: path)
+
+    entries = envfile.entries()
+
+    assert [entry["key"] for entry in entries] == list(envfile.KNOWN_KEYS)
+    assert all(entry["known"] for entry in entries)
+    assert all(entry["present"] is False for entry in entries)
+    assert all(entry["set"] is False for entry in entries)
 
 
 def test_reveal_is_the_only_path_to_a_plaintext_secret(env):

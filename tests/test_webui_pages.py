@@ -90,6 +90,15 @@ def test_static_assets_are_served_locally():
     assert client.get("/static/chart.umd.min.js").status_code == 200
 
 
+def test_live_log_tail_ships_follow_and_manual_scroll_policies():
+    """A rerender follows the tail only while the viewer is already at bottom."""
+    javascript = _client().get("/static/app.js").text
+    assert "LOG_BOTTOM_EPSILON_PX = 2" in javascript
+    assert "const logScrollTop = logPane ? logPane.scrollTop : null" in javascript
+    assert "pane.scrollTop = pane.scrollHeight" in javascript
+    assert "pane.scrollTop = logScrollTop" in javascript
+
+
 def test_live_endpoint_reports_running_set_unavailable_without_a_manifest():
     """§2.4: say so rather than guessing."""
     payload = _client().get("/api/live").json()
@@ -136,6 +145,17 @@ def _env(tmp_path, monkeypatch):
     path = tmp_path / ".env"
     monkeypatch.setattr(envfile, "env_path", lambda: path)
     return path
+
+
+def test_settings_endpoint_lists_the_complete_catalog_without_an_env_file(tmp_path, monkeypatch):
+    from master_script.webui import envfile
+
+    _env(tmp_path, monkeypatch)
+    entries = _client().get("/api/settings").json()["entries"]
+
+    assert [entry["key"] for entry in entries] == list(envfile.KNOWN_KEYS)
+    assert all(entry["known"] for entry in entries)
+    assert all(entry["present"] is False for entry in entries)
 
 
 def test_tunnel_credentials_persist_to_the_env_file(tmp_path, monkeypatch):

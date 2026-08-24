@@ -19,6 +19,9 @@ const STAGES = ['fine-tune', 'attack', 'measure'];
 const TIMELINE_WINDOW_S = 360;
 const POLL_MS = 2500;
 const TICK_MS = 1000;
+// Only rounding noise counts as "at bottom". Once the user scrolls upward,
+// even by a few pixels, live refreshes must stop following new log entries.
+const LOG_BOTTOM_EPSILON_PX = 2;
 const MONO = "'IBM Plex Mono',monospace";
 
 // ---------- state ----------
@@ -1154,7 +1157,7 @@ function settingsView() {
   const st = S.settings;
   const pending = Object.keys(S.settingsEdits).length + S.settingsDeletes.length;
 
-  const rows = st.entries.map((entry) => {
+  const renderEntry = (entry) => {
     const key = entry.key;
     const deleted = S.settingsDeletes.includes(key);
     const edited = Object.prototype.hasOwnProperty.call(S.settingsEdits, key);
@@ -1164,23 +1167,45 @@ function settingsView() {
     const shown = edited ? S.settingsEdits[key] : (entry.secret ? '' : entry.value);
     const placeholder = entry.secret && entry.set
       ? (revealed ? '' : `unchanged · ${entry.value}`)
-      : (entry.set ? '' : 'not set');
+      : (entry.set ? '' : (entry.placeholder || 'not set'));
 
     return `<div style="padding:15px 20px;border-bottom:1px solid var(--gd,#222a34);${deleted ? 'opacity:.45' : ''}">
       <div style="display:flex;align-items:center;gap:9px;margin-bottom:7px">
         <span style="font-family:${MONO};font-size:12px;font-weight:600;color:var(--fg,#e6ebf0)">${esc(key)}</span>
+        <span style="font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:${entry.known ? 'var(--ac,#36c08f)' : 'var(--fm,#5f6b78)'};border:1px solid ${entry.known ? 'color-mix(in srgb,var(--ac,#36c08f) 35%,var(--bd))' : 'var(--bd,#252c36)'};padding:1px 6px;border-radius:4px">${entry.known ? 'expected' : 'custom'}</span>
         ${entry.secret ? `<span style="font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--wn,#e3b341);border:1px solid color-mix(in srgb,var(--wn,#e3b341) 40%,var(--bd));padding:1px 6px;border-radius:4px">secret</span>` : ''}
         ${entry.set ? '' : `<span style="font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--fm,#5f6b78);border:1px solid var(--bd,#252c36);padding:1px 6px;border-radius:4px">not set</span>`}
         ${edited ? `<span style="font-size:10px;color:var(--ac,#36c08f);font-family:${MONO}">edited</span>` : ''}
         ${deleted ? `<span style="font-size:10px;color:var(--no,#f0606a);font-family:${MONO}">will be removed</span>` : ''}
         <div style="flex:1"></div>
         ${entry.secret && entry.set && !revealed ? `<div data-act="env-reveal" data-arg="${esc(key)}" style="font-size:10.5px;color:var(--fd,#9aa6b2);border:1px solid var(--bd,#252c36);border-radius:6px;padding:3px 10px;cursor:pointer">reveal</div>` : ''}
-        <div data-act="env-delete" data-arg="${esc(key)}" style="font-size:10.5px;color:${deleted ? 'var(--fd,#9aa6b2)' : 'var(--no,#f0606a)'};border:1px solid var(--bd,#252c36);border-radius:6px;padding:3px 10px;cursor:pointer">${deleted ? 'keep' : 'remove'}</div>
+        ${entry.present ? `<div data-act="env-delete" data-arg="${esc(key)}" style="font-size:10.5px;color:${deleted ? 'var(--fd,#9aa6b2)' : 'var(--no,#f0606a)'};border:1px solid var(--bd,#252c36);border-radius:6px;padding:3px 10px;cursor:pointer">${deleted ? 'keep' : 'remove'}</div>` : ''}
       </div>
       ${entry.help ? `<div style="font-size:11px;color:var(--fm,#5f6b78);line-height:1.5;margin-bottom:8px">${esc(entry.help)}</div>` : ''}
       <input class="field" data-inp="env:${esc(key)}" value="${esc(shown)}" placeholder="${esc(placeholder)}" ${deleted ? 'disabled' : ''} style="${FIELD}">
     </div>`;
+  };
+
+  const grouped = [];
+  st.entries.forEach((entry) => {
+    const name = entry.category || 'Additional .env values';
+    let group = grouped.find((item) => item.name === name);
+    if (!group) { group = { name, entries: [] }; grouped.push(group); }
+    group.entries.push(entry);
+  });
+  const rows = grouped.map((group) => {
+    const configured = group.entries.filter((entry) => entry.present).length;
+    return `<section>
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 20px;background:var(--p2,#1b212a);border-bottom:1px solid var(--bd,#252c36)">
+        <span style="font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--fd,#9aa6b2)">${esc(group.name)}</span>
+        <div style="flex:1"></div>
+        <span style="font-family:${MONO};font-size:9.5px;color:var(--fm,#5f6b78)">${configured}/${group.entries.length} in file</span>
+      </div>
+      ${group.entries.map(renderEntry).join('')}
+    </section>`;
   }).join('');
+  const expected = st.entries.filter((entry) => entry.known).length;
+  const configured = st.entries.filter((entry) => entry.present).length;
 
   const warning = st.tunnel_live ? `<div style="display:grid;grid-template-columns:auto 1fr;align-items:center;gap:14px;background:color-mix(in srgb,var(--no,#f0606a) 8%,var(--pn,#15191f));border:1px solid color-mix(in srgb,var(--no,#f0606a) 35%,var(--bd));border-radius:10px;padding:14px 18px;margin-bottom:14px">
       <div style="width:30px;height:30px;border-radius:50%;border:2px solid var(--no,#f0606a);color:var(--no,#f0606a);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex:0 0 auto">!</div>
@@ -1190,17 +1215,21 @@ function settingsView() {
   return `<div style="max-width:820px;margin:0 auto">
     <div style="margin-bottom:20px">
       <div style="font-size:20px;font-weight:700;letter-spacing:-.01em">Settings</div>
-      <div style="font-size:12px;color:var(--fd,#9aa6b2);margin-top:4px;line-height:1.6">Edits the <span style="font-family:${MONO}">.env</span> the program loads, then reloads it into the running process — no restart, no shell. The previous file is kept as <span style="font-family:${MONO}">.env.bak</span>.</div>
+      <div style="font-size:12px;color:var(--fd,#9aa6b2);margin-top:4px;line-height:1.6">Every environment variable CANARY expects is listed below, including variables missing from the current <span style="font-family:${MONO}">.env</span>. Saving reloads edits into the running process; the previous file is kept as <span style="font-family:${MONO}">.env.bak</span>.</div>
       <div style="font-size:11px;color:var(--fm,#5f6b78);margin-top:8px;font-family:${MONO}">${esc(st.path)}${st.exists ? '' : ' · will be created on save'}</div>
     </div>
 
     ${warning}
 
     <div style="background:var(--pn,#15191f);border:1px solid var(--bd,#252c36);border-radius:12px;overflow:hidden">
-      <div style="padding:13px 20px;border-bottom:1px solid var(--bd,#252c36);font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--fd,#9aa6b2)">Environment</div>
+      <div style="display:flex;align-items:center;gap:10px;padding:13px 20px;border-bottom:1px solid var(--bd,#252c36)">
+        <span style="font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--fd,#9aa6b2)">Environment catalog</span>
+        <div style="flex:1"></div>
+        <span style="font-family:${MONO};font-size:9.5px;color:var(--fm,#5f6b78)">${expected} expected · ${configured} present</span>
+      </div>
       ${rows}
       <div style="padding:15px 20px;border-bottom:1px solid var(--bd,#252c36)">
-        <div style="font-size:10px;color:var(--fm,#5f6b78);letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px">add a variable</div>
+        <div style="font-size:10px;color:var(--fm,#5f6b78);letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px">add a custom variable</div>
         <div style="display:grid;grid-template-columns:260px 1fr;gap:10px">
           <input class="field" data-inp="newVarKey" value="${esc(S.newVar.key)}" placeholder="KEY_NAME" style="${FIELD}">
           <input class="field" data-inp="newVarValue" value="${esc(S.newVar.value)}" placeholder="value" style="${FIELD}">
@@ -1414,7 +1443,9 @@ function render(opts) {
   if (opts && opts.background && focusKey) return;
   const caret = focusKey && active.selectionStart !== undefined ? active.selectionStart : null;
   const logPane = root.querySelector('#logpane');
-  const logAtBottom = !logPane || logPane.scrollHeight - logPane.scrollTop - logPane.clientHeight < 24;
+  const logScrollTop = logPane ? logPane.scrollTop : null;
+  const logAtBottom = !logPane ||
+    logPane.scrollHeight - logPane.scrollTop - logPane.clientHeight <= LOG_BOTTOM_EPSILON_PX;
   // Scroll offsets survive the rebuild too, so a poll doesn't yank the table
   // back to the top while you're reading row 40.
   const scrolls = {};
@@ -1435,7 +1466,17 @@ function render(opts) {
     if (saved) el.scrollTop = saved;
   });
   const pane = root.querySelector('#logpane');
-  if (pane && logAtBottom) pane.scrollTop = pane.scrollHeight;
+  if (pane) {
+    if (logAtBottom) {
+      // Initial render and an untouched live tail stay pinned to the newest
+      // entry as lines arrive.
+      pane.scrollTop = pane.scrollHeight;
+    } else if (logScrollTop !== null) {
+      // A deliberate upward scroll opts out of auto-follow. The pane is
+      // recreated on every poll, so restore its exact previous viewport.
+      pane.scrollTop = logScrollTop;
+    }
+  }
   syncCharts();
 }
 

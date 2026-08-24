@@ -19,42 +19,62 @@ from typing import Dict, List, Optional, Tuple
 
 from ..paths import MASTER_DIR
 
-# Keys the program actually reads, with what they're for. Anything else the
-# file already contains is still shown and editable -- this list drives the
-# "add a known key" affordance and the secret masking, not what's allowed.
+# The complete catalog of user-facing environment variables the program reads.
+# Internal child-process coordination variables (for example
+# MASTER_SCRIPT_SUPPRESS_RUN_STATE) and values derived for tunnel subprocesses
+# (NGROK_AUTHTOKEN / CLOUDFLARE_API_TOKEN) deliberately do not belong here.
+#
+# Anything else already in the file remains visible and editable. This catalog
+# controls ordering, presentation and secret masking; it is not an allow-list.
 KNOWN_KEYS: Dict[str, dict] = {
     "FIREBASE_SERVICE_ACCOUNT_JSON": {
         "secret": True,
+        "category": "Firebase / Firestore",
+        "placeholder": "Paste service-account JSON",
         "help": "Service-account JSON, inline. Either this or GOOGLE_APPLICATION_CREDENTIALS is required for Firestore.",
     },
     "GOOGLE_APPLICATION_CREDENTIALS": {
         "secret": False,
+        "category": "Firebase / Firestore",
+        "placeholder": "/path/to/service-account.json",
         "help": "Path to a service-account JSON file. Alternative to FIREBASE_SERVICE_ACCOUNT_JSON.",
     },
     "FIREBASE_PROJECT_ID": {
         "secret": False,
+        "category": "Firebase / Firestore",
+        "placeholder": "your-firebase-project-id",
         "help": "Firebase project id passed to the Firestore client.",
     },
     "EXPERIMENT_GPU": {
         "secret": False,
+        "category": "Compute",
+        "placeholder": "auto-select (or GPU index / cpu)",
         "help": "Pin runs to one GPU index, or 'cpu' to force CPU. Empty = pick the GPU with the most free memory.",
     },
     "TUNNEL_PROVIDER": {
         "secret": False,
+        "category": "Tunnel",
+        "placeholder": "cloudflare",
         "help": "Tunnel provider the Access page starts with: cloudflare or ngrok.",
     },
     "TUNNEL_API_KEY": {
         "secret": True,
+        "category": "Tunnel",
+        "placeholder": "Provider API token",
         "help": "Cloudflare API token or ngrok authtoken, saved from the Access page.",
     },
     "TUNNEL_CODE": {
         # Cloudflare's is a connector token; ngrok's is only a domain name. The
         # stricter of the two decides, since one key holds both.
         "secret": True,
+        "category": "Tunnel",
+        "placeholder": "Connector token or reserved domain",
         "help": "Cloudflare named-tunnel connector token, or ngrok reserved domain. Empty = ephemeral URL.",
     },
     "TUNNEL_PORT": {
         "secret": False,
+        "category": "Tunnel",
+        "placeholder": "8080",
         "help": "Local port the tunnel points at. Defaults to the port the dashboard is served on.",
     },
 }
@@ -121,18 +141,28 @@ def read_pairs() -> Dict[str, str]:
 
 
 def entries() -> List[dict]:
-    """Every key in the file plus any known key it's still missing."""
+    """The complete app catalog followed by extra keys found in the file.
+
+    Expected keys are returned even when no .env exists. Merely viewing the
+    settings page does not write blank keys to disk; ``present`` tells the UI
+    which rows actually came from the file.
+    """
     pairs = read_pairs()
     out = []
-    for key in list(pairs) + [k for k in KNOWN_KEYS if k not in pairs]:
+    extra_keys = [key for key in pairs if key not in KNOWN_KEYS]
+    for key in [*KNOWN_KEYS, *extra_keys]:
         value = pairs.get(key, "")
         secret = is_secret(key)
+        metadata = KNOWN_KEYS.get(key, {})
         out.append({
             "key": key,
+            "present": key in pairs,
             "set": bool(value),
             "secret": secret,
             "known": key in KNOWN_KEYS,
-            "help": KNOWN_KEYS.get(key, {}).get("help", ""),
+            "category": metadata.get("category", "Additional .env values"),
+            "placeholder": metadata.get("placeholder", "not set"),
+            "help": metadata.get("help", "Not read directly by CANARY; preserved as an additional .env value."),
             # Non-secret values are shown as-is; secrets only ever as a shape.
             "value": mask(value) if secret else value,
             "masked": secret and bool(value),

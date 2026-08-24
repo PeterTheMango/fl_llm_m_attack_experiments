@@ -403,6 +403,13 @@ environment while `firebase_admin` kept using the app it cached at first use.
 The previous file is always copied to `.env.bak`, and comments, ordering and
 keys you didn't touch are preserved.
 
+The page always lists the complete set of app-facing settings, grouped under
+Firebase / Firestore, Compute and Tunnel, even when a key is absent or the
+`.env` does not exist yet. Missing rows are editable but are not written to
+disk until you save them. Extra keys already in the file appear in a separate
+group and are preserved. Internal subprocess-only variables are intentionally
+not exposed as user settings.
+
 **This page is local-only.** It reads and writes your Firebase service-account
 credentials, so unlike the rest of the dashboard it does not follow the tunnel
 out: `webui/localguard.py` answers `403` to anything that did not originate on
