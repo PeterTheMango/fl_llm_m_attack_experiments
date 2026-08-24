@@ -51,6 +51,12 @@ KNOWN_KEYS: Dict[str, dict] = {
         "placeholder": "auto-select (or GPU index / cpu)",
         "help": "Pin runs to one GPU index, or 'cpu' to force CPU. Empty = pick the GPU with the most free memory.",
     },
+    "HF_TOKEN": {
+        "secret": True,
+        "category": "Hugging Face",
+        "placeholder": "hf_…",
+        "help": "Hugging Face access token used by the Hub client for private or gated models and datasets.",
+    },
     "TUNNEL_PROVIDER": {
         "secret": False,
         "category": "Tunnel",

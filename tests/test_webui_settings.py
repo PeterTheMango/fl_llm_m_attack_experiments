@@ -38,6 +38,7 @@ def test_short_secrets_are_masked_entirely():
     ("FIREBASE_SERVICE_ACCOUNT_JSON", True),
     ("GOOGLE_APPLICATION_CREDENTIALS", False),  # a path, not a credential
     ("FIREBASE_PROJECT_ID", False),
+    ("HF_TOKEN", True),
     ("SOME_API_TOKEN", True),
     ("MY_PASSWORD", True),
 ])
@@ -55,6 +56,8 @@ def test_entries_mask_secrets_and_list_known_missing_keys(env):
     assert entries["EXPERIMENT_GPU"]["set"] is False  # known but absent
     assert entries["EXPERIMENT_GPU"]["present"] is False
     assert entries["EXPERIMENT_GPU"]["category"] == "Compute"
+    assert entries["HF_TOKEN"]["category"] == "Hugging Face"
+    assert entries["HF_TOKEN"]["secret"] is True
     assert entries["TUNNEL_PORT"]["placeholder"] == "8080"
     assert entries["SOME_OTHER_TOOL"]["value"] == "keep-me"  # unknown keys survive
     assert entries["SOME_OTHER_TOOL"]["category"] == "Additional .env values"
