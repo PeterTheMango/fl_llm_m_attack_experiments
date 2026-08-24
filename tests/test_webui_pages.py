@@ -50,13 +50,15 @@ def test_spa_routes_all_serve_the_same_shell():
 
 
 def test_settings_page_and_api_are_refused_to_a_non_loopback_caller():
-    """The one surface that reads credentials must not follow the tunnel out."""
+    """Credentials and destructive controls must not follow the tunnel out."""
     remote = _client(host="203.0.113.7")
     assert remote.get("/settings").status_code == 403
     assert remote.get("/api/settings").status_code == 403
     assert remote.get("/api/settings/reveal/FIREBASE_PROJECT_ID").status_code == 403
     assert remote.post("/api/settings", json={"updates": {"X": "1"}}).status_code == 403
-    # Everything else stays reachable: only settings are local-only.
+    assert remote.post("/api/launch/stop", json={}).status_code == 403
+    assert remote.delete("/api/runs/a").status_code == 403
+    # Read-only monitoring stays reachable through the tunnel.
     assert remote.get("/").status_code == 200
     assert remote.get("/access").status_code == 200
     assert remote.get("/api/live").status_code == 200
@@ -99,11 +101,19 @@ def test_live_log_tail_ships_follow_and_manual_scroll_policies():
     assert "pane.scrollTop = logScrollTop" in javascript
 
 
+def test_dashboard_ships_confirmed_stop_and_delete_controls():
+    javascript = _client().get("/static/app.js").text
+    assert "sweep-stop-arm" in javascript and "sweep-stop-confirm" in javascript
+    assert "run-delete-arm" in javascript and "run-delete-confirm" in javascript
+    assert "method: 'DELETE'" in javascript
+
+
 def test_live_endpoint_reports_running_set_unavailable_without_a_manifest():
     """§2.4: say so rather than guessing."""
     payload = _client().get("/api/live").json()
     assert payload["run_state_available"] is False
     assert payload["running"] == []
+    assert "worker" in payload and "running" in payload["worker"]
 
 
 def test_live_endpoint_groups_sweep_progress_by_attack():
@@ -128,6 +138,88 @@ def test_detail_endpoint_returns_trials_and_normalized_history():
 
 def test_detail_endpoint_404s_for_an_unknown_run():
     assert _client().get("/api/runs/nope").status_code == 404
+
+
+def test_delete_result_removes_firestore_projection_and_safe_local_artifacts(tmp_path, monkeypatch):
+    artifact_root = tmp_path / "artifacts"
+    artifact_dir = artifact_root / "zlib" / "a"
+    artifact_dir.mkdir(parents=True)
+    (artifact_dir / "model.bin").write_bytes(b"model")
+    docs = [{**DOCS[0], "artifacts": {"artifact_dir": str(artifact_dir)}}]
+    deleted = {}
+    monkeypatch.setattr(results, "ARTIFACTS_DIR", artifact_root)
+    monkeypatch.setattr(results.firestore, "delete_result",
+                        lambda run_id, collection: deleted.update(run_id=run_id, collection=collection))
+
+    body = _client(docs).delete("/api/runs/a").json()
+
+    assert body["ok"] is True and body["artifact_removed"] is True
+    assert deleted["run_id"] == "a"
+    assert "a" not in api.STATE.runs
+    assert not artifact_dir.exists()
+
+
+def test_delete_result_never_removes_an_artifact_path_outside_its_root(tmp_path, monkeypatch):
+    artifact_root = tmp_path / "artifacts"
+    outside = tmp_path / "keep-this"
+    outside.mkdir()
+    docs = [{**DOCS[0], "artifacts": {"artifact_dir": str(outside)}}]
+    monkeypatch.setattr(results, "ARTIFACTS_DIR", artifact_root)
+    monkeypatch.setattr(results.firestore, "delete_result", lambda *a, **k: True)
+
+    body = _client(docs).delete("/api/runs/a").json()
+
+    assert body["ok"] is True and body["artifact_removed"] is False
+    assert outside.exists()
+
+
+def test_failed_firestore_delete_keeps_projection_and_artifacts(tmp_path, monkeypatch):
+    artifact_root = tmp_path / "artifacts"
+    artifact_dir = artifact_root / "zlib" / "a"
+    artifact_dir.mkdir(parents=True)
+    docs = [{**DOCS[0], "artifacts": {"artifact_dir": str(artifact_dir)}}]
+    monkeypatch.setattr(results, "ARTIFACTS_DIR", artifact_root)
+    monkeypatch.setattr(
+        results.firestore, "delete_result",
+        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("Firestore unavailable")),
+    )
+
+    body = _client(docs).delete("/api/runs/a").json()
+
+    assert body["ok"] is False
+    assert "a" in api.STATE.runs
+    assert artifact_dir.exists()
+
+
+def test_delete_result_refuses_a_run_that_is_currently_active(monkeypatch):
+    called = {}
+    client = _client()
+    api.STATE.running = [{"run_id": "a", "heartbeat_unix": time.time()}]
+    monkeypatch.setattr(results.firestore, "delete_result",
+                        lambda *a, **k: called.setdefault("deleted", True))
+
+    body = client.delete("/api/runs/a").json()
+
+    assert body["ok"] is False and "Stop" in body["message"]
+    assert "deleted" not in called
+
+
+def test_delete_unknown_result_returns_404():
+    assert _client().delete("/api/runs/missing").status_code == 404
+
+
+def test_stop_endpoint_clears_transient_run_state(monkeypatch):
+    client = _client()
+    api.STATE.running = [{"run_id": "active"}]
+    api.STATE.manifest = [{"run_id": "active"}]
+    monkeypatch.setattr(api.launch, "stop_sweep", lambda: {
+        "ok": True, "message": "stopped", "worker": {"running": False},
+    })
+
+    body = client.post("/api/launch/stop", json={}).json()
+
+    assert body["ok"] is True
+    assert api.STATE.running == [] and api.STATE.manifest == []
 
 
 def test_detail_lists_the_firestore_doc_as_authoritative():

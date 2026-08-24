@@ -49,6 +49,21 @@ class DashboardState:
                 self.runs[doc["run_id"]] = doc
         self.last_sync_unix = time.time()
 
+    def remove_run(self, run_id: str) -> bool:
+        """Remove one run from the live projection after an authoritative delete."""
+        with self._lock:
+            existed = run_id in self.runs
+            self.runs.pop(run_id, None)
+            self.last_sync_unix = time.time()
+        return existed
+
+    def clear_run_state(self) -> None:
+        """Clear transient running/manifest state after an owned sweep stops."""
+        with self._lock:
+            self.running = []
+            self.manifest = []
+            self.last_sync_unix = time.time()
+
     def refresh(self, collection: str = COLLECTION) -> bool:
         """One-shot re-read of the collection. False when credentials are missing.
 
@@ -89,6 +104,12 @@ class DashboardState:
         db = get_firestore_client()
 
         def _cb(snapshots, changes, read_time):
+            # A delete is absent from snapshots, so ingesting the remaining
+            # documents cannot remove it from the projection on its own.
+            for change in changes or []:
+                kind = getattr(getattr(change, "type", None), "name", "")
+                if kind == "REMOVED":
+                    self.remove_run(change.document.id)
             self.ingest([s.to_dict() | {"run_id": s.id} for s in snapshots])
             on_change()
 

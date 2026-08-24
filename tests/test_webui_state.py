@@ -19,6 +19,26 @@ def test_ingest_indexes_runs_by_id():
     assert set(s.runs) == {"a", "b", "c"}
 
 
+def test_remove_run_updates_the_projection_immediately():
+    s = DashboardState()
+    s.ingest(DOCS)
+
+    assert s.remove_run("b") is True
+    assert set(s.runs) == {"a", "c"}
+    assert s.remove_run("missing") is False
+
+
+def test_clear_run_state_removes_running_entries_and_manifest():
+    s = DashboardState()
+    s.ingest([{"run_id": "monitor_state", "running": [{"run_id": "x"}],
+               "manifest": [{"run_id": "x"}]}])
+
+    s.clear_run_state()
+
+    assert s.running == []
+    assert s.manifest == []
+
+
 def test_monitor_state_doc_is_not_treated_as_a_run():
     s = DashboardState()
     s.ingest(DOCS + [{"run_id": "monitor_state", "running": [], "manifest": []}])

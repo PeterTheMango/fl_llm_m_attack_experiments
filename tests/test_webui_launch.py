@@ -1,4 +1,5 @@
-import time
+import queue
+import pickle
 
 import pytest
 
@@ -15,7 +16,58 @@ class _spec:
     def __init__(self, name):
         self.name = name
         self.key_fn = lambda cfg: f"key-{cfg}"
-def test_worker_calls_core_run_sweep_not_a_private_copy(monkeypatch):
+
+
+class _Messages:
+    def __init__(self):
+        self.items = []
+
+    def put(self, item):
+        self.items.append(item)
+
+    def get_nowait(self):
+        if not self.items:
+            raise queue.Empty
+        return self.items.pop(0)
+
+
+class _Process:
+    def __init__(self, target, args, name):
+        self.target, self.args, self.name = target, args, name
+        self.pid = 4242
+        self.exitcode = None
+        self.alive = False
+
+    def start(self):
+        self.alive = True
+
+    def is_alive(self):
+        return self.alive
+
+    def join(self, timeout=None):
+        return None
+
+    def terminate(self):
+        self.alive = False
+        self.exitcode = -15
+
+    kill = terminate
+
+
+class _Context:
+    def __init__(self):
+        self.messages = _Messages()
+        self.process = None
+
+    def Queue(self):
+        return self.messages
+
+    def Process(self, **kwargs):
+        self.process = _Process(**kwargs)
+        return self.process
+
+
+def test_child_calls_core_run_sweep_not_a_private_copy(monkeypatch):
     """The UI must reuse the CLI's code path."""
     called = {}
 
@@ -26,13 +78,13 @@ def test_worker_calls_core_run_sweep_not_a_private_copy(monkeypatch):
         return [{"run_id": "x", "status": "complete"}]
 
     monkeypatch.setattr(mod, "run_sweep", _fake)
-    w = SweepWorker()
-    w.start([("cfg", "spec")])
-    for _ in range(100):
-        if not w.is_running:
-            break
-        time.sleep(0.01)
+    monkeypatch.setattr(mod, "setup_session_logging", lambda level: None)
+    monkeypatch.setattr(mod.os, "setsid", lambda: None)
+    messages = _Messages()
+    mod._run_in_child([("cfg", "spec")], False, None, messages)
+
     assert called["pairs"] == [("cfg", "spec")]
+    assert messages.items[0]["results"] == [{"run_id": "x", "status": "complete"}]
 
 
 def test_worker_reports_not_running_before_start():
@@ -40,14 +92,12 @@ def test_worker_reports_not_running_before_start():
 
 
 def test_worker_refuses_concurrent_sweeps(monkeypatch):
-    import master_script.webui.launch as mod
-
-    monkeypatch.setattr(mod, "run_sweep", lambda pairs, **kw: time.sleep(0.2) or [])
-    w = SweepWorker()
+    w = SweepWorker(context=_Context())
     w.start([("a", "b")])
     try:
         assert w.start([("c", "d")]) is False
     finally:
+        monkeypatch.setattr(w, "_terminate_process", lambda process: process.terminate())
         w.cancel()
 
 
@@ -58,13 +108,50 @@ def test_worker_records_error_without_crashing(monkeypatch):
         raise RuntimeError("sweep exploded")
 
     monkeypatch.setattr(mod, "run_sweep", _boom)
-    w = SweepWorker()
-    w.start([("a", "b")])
-    for _ in range(100):
-        if not w.is_running:
-            break
-        time.sleep(0.01)
-    assert "sweep exploded" in w.error
+    monkeypatch.setattr(mod, "setup_session_logging", lambda level: None)
+    monkeypatch.setattr(mod.os, "setsid", lambda: None)
+    messages = _Messages()
+    with pytest.raises(RuntimeError, match="sweep exploded"):
+        mod._run_in_child([("a", "b")], False, None, messages)
+    assert "sweep exploded" in messages.items[0]["error"]
+
+
+def test_worker_stop_terminates_the_owned_process(monkeypatch):
+    context = _Context()
+    worker = SweepWorker(context=context)
+    assert worker.start([("a", "b")], use_firestore=False) is True
+    monkeypatch.setattr(worker, "_terminate_process", lambda process: process.terminate())
+
+    assert worker.stop() is True
+    assert worker.status["running"] is False
+    assert worker.status["stopped"] is True
+
+
+def test_real_sweep_pairs_are_spawn_pickleable():
+    """The stoppable worker uses multiprocessing spawn, not a fork-only trick."""
+    from master_script.core.yaml_config import load_config_file
+    from master_script.paths import CONFIGS_DIR
+
+    pairs = load_config_file(CONFIGS_DIR / "smoke.yaml", only=["zlib"])
+
+    assert pickle.loads(pickle.dumps(pairs))[0][1].name == "zlib"
+
+
+def test_stop_sweep_clears_the_published_run_state(monkeypatch):
+    import master_script.webui.launch as mod
+
+    context = _Context()
+    worker = SweepWorker(context=context)
+    worker.start([("a", "b")], use_firestore=True)
+    monkeypatch.setattr(worker, "_terminate_process", lambda process: process.terminate())
+    published = {}
+    monkeypatch.setattr(mod, "WORKER", worker)
+    monkeypatch.setattr(mod, "publish_monitor_state", lambda state: published.update(state) or True)
+
+    result = mod.stop_sweep()
+
+    assert result["ok"] is True
+    assert published == {"running": [], "manifest": []}
 
 
 def test_selecting_an_attack_the_config_lacks_is_refused_not_reported_as_started(monkeypatch):
@@ -131,3 +218,19 @@ def test_a_second_start_publishes_no_manifest(monkeypatch):
     result = mod.start_sweep("smoke.yaml")
     assert result["ok"] is False and "already running" in result["message"]
     assert "called" not in published
+
+
+def test_a_spawn_failure_clears_the_manifest_it_published(monkeypatch):
+    import master_script.webui.launch as mod
+
+    published = []
+    monkeypatch.setattr(type(mod.WORKER), "is_running", property(lambda self: False))
+    monkeypatch.setattr(mod.WORKER, "start", lambda *a, **k: False)
+    monkeypatch.setattr(mod.WORKER, "error", "spawn failed")
+    monkeypatch.setattr(mod, "publish_manifest", lambda pairs: published.append("manifest") or True)
+    monkeypatch.setattr(mod, "publish_monitor_state", lambda state: published.append(state) or True)
+
+    result = mod._start([("cfg", _spec("zlib"))], True, "empty")
+
+    assert result == {"ok": False, "message": "spawn failed"}
+    assert published == ["manifest", {"running": [], "manifest": []}]

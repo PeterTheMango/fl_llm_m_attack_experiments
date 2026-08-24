@@ -4,11 +4,15 @@
 Thin by design (spec §3): all data logic lives in DashboardState. This module
 only projects state into the JSON the Results and Detail views render.
 """
+from pathlib import Path
+import shutil
 from statistics import mean
 from typing import Any, Dict, List, Optional
 
+from ..core import firestore
+from ..paths import ARTIFACTS_DIR
 from . import catalog
-from .state import attack_name
+from .state import COLLECTION, attack_name
 
 _TOLERANCE = 0.02
 
@@ -190,4 +194,53 @@ def detail_payload(state, run_id: str) -> Optional[dict]:
         "artifacts": _artifacts(run),
         "error": current_error(run),
         "prior_error": prior_error(run),
+    }
+
+
+def _safe_artifact_dir(run: dict) -> Optional[Path]:
+    """Return a deletable artifact directory only when it is below our root."""
+    artifacts = run.get("artifacts") or {}
+    raw = artifacts.get("artifact_dir") if isinstance(artifacts, dict) else None
+    if not raw:
+        return None
+    root = ARTIFACTS_DIR.resolve()
+    candidate = Path(str(raw)).expanduser().resolve()
+    if candidate == root:
+        return None
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        return None
+    return candidate
+
+
+def delete_run(state, run_id: str) -> dict:
+    """Delete the Firestore result and any safely-scoped local artifacts."""
+    run = state.runs.get(run_id)
+    if run is None:
+        return {"ok": False, "message": f"No run found for run_id={run_id!r}"}
+
+    # Firestore is authoritative: if this fails, keep local state and artifacts
+    # intact so the page never claims the result was removed when it was not.
+    firestore.delete_result(run_id, COLLECTION)
+
+    artifact_dir = _safe_artifact_dir(run)
+    artifact_removed = False
+    artifact_warning = ""
+    if artifact_dir is not None and artifact_dir.exists():
+        try:
+            shutil.rmtree(artifact_dir)
+            artifact_removed = True
+        except OSError as exc:
+            artifact_warning = f" Local artifacts could not be removed: {exc}"
+
+    state.remove_run(run_id)
+    return {
+        "ok": True,
+        "message": (f"Deleted result {run_id} from Firestore."
+                    + (" Removed its local artifacts." if artifact_removed else "")
+                    + artifact_warning),
+        "run_id": run_id,
+        "artifact_removed": artifact_removed,
+        "artifact_warning": artifact_warning,
     }

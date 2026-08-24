@@ -53,6 +53,7 @@ const S = {
   editor: { name: null, text: '', dirty: false, validation: null, saveName: '', confirmOverwrite: false },
   settings: null,
   settingsEdits: {}, settingsDeletes: [], settingsRevealed: {}, newVar: { key: '', value: '' },
+  stopConfirm: false, deleteConfirmRunId: null,
   banner: '', copied: false,
   serverOffset: 0,
 };
@@ -143,11 +144,15 @@ async function postJSON(url, body) {
     body: JSON.stringify(body || {}),
   });
 }
+async function deleteJSON(url) {
+  return getJSON(url, { method: 'DELETE' });
+}
 
 async function refresh() {
   try {
     if (S.view === 'live') {
       S.live = await getJSON('/api/live');
+      if (!S.live.worker || !S.live.worker.running) S.stopConfirm = false;
       S.serverOffset = S.live.now_unix - Date.now() / 1000;
       S.tunnel = await getJSON('/api/tunnel');
     } else if (S.view === 'results') {
@@ -162,6 +167,7 @@ async function refresh() {
       S.tunnel = await getJSON('/api/tunnel');
     } else if (S.view === 'launch') {
       S.launch = await getJSON('/api/launch');
+      if (!S.launch.worker.running) S.stopConfirm = false;
       // The schema is fixed for the process's lifetime; fetch it once rather
       // than on every poll.
       if (!S.attackFields) S.attackFields = await getJSON('/api/attacks/fields');
@@ -181,6 +187,18 @@ function initFilters() {
   if (S.filters.attacks) return;
   S.filters.attacks = {};
   Object.keys((S.results && S.results.attacks) || {}).forEach((k) => { S.filters.attacks[k] = true; });
+}
+
+function stopSweepControls(worker, compact) {
+  if (!S.local || !worker || !worker.running) return '';
+  const pad = compact ? '5px 10px' : '8px 14px';
+  if (!S.stopConfirm) {
+    return `<div data-act="sweep-stop-arm" style="font-size:11px;font-weight:600;cursor:pointer;padding:${pad};border-radius:8px;color:var(--no,#f0606a);border:1px solid color-mix(in srgb,var(--no,#f0606a) 48%,var(--bd));background:color-mix(in srgb,var(--no,#f0606a) 7%,var(--p2,#1b212a))">Stop sweep</div>`;
+  }
+  return `<div style="display:flex;align-items:center;gap:6px">
+    <div data-act="sweep-stop-confirm" style="font-size:11px;font-weight:700;cursor:pointer;padding:${pad};border-radius:8px;color:#fff;border:1px solid var(--no,#f0606a);background:var(--no,#f0606a)">Confirm stop</div>
+    <div data-act="sweep-stop-cancel" style="font-size:10.5px;cursor:pointer;padding:${pad};border-radius:8px;color:var(--fd,#9aa6b2);border:1px solid var(--bd,#252c36);background:var(--p2,#1b212a)">Cancel</div>
+  </div>`;
 }
 
 // ---------- routing ----------
@@ -504,6 +522,7 @@ function liveView() {
         <div style="font-size:12px;color:var(--fd,#9aa6b2);margin-top:2px">${esc(subtitle)}</div>
       </div>
       <div style="flex:1"></div>
+      ${stopSweepControls(S.live.worker, true)}
       ${reportChip}
       <div style="display:flex;gap:3px;background:var(--p2,#1b212a);border:1px solid var(--bd,#252c36);border-radius:8px;padding:3px">${vizBtns}</div>
     </div>
@@ -552,8 +571,21 @@ function sortedRows() {
 
 const COLUMNS = [['attack', 'attack'], ['run_id', 'run_id'], ['status', 'status'], ['model', 'model'],
   ['rounds', 'R'], ['clients', 'C'], ['eps', 'privacy'], ['seed', 'seed'], ['adv', 'Adv'],
-  ['tprtnr', 'TPR/TNR'], ['updated', 'updated']];
-const GRID = '82px 160px 96px 140px 58px 58px 88px 54px 130px 80px 82px';
+  ['tprtnr', 'TPR/TNR'], ['updated', 'updated'], ['actions', '']];
+const GRID = '82px 160px 96px 140px 58px 58px 88px 54px 130px 80px 82px 92px';
+
+function deleteRunControls(runId, compact) {
+  if (!S.local) return '';
+  const armed = S.deleteConfirmRunId === runId;
+  const pad = compact ? '3px 7px' : '5px 10px';
+  if (!armed) {
+    return `<div data-act="run-delete-arm" data-arg="${esc(runId)}" style="font-size:10px;cursor:pointer;padding:${pad};border-radius:6px;color:var(--no,#f0606a);border:1px solid color-mix(in srgb,var(--no,#f0606a) 38%,var(--bd));text-align:center">delete</div>`;
+  }
+  return `<div style="display:flex;align-items:center;gap:4px">
+    <div data-act="run-delete-confirm" data-arg="${esc(runId)}" style="font-size:9.5px;font-weight:700;cursor:pointer;padding:${pad};border-radius:6px;color:#fff;background:var(--no,#f0606a);border:1px solid var(--no,#f0606a)">confirm</div>
+    <div data-act="run-delete-cancel" data-arg="${esc(runId)}" style="font-size:12px;cursor:pointer;padding:2px 5px;color:var(--fm,#5f6b78)" title="cancel">×</div>
+  </div>`;
+}
 
 function resultsView() {
   if (!S.results) return loadingView('results');
@@ -573,6 +605,7 @@ function resultsView() {
   const xOpts = S.results.x_factors.map((f) => [f, f]);
 
   const columns = COLUMNS.map(([k, label]) => {
+    if (k === 'actions') return `<div style="font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--fm,#5f6b78);padding:12px 0">actions</div>`;
     const sk = k === 'tprtnr' ? 'adv' : k, active = S.sort.key === sk;
     const arrow = active ? (S.sort.dir === 'asc' ? ' ↑' : ' ↓') : '';
     return `<div data-act="sort" data-arg="${sk}" style="font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:${active ? 'var(--ac,#36c08f)' : 'var(--fm,#5f6b78)'};padding:12px 0;cursor:pointer;user-select:none">${label}${arrow}</div>`;
@@ -602,6 +635,7 @@ function resultsView() {
       <div>${advCell}</div>
       <div style="font-family:${MONO};color:var(--fd,#9aa6b2);font-size:10.5px">${r.metrics ? fmt3(r.metrics.tpr) + '/' + fmt3(r.metrics.tnr) : '—'}</div>
       <div style="font-family:${MONO};color:var(--fm,#5f6b78);font-size:10px">${timeAgo(r.updated_at_unix)} ago</div>
+      <div style="display:flex;justify-content:flex-end">${deleteRunControls(r.run_id, true)}</div>
     </div>`;
   }).join('');
 
@@ -666,7 +700,7 @@ function resultsView() {
     </div>
 
     <div style="background:var(--pn,#15191f);border:1px solid var(--bd,#252c36);border-radius:12px;overflow:hidden">
-      <div style="overflow-x:auto"><div style="min-width:1080px">
+      <div style="overflow-x:auto"><div style="min-width:1190px">
         <div style="display:grid;grid-template-columns:${GRID};gap:0 10px;padding:0 16px;border-bottom:2px solid var(--bd,#252c36);background:var(--p2,#1b212a);position:sticky;top:0">${columns}</div>
         <div data-scroll="table" style="max-height:420px;overflow-y:auto">${body || emptyNote('', 'No runs match the active filter.')}</div>
       </div></div>
@@ -738,6 +772,7 @@ function detailView() {
       <span style="font-size:11px;color:${statusColor};display:inline-flex;align-items:center;gap:6px;border:1px solid var(--bd,#252c36);padding:3px 9px;border-radius:7px"><span style="width:7px;height:7px;border-radius:50%;background:${statusColor}"></span>${esc(d.status)}</span>
       <div style="flex:1"></div>
       <span style="font-size:11px;color:var(--fm,#5f6b78);font-family:${MONO}">updated_at ${timeAgo(d.updated_at_unix)} ago</span>
+      ${deleteRunControls(d.run_id, false)}
     </div>
     <div style="font-size:12px;color:var(--fd,#9aa6b2);margin-bottom:18px">${esc(m.title)}</div>
     ${d.error ? `<div style="background:color-mix(in srgb,var(--no,#f0606a) 8%,var(--pn,#15191f));border:1px solid color-mix(in srgb,var(--no,#f0606a) 30%,var(--bd));border-radius:10px;padding:13px 16px;margin-bottom:16px;font-family:${MONO};font-size:11.5px;color:var(--no,#f0606a);white-space:pre-wrap">${esc(d.error)}</div>` : ''}
@@ -1102,6 +1137,7 @@ function launchView() {
   const status = w.running
     ? `<span style="color:var(--rn,#4aa8ff)">● running · ${w.finished}/${w.planned} finished · ${elapsedFmt(w.started_unix ? now() - w.started_unix : null)} elapsed</span>`
     : w.error ? `<span style="color:var(--no,#f0606a)">● last sweep failed: ${esc(w.error)}</span>`
+    : w.stopped ? `<span style="color:var(--wn,#e3b341)">● idle · last sweep was stopped</span>`
     : w.planned ? `<span style="color:var(--ok,#3fcf8e)">● idle · last sweep finished ${w.finished}/${w.planned}</span>`
     : `<span style="color:var(--fm,#5f6b78)">● idle · no sweep started this session</span>`;
 
@@ -1144,7 +1180,9 @@ function launchView() {
           </div>persist to Firestore
         </div>
         <div style="flex:1"></div>
-        <div data-act="${manualMode ? 'manual-start' : 'launch-start'}" data-hover style="font-size:12px;font-weight:600;cursor:pointer;padding:9px 18px;border-radius:9px;background:${w.running ? 'var(--gd,#222a34)' : 'var(--ac,#36c08f)'};color:${w.running ? 'var(--fm,#5f6b78)' : '#0d1014'};border:1px solid ${w.running ? 'var(--bd,#252c36)' : 'var(--ac,#36c08f)'}">${w.running ? 'Sweep in progress' : 'Start sweep'}</div>
+        ${w.running
+          ? stopSweepControls(w, false)
+          : `<div data-act="${manualMode ? 'manual-start' : 'launch-start'}" data-hover style="font-size:12px;font-weight:600;cursor:pointer;padding:9px 18px;border-radius:9px;background:var(--ac,#36c08f);color:#0d1014;border:1px solid var(--ac,#36c08f)">Start sweep</div>`}
       </div>
       <div style="padding:13px 20px;background:var(--p2,#1b212a);border-top:1px solid var(--bd,#252c36);font-size:11.5px;font-family:${MONO}">${status}</div>
     </div>
@@ -1483,9 +1521,9 @@ function render(opts) {
 // ---------- events ----------
 async function onAction(act, arg) {
   switch (act) {
-    case 'nav': go(arg); return;
-    case 'open': go('detail', arg); return;
-    case 'back': go('results'); return;
+    case 'nav': S.stopConfirm = false; S.deleteConfirmRunId = null; go(arg); return;
+    case 'open': S.deleteConfirmRunId = null; go('detail', arg); return;
+    case 'back': S.deleteConfirmRunId = null; go('results'); return;
     case 'theme': S.theme = arg; localStorage.setItem('canary.theme', arg); break;
     case 'viz': S.liveViz = arg; break;
     case 'privacy': S.privacyView = !S.privacyView; break;
@@ -1493,6 +1531,40 @@ async function onAction(act, arg) {
     case 'sort':
       S.sort = { key: arg, dir: (S.sort.key === arg && S.sort.dir === 'desc') ? 'asc' : 'desc' };
       break;
+    case 'sweep-stop-arm': S.stopConfirm = true; break;
+    case 'sweep-stop-cancel': S.stopConfirm = false; break;
+    case 'sweep-stop-confirm': {
+      const res = await postJSON('/api/launch/stop', {});
+      S.stopConfirm = false;
+      if (S.view === 'launch') S.launch = await getJSON('/api/launch');
+      if (S.view === 'live') {
+        S.live = await getJSON('/api/live');
+        S.serverOffset = S.live.now_unix - Date.now() / 1000;
+      }
+      S.banner = res.message;
+      break;
+    }
+    case 'run-delete-arm': S.deleteConfirmRunId = arg; break;
+    case 'run-delete-cancel':
+      if (S.deleteConfirmRunId === arg) S.deleteConfirmRunId = null;
+      break;
+    case 'run-delete-confirm': {
+      const res = await deleteJSON('/api/runs/' + encodeURIComponent(arg));
+      S.deleteConfirmRunId = null;
+      if (res.ok) {
+        S.results = await getJSON('/api/results');
+        initFilters();
+        if (S.view === 'detail') {
+          S.view = 'results';
+          S.selectedRunId = null;
+          S.detail = null;
+          S.detailError = '';
+          history.replaceState({}, '', '/results');
+        }
+      }
+      S.banner = res.message;
+      break;
+    }
     case 'provider': S.tunnelForm.provider = arg; break;
     case 'copy':
       if (S.tunnel && S.tunnel.url) {

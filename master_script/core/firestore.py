@@ -204,6 +204,19 @@ def mark_result_failed(config: Any, error: str, spec: Optional[Any] = None) -> b
     return True
 
 
+def delete_result(run_id: str, collection: str = "ami_federated_llm_results") -> bool:
+    """Delete one persisted experiment result.
+
+    Unlike cache reads and optional writes, an explicit destructive request
+    must surface credential and network failures to its caller. Silently
+    treating a failed delete as success would leave the dashboard lying about
+    what remains authoritative in Firestore.
+    """
+    db = get_firestore_client(os.environ.get("FIREBASE_PROJECT_ID"))
+    db.collection(collection).document(run_id).delete()
+    return True
+
+
 def publish_monitor_state(
     state: Dict, collection: str = "ami_federated_llm_results"
 ) -> bool:

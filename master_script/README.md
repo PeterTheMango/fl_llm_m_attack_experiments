@@ -329,7 +329,8 @@ between five views in the browser; each URL below is also directly linkable.
   recently-finished feed; GPU utilisation and a tail of the session log.
 - **`/results`** — Results (`webui/results.py`): filter by attack, status,
   model, mechanism and `run_id`; Adv-vs-factor scatter and mean-Adv-by-attack
-  charts; a sortable grid of every run.
+  charts; a sortable grid of every run; and two-click deletion for individual
+  results.
 - **`/results/{run_id}`** — Run detail: headline metrics, the methodology the
   document recorded, full config, per-round federated loss, attack-score
   distribution, ROC computed from `attack_trials[]`, and artifact paths.
@@ -339,7 +340,8 @@ between five views in the browser; each URL below is also directly linkable.
   `.env`, so the form comes back filled in after a restart.
 - **`/launch`** — Launch a sweep (`webui/launch.py`): tune an attack field by
   field, or run a saved config, through `core.runner.run_sweep` — the same
-  entry point the CLI uses.
+  entry point the CLI uses. A running dashboard-owned sweep can be stopped
+  from here or from Live monitoring.
 - **`/settings`** — Edit the `.env` the program loads (`webui/envfile.py`).
   **Local-only**: served to loopback callers, and to nothing else.
 
@@ -374,6 +376,28 @@ Both modes reach `core.yaml_config.load_config_doc` and then
 to the same runs — `tests/test_webui_manual.py` asserts that equality directly,
 because if it ever broke, a saved config would no longer reproduce the run it
 was saved from.
+
+### Stopping sweeps and deleting results
+
+A sweep launched from `/launch` runs in its own spawned process group. *Stop
+sweep* is a two-click action that first sends a graceful termination signal to
+that group and escalates to a hard kill after five seconds, so training worker
+processes do not survive their parent. The transient running set and abandoned
+manifest are cleared afterward. The dashboard never guesses at process
+ownership: an independent CLI sweep remains an independent process and cannot
+be stopped by this control.
+
+Every row in `/results`, and its detail page, has a two-click *delete* action.
+Deletion is refused while that `run_id` is actively running. It removes the
+authoritative Firestore document first, then removes the stored local artifact
+directory only when its resolved path is strictly below
+`master_script/artifacts/`; an arbitrary path in an old document is never
+recursively deleted. Deletion is permanent, and re-running the same config
+recomputes the now-uncached run.
+
+Both actions are **local-only**, like Settings, because the outbound dashboard
+tunnel has no authentication. Use the dashboard directly on the VM or through
+an SSH port-forward to operate them.
 
 ### The config editor
 
@@ -503,9 +527,10 @@ There is none in the checkpoint sense, by design (§1.2) — you resume by
 recomputes from scratch; the granularity is one whole run, since a run writes
 its document once, at the end. A run killed at trial 63 of 64 loses all 64.
 
-Note that a sweep launched from `/launch` runs on a daemon thread **inside the
-dashboard process** — killing the dashboard kills the sweep. A sweep launched
-from the CLI is an independent process and is unaffected by the dashboard.
+Note that a sweep launched from `/launch` runs in an isolated child process
+owned by the dashboard, which makes an explicit process-tree stop possible. A
+sweep launched from the CLI is an independent process and is unaffected by the
+dashboard controls.
 
 If Firestore credentials are unavailable, `main()` catches the listener
 failure and the dashboard still starts — it prints

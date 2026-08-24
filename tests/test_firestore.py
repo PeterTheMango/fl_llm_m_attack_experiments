@@ -16,6 +16,9 @@ class _FakeDoc:
             raise ValueError("nested arrays are not supported")
         self._store[self._key] = payload
 
+    def delete(self):
+        self._store.pop(self._key, None)
+
 
 class _FakeSnap:
     def __init__(self, data):
@@ -59,6 +62,15 @@ def test_save_returns_false_without_credentials(monkeypatch):
 
     monkeypatch.setattr(fs, "get_firestore_client", _boom)
     assert fs.save_result(ZlibConfig(), {"status": "complete"}) is False
+
+
+def test_delete_result_removes_the_authoritative_document(monkeypatch):
+    db = _FakeDB()
+    db.store["run-123"] = {"status": "complete"}
+    monkeypatch.setattr(fs, "get_firestore_client", lambda *a, **k: db)
+
+    assert fs.delete_result("run-123") is True
+    assert "run-123" not in db.store
 
 
 def test_genuine_write_error_reraises_not_swallowed(monkeypatch):

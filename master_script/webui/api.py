@@ -18,6 +18,10 @@ from .state import DashboardState
 router = APIRouter(prefix="/api")
 
 STATE = DashboardState()
+# Credentials and destructive process/data operations stay on loopback. The
+# public tunnel has no authentication layer, so exposing these endpoints there
+# would turn possession of its URL into permission to erase work or stop GPUs.
+LOCAL_ONLY = [Depends(localguard.require_local)]
 
 
 def _finite(value):
@@ -36,6 +40,7 @@ def live():
     STATE.ensure_fresh()
     return _finite({
         **monitor.live_payload(STATE),
+        "worker": launch.WORKER.status,
         "source": {"listener": STATE.live, "error": STATE.error,
                    "last_sync_unix": STATE.last_sync_unix},
     })
@@ -54,6 +59,21 @@ def run_detail(run_id: str):
     if payload is None:
         raise HTTPException(status_code=404, detail=f"No run found for run_id={run_id!r}")
     return _finite(payload)
+
+
+@router.delete("/runs/{run_id}", dependencies=LOCAL_ONLY)
+def run_delete(run_id: str):
+    """Delete one completed/failed result and safely-scoped local artifacts."""
+    STATE.ensure_fresh()
+    if run_id not in STATE.runs:
+        raise HTTPException(status_code=404, detail=f"No run found for run_id={run_id!r}")
+    if any(entry.get("run_id") == run_id and not monitor.is_stale(entry)
+           for entry in STATE.running):
+        return {"ok": False, "message": "Stop the active experiment before deleting its result."}
+    try:
+        return results.delete_run(STATE, run_id)
+    except Exception as exc:
+        return {"ok": False, "message": f"Could not delete {run_id}: {exc}"}
 
 
 def _tunnel_status() -> dict:
@@ -139,6 +159,14 @@ def launch_start(body: LaunchRequest):
     return launch.start_sweep(body.config_file, body.attacks, body.use_firestore)
 
 
+@router.post("/launch/stop", dependencies=LOCAL_ONLY)
+def launch_stop():
+    result = launch.stop_sweep()
+    if result["ok"]:
+        STATE.clear_run_state()
+    return result
+
+
 # ---------- manual launch mode ----------
 #
 # The form payload is all strings; typing happens in manual.build_doc against
@@ -210,9 +238,6 @@ def config_save(body: ConfigSave):
 #
 # Local-only. This is the one surface that reads and writes credentials, so it
 # stays on the machine running the dashboard even while the tunnel is up.
-
-LOCAL_ONLY = [Depends(localguard.require_local)]
-
 
 @router.get("/session")
 def session(request: Request):
