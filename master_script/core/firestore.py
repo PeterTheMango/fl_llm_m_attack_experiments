@@ -20,6 +20,15 @@ from .config import experiment_key
 
 
 MONITOR_STATE_DOC = "monitor_state"
+RESULTS_COLLECTION = "ami_federated_llm_results"
+LEGACY_LOSS_COLLECTION = "loss_federated_llm_results"
+
+
+def _read_collections(spec: Optional[Any] = None) -> tuple[str, ...]:
+    """Canonical result collection followed by any attack-specific legacy home."""
+    if getattr(spec, "name", None) == "loss":
+        return RESULTS_COLLECTION, LEGACY_LOSS_COLLECTION
+    return (RESULTS_COLLECTION,)
 
 
 def get_firestore_client(project_id: Optional[str] = None):
@@ -97,14 +106,13 @@ def load_cached_result(config: Any, spec: Optional[Any] = None) -> Optional[Dict
         # Missing-credentials case only: run locally, uncached.
         return None
 
-    snapshot = db.collection(config.firestore_collection).document(
-        experiment_key(config, spec)
-    ).get()
-
-    if snapshot.exists:
-        payload = snapshot.to_dict()
-        if payload.get("status") == "complete":
-            return payload
+    run_id = experiment_key(config, spec)
+    for collection in _read_collections(spec):
+        snapshot = db.collection(collection).document(run_id).get()
+        if snapshot.exists:
+            payload = snapshot.to_dict()
+            if payload.get("status") == "complete":
+                return payload
 
     return None
 
@@ -137,7 +145,7 @@ def save_result(config: Any, result: Dict, spec: Optional[Any] = None) -> bool:
 
     # A real write/serialization error (e.g. nested-array rejection) propagates
     # so it fails fast rather than masquerading as "not saved". Do not widen.
-    db.collection(config.firestore_collection).document(
+    db.collection(RESULTS_COLLECTION).document(
         experiment_key(config, spec)
     ).set(payload, merge=True)
     return True
@@ -189,7 +197,7 @@ def mark_result_failed(config: Any, error: str, spec: Optional[Any] = None) -> b
     except Exception:
         return False
 
-    db.collection(config.firestore_collection).document(
+    db.collection(RESULTS_COLLECTION).document(
         experiment_key(config, spec)
     ).set(
         {
@@ -204,7 +212,7 @@ def mark_result_failed(config: Any, error: str, spec: Optional[Any] = None) -> b
     return True
 
 
-def delete_result(run_id: str, collection: str = "ami_federated_llm_results") -> bool:
+def delete_result(run_id: str, collection: str = RESULTS_COLLECTION) -> bool:
     """Delete one persisted experiment result.
 
     Unlike cache reads and optional writes, an explicit destructive request
@@ -218,7 +226,7 @@ def delete_result(run_id: str, collection: str = "ami_federated_llm_results") ->
 
 
 def publish_monitor_state(
-    state: Dict, collection: str = "ami_federated_llm_results"
+    state: Dict, collection: str = RESULTS_COLLECTION
 ) -> bool:
     """Publish the optional run-state report (ideation doc §1.1).
 

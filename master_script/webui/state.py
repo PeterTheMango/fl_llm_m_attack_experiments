@@ -9,9 +9,9 @@ import time
 from statistics import mean
 from typing import Callable, Dict, List, Optional
 
-from ..core.firestore import MONITOR_STATE_DOC, get_firestore_client
+from ..core.firestore import MONITOR_STATE_DOC, RESULTS_COLLECTION, get_firestore_client
 
-COLLECTION = "ami_federated_llm_results"
+COLLECTION = RESULTS_COLLECTION
 
 
 def attack_name(run: dict) -> Optional[str]:

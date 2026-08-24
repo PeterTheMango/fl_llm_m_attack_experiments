@@ -159,7 +159,7 @@ def _artifacts(run: dict) -> List[dict]:
         items = []
     rows = [{"k": k, "v": "—" if v is None else str(v)} for k, v in items]
     # The Firestore document is the authoritative record; local paths may be gone.
-    rows.append({"k": "firestore_doc", "v": f"ami_federated_llm_results/{run.get('run_id', '?')}",
+    rows.append({"k": "firestore_doc", "v": f"{firestore.RESULTS_COLLECTION}/{run.get('run_id', '?')}",
                  "authoritative": True})
     return rows
 

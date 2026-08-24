@@ -24,12 +24,12 @@ def test_every_field_lands_in_a_known_group():
             assert field["group"] in attackfields.GROUP_ORDER
 
 
-def test_identity_fields_are_read_only():
-    """attack_name and paper_source feed the experiment key; editing them
-    produces a differently-hashed run, never a useful variation."""
+def test_identity_and_storage_fields_are_read_only():
+    """Identity fields cannot be useful variations, and storage is shared."""
     by = attackfields.by_name("zlib")
     assert by["attack_name"]["readonly"] is True
     assert by["paper_source"]["readonly"] is True
+    assert by["firestore_collection"]["readonly"] is True
     assert by["seed"]["readonly"] is False
 
 

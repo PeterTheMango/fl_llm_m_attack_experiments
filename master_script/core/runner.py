@@ -88,6 +88,7 @@ def run_single_experiment(config, spec, *, use_firestore: bool = True, keep_arti
         result.setdefault("status", "complete")
         result.setdefault("updated_at_unix", int(time.time()))
         result.setdefault("attack_name", getattr(config, "attack_name", spec.name))
+        result.setdefault("config", asdict(config))
     else:
         result = {
             "run_id": run_id,

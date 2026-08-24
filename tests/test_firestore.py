@@ -43,9 +43,21 @@ class _FakeCollection:
 class _FakeDB:
     def __init__(self):
         self.store = {}
+        self.collection_names = []
 
-    def collection(self, _name):
+    def collection(self, name):
+        self.collection_names.append(name)
         return _FakeCollection(self.store)
+
+
+class _NamedFakeDB:
+    """Collection-aware fake for canonical/legacy routing tests."""
+
+    def __init__(self):
+        self.stores = {}
+
+    def collection(self, name):
+        return _FakeCollection(self.stores.setdefault(name, {}))
 
 
 def test_load_cached_returns_none_without_credentials(monkeypatch):
@@ -136,3 +148,31 @@ def test_save_result_sends_the_cleared_payload(monkeypatch):
     cfg = ZlibConfig()
     assert fs.save_result(cfg, {"status": "complete", "metrics": {"adv": 0.6}}) is True
     assert db.store[experiment_key(cfg)]["error"] is _DELETE
+
+
+def test_loss_save_uses_the_canonical_collection(monkeypatch):
+    from master_script.core.registry import ATTACKS
+
+    db = _FakeDB()
+    monkeypatch.setattr(fs, "get_firestore_client", lambda *a, **k: db)
+    monkeypatch.setattr(fs, "_delete_field_sentinel", lambda: _DELETE)
+    spec = ATTACKS["loss"]
+
+    assert fs.save_result(spec.config_cls(), {"status": "complete"}, spec) is True
+    assert db.collection_names == [fs.RESULTS_COLLECTION]
+
+
+def test_loss_cache_can_read_the_legacy_collection(monkeypatch):
+    from master_script.core.config import experiment_key
+    from master_script.core.registry import ATTACKS
+
+    db = _NamedFakeDB()
+    monkeypatch.setattr(fs, "get_firestore_client", lambda *a, **k: db)
+    spec = ATTACKS["loss"]
+    cfg = spec.config_cls()
+    run_id = experiment_key(cfg, spec)
+    db.stores[fs.LEGACY_LOSS_COLLECTION] = {
+        run_id: {"run_id": run_id, "status": "complete"}
+    }
+
+    assert fs.load_cached_result(cfg, spec)["run_id"] == run_id

@@ -407,7 +407,7 @@ function nowPanel() {
 
 function sweepsPanel() {
   const rows = S.live.sweeps;
-  if (!rows.length) return panel('Active sweeps', '· grouped by attack', emptyNote('', 'No runs recorded yet.'));
+  if (!rows.length) return panel('Active sweeps', '· grouped by attack', emptyNote('', 'No attacks currently active.'));
   const body = rows.map((sw) => {
     const m = meta(sw.attack);
     const hasTotal = sw.total !== null && sw.total !== undefined;

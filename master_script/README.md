@@ -222,6 +222,13 @@ See `master_script/configs/smoke.yaml` (9 toy runs, no credentials) and
 `master_script/configs/example_sweep.yaml` (a real sweep) for worked
 examples.
 
+Two larger baseline-controlled sweeps are also shipped:
+
+- `configs/all_datasets_master.yaml` runs all 11 attacks over all seven real
+  dataset profiles (77 runs), changing only `dataset_name`.
+- `configs/gpt2_master.yaml` runs all 11 attacks with `gpt2` (11 runs),
+  changing only the target model and WBC's matching reference model.
+
 ## Lightweight master baseline
 
 [`configs/baseline_master.yaml`](configs/baseline_master.yaml) is the single
@@ -526,6 +533,12 @@ There is none in the checkpoint sense, by design (§1.2) — you resume by
 `status: "complete"`. So finished runs are cache hits and everything else
 recomputes from scratch; the granularity is one whole run, since a run writes
 its document once, at the end. A run killed at trial 63 of 64 loses all 64.
+
+All eleven attacks persist to the canonical
+`ami_federated_llm_results` collection. LOSS reads its former
+`loss_federated_llm_results` collection as a cache fallback, and its key
+function preserves the notebook-era run IDs even though new documents record
+the canonical collection in their config.
 
 Note that a sweep launched from `/launch` runs in an isolated child process
 owned by the dashboard, which makes an explicit process-tree stop possible. A

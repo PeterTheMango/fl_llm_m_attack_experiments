@@ -117,11 +117,27 @@ def test_live_endpoint_reports_running_set_unavailable_without_a_manifest():
     assert "worker" in payload and "running" in payload["worker"]
 
 
-def test_live_endpoint_groups_sweep_progress_by_attack():
-    sweeps = {s["attack"]: s for s in _client().get("/api/live").json()["sweeps"]}
-    assert sweeps["zlib"]["complete"] == 1
-    assert sweeps["min_k"]["failed"] == 1
-    assert sweeps["zlib"]["total"] is None  # no manifest -> no denominator
+def test_completed_results_without_a_manifest_are_not_active_sweeps():
+    assert _client().get("/api/live").json()["sweeps"] == []
+
+
+def test_resolved_attacks_leave_the_active_sweep_list():
+    docs = [
+        {**DOCS[0], "run_id": "z-done"},
+        {**DOCS[1], "run_id": "m-failed"},
+        {"run_id": "monitor_state", "running": [], "manifest": [
+            {"run_id": "z-done", "attack": "zlib"},
+            {"run_id": "z-pending", "attack": "zlib"},
+            {"run_id": "m-failed", "attack": "min_k"},
+        ]},
+    ]
+    sweeps = {s["attack"]: s for s in _client(docs).get("/api/live").json()["sweeps"]}
+
+    assert set(sweeps) == {"zlib"}
+    assert sweeps["zlib"] == {
+        "attack": "zlib", "complete": 1, "failed": 0,
+        "running": 0, "total": 2, "pending": 1,
+    }
 
 
 def test_results_endpoint_returns_every_run_and_the_attack_catalog():
@@ -465,7 +481,7 @@ def test_a_stale_entry_does_not_occupy_a_slot_in_the_sweep_bars():
     sweeps = {s["attack"]: s for s in monitor.live_payload(_state_with_running(heartbeat_unix=dead))["sweeps"]}
     assert sweeps["zlib"]["running"] == 0
     # ...and the ghost must not be double-counted against the manifest total
-    assert sweeps["zlib"]["pending"] == 0
+    assert sweeps["zlib"]["pending"] == 1
 
 
 def test_an_entry_with_no_timestamp_at_all_is_stale():

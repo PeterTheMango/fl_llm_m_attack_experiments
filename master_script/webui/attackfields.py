@@ -45,6 +45,7 @@ _FALLBACK_GROUP = "Attack"
 _READONLY = {
     "attack_name": "part of the experiment key",
     "paper_source": "part of the experiment key",
+    "firestore_collection": "shared result collection",
 }
 
 

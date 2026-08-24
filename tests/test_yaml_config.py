@@ -1,3 +1,5 @@
+from dataclasses import asdict
+
 import pytest
 
 from master_script.core.yaml_config import ConfigError, load_config_file
@@ -99,3 +101,53 @@ def test_load_config_doc_names_its_source_in_errors():
     with pytest.raises(ConfigError) as exc:
         load_config_doc({"attacks": {"nonexistent": {}}}, source="<manual>")
     assert "<manual>" in str(exc.value)
+
+
+def test_firestore_collection_is_fixed_to_the_shared_collection(tmp_path):
+    text = """
+attacks:
+  loss:
+    base: {firestore_collection: loss_federated_llm_results}
+"""
+    with pytest.raises(ConfigError, match="fixed to.*ami_federated_llm_results"):
+        load_config_file(_write(tmp_path, text))
+
+
+def test_all_datasets_master_sweeps_every_registered_dataset_at_baseline_values():
+    from master_script.core.datasets import available_dataset_names
+    from master_script.paths import CONFIGS_DIR
+
+    baseline = {
+        spec.name: cfg for cfg, spec in load_config_file(CONFIGS_DIR / "baseline_master.yaml")
+    }
+    pairs = load_config_file(CONFIGS_DIR / "all_datasets_master.yaml")
+
+    assert len(pairs) == 11 * len(available_dataset_names()) == 77
+    assert {cfg.dataset_name for cfg, _spec in pairs} == set(available_dataset_names())
+    for cfg, spec in pairs:
+        actual = asdict(cfg)
+        expected = asdict(baseline[spec.name])
+        actual.pop("dataset_name")
+        expected.pop("dataset_name")
+        assert actual == expected
+
+
+def test_gpt2_master_changes_only_the_model_from_baseline():
+    from master_script.paths import CONFIGS_DIR
+
+    baseline = {
+        spec.name: cfg for cfg, spec in load_config_file(CONFIGS_DIR / "baseline_master.yaml")
+    }
+    pairs = load_config_file(CONFIGS_DIR / "gpt2_master.yaml")
+
+    assert len(pairs) == 11
+    for cfg, spec in pairs:
+        assert cfg.model_id == "gpt2"
+        actual = asdict(cfg)
+        expected = asdict(baseline[spec.name])
+        actual.pop("model_id")
+        expected.pop("model_id")
+        if spec.name == "wbc":
+            assert actual.pop("reference_model_id") == "gpt2"
+            assert expected.pop("reference_model_id") == "distilgpt2"
+        assert actual == expected

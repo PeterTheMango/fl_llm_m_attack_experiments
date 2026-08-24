@@ -14,6 +14,7 @@ import yaml
 
 from .config import expand_sweep
 from .datasets import validate_dataset_name
+from .firestore import RESULTS_COLLECTION
 from .registry import ATTACKS
 
 
@@ -61,6 +62,18 @@ def load_config_doc(doc: dict, only: Optional[Sequence[str]] = None,
         base_over = dict(section.get("base") or {})
         sweep = dict(section.get("sweep") or {})
 
+        configured_collections = []
+        if "firestore_collection" in defaults:
+            configured_collections.append(defaults["firestore_collection"])
+        if "firestore_collection" in base_over:
+            configured_collections.append(base_over["firestore_collection"])
+        configured_collections.extend(sweep.get("firestore_collection") or [])
+        if any(value != RESULTS_COLLECTION for value in configured_collections):
+            raise ConfigError(
+                f"{source}: attack '{name}': firestore_collection is fixed to "
+                f"{RESULTS_COLLECTION!r}"
+            )
+
         # amia/loss have no toy path and no use_hf_models field on their
         # dataclasses at all. Treat use_hf_models there as a virtual switch:
         # an explicit false is the "toy" rejection below, not an unknown-field
@@ -85,6 +98,8 @@ def load_config_doc(doc: dict, only: Optional[Sequence[str]] = None,
         # defaults are cross-attack: silently skip keys this attack lacks.
         merged = {k: v for k, v in defaults.items() if k in allowed}
         merged.update(base_over)
+        if "firestore_collection" in allowed:
+            merged["firestore_collection"] = RESULTS_COLLECTION
         cfg = replace(spec.config_cls(), **merged) if merged else spec.config_cls()
 
         for expanded in expand_sweep(cfg, sweep):

@@ -95,44 +95,69 @@ def _running_rows(state) -> List[dict]:
 
 
 def _sweep_rows(state) -> List[dict]:
-    """Per-attack progress. Denominators exist only when a manifest was published."""
-    manifest_total = {}
-    for entry in state.manifest or []:
-        key = entry.get("attack") or entry.get("attack_name") or "?"
-        manifest_total[key] = manifest_total.get(key, 0) + 1
+    """Progress for attacks that still have running or unresolved manifest runs.
 
-    running_count = {}
-    for run in state.running:
-        if is_stale(run):
-            continue  # a ghost must not be counted as occupying a slot
+    Historical result documents are deliberately excluded. Once every run for
+    an attack in the current manifest is complete or failed, that attack is no
+    longer an active sweep and disappears from this panel.
+    """
+    live_running = {
+        run.get("run_id"): run for run in state.running
+        if run.get("run_id") and not is_stale(run)
+    }
+
+    # Without a manifest, only a live run is evidence of an active sweep. Past
+    # Firestore results cannot supply a denominator or imply ongoing work.
+    if state.manifest is None:
+        counts = {}
+        for run in live_running.values():
+            cfg = run.get("config") or {}
+            key = cfg.get("attack_name") or run.get("attack") or "?"
+            counts[key] = counts.get(key, 0) + 1
+        return [
+            {"attack": key, "complete": 0, "failed": 0, "running": count,
+             "total": None, "pending": None}
+            for key, count in sorted(counts.items())
+        ]
+
+    buckets = {}
+    manifest_ids = set()
+    for entry in state.manifest:
+        run_id = entry.get("run_id")
+        key = entry.get("attack") or entry.get("attack_name") or "?"
+        manifest_ids.add(run_id)
+        bucket = buckets.setdefault(
+            key, {"attack": key, "complete": 0, "failed": 0,
+                  "running": 0, "total": 0, "pending": 0}
+        )
+        bucket["total"] += 1
+        result = state.runs.get(run_id)
+        if result and result.get("status") == "complete":
+            bucket["complete"] += 1
+        elif result and result.get("status") == "failed":
+            bucket["failed"] += 1
+        elif run_id in live_running:
+            bucket["running"] += 1
+        else:
+            bucket["pending"] += 1
+
+    # A live run from another reporter may not belong to the current manifest.
+    # It is still active, but its denominator is honestly unknown.
+    unmanifested = {}
+    for run_id, run in live_running.items():
+        if run_id in manifest_ids:
+            continue
         cfg = run.get("config") or {}
         key = cfg.get("attack_name") or run.get("attack") or "?"
-        running_count[key] = running_count.get(key, 0) + 1
+        unmanifested[key] = unmanifested.get(key, 0) + 1
 
-    resolved = {}
-    for run in state.runs.values():
-        key = attack_name(run)
-        bucket = resolved.setdefault(key, {"complete": 0, "failed": 0})
-        if run.get("status") == "complete":
-            bucket["complete"] += 1
-        elif run.get("status") == "failed":
-            bucket["failed"] += 1
-
-    rows = []
-    for key in sorted(set(manifest_total) | set(running_count) | set(resolved)):
-        bucket = resolved.get(key, {"complete": 0, "failed": 0})
-        complete, failed = bucket["complete"], bucket["failed"]
-        running = running_count.get(key, 0)
-        total = manifest_total.get(key)
-        rows.append({
-            "attack": key,
-            "complete": complete,
-            "failed": failed,
-            "running": running,
-            "total": total,
-            "pending": None if total is None else max(0, total - complete - failed - running),
-        })
-    return rows
+    rows = [bucket for bucket in buckets.values() if bucket["running"] or bucket["pending"]]
+    rows.extend(
+        {"attack": key, "complete": 0, "failed": 0, "running": count,
+         "total": None, "pending": None}
+        for key, count in unmanifested.items()
+    )
+    return sorted(rows, key=lambda row: row["attack"])
 
 
 def _recent_rows(state, limit: int) -> List[dict]:

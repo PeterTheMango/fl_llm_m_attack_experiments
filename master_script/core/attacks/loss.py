@@ -23,6 +23,7 @@ from typing import Any, Optional
 
 from .. import datasets as dataset_sources
 from ..config import AttackConfig, key_named_prefix
+from ..firestore import LEGACY_LOSS_COLLECTION, RESULTS_COLLECTION
 from ..spec import AttackSpec
 
 
@@ -46,7 +47,7 @@ class LossConfig(AttackConfig):
     attack_trials: int = 12
     threshold_quantile: float = 0.10
     calibration_nonmember_count: int = 24
-    firestore_collection: str = "loss_federated_llm_results"
+    firestore_collection: str = RESULTS_COLLECTION
     firebase_project_id: Optional[str] = None
     local_artifact_dir: str = "artifacts/adapted_loss"
     fl_framework: str = "flower"
@@ -438,6 +439,16 @@ def predict_member_from_loss(loss: float, threshold: float) -> bool:
     return loss <= threshold
 
 
+def loss_experiment_key(config) -> str:
+    """Keep notebook-era LOSS run IDs while using the shared result collection.
+
+    The original collection name was part of the hashed dataclass. Normalizing
+    that one field only for identity preserves every completed LOSS cache key;
+    the stored config can truthfully name the canonical collection.
+    """
+    return key_named_prefix(replace(config, firestore_collection=LEGACY_LOSS_COLLECTION))
+
+
 def run_attack_trial(config, trial_id: int, truth_member: bool, base_artifact_dir: Path) -> dict:
     import torch
 
@@ -568,7 +579,7 @@ SPEC = AttackSpec(
     name="loss",
     config_cls=LossConfig,
     methodology=METHODOLOGY,
-    key_fn=key_named_prefix,
+    key_fn=loss_experiment_key,
     supports_toy=False,
     custom_trials=run_attack_trials,
     build_payload=build_result_payload,

@@ -45,6 +45,10 @@ def test_ported_config_has_identical_field_order(attack):
 def test_ported_config_has_identical_defaults(attack):
     nb_defaults = asdict(notebook_config_class(attack)())
     ported_defaults = asdict(ATTACKS[attack].config_cls())
+    if attack == "loss":
+        # Storage was consolidated after the notebook was ported. LOSS's key
+        # function still hashes the legacy value so completed run IDs survive.
+        nb_defaults["firestore_collection"] = "ami_federated_llm_results"
     assert ported_defaults == nb_defaults
 
 

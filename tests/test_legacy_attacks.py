@@ -49,8 +49,8 @@ def test_loss_predicts_member_when_loss_below_threshold():
     assert predict_member_from_loss(2.0, 1.0) is False
 
 
-def test_loss_uses_its_own_firestore_collection():
-    assert ATTACKS["loss"].config_cls().firestore_collection == "loss_federated_llm_results"
+def test_loss_uses_the_shared_firestore_collection():
+    assert ATTACKS["loss"].config_cls().firestore_collection == "ami_federated_llm_results"
 
 
 def test_loss_methodology_has_attacker_observation_key():

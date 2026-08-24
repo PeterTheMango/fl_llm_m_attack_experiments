@@ -1,0 +1,88 @@
+# Extensive dataset sweep: all 11 attacks across all 7 registered real datasets.
+#
+# 77 runs total. Every value other than dataset_name is held equal to
+# baseline_master.yaml. corporate_enron contains real email and must only be
+# used under the project's approved research and data-handling policy.
+
+defaults:
+  use_hf_models: true
+  model_id: distilgpt2
+  dataset_name: squad
+  num_clients: 2
+  clients_per_round: 2
+  federated_rounds: 1
+  local_epochs: 1
+  local_batch_size: 4
+  attack_trials: 6
+  max_length: 64
+  seed: 7
+  sim_num_gpus: 0.5
+  keep_artifacts: false
+
+attacks:
+  zlib:
+    sweep:
+      dataset_name: &all_datasets
+        - nq_open
+        - trivia_qa
+        - squad
+        - hotpot_qa
+        - medical_medquad
+        - financial_phrasebank
+        - corporate_enron
+
+  min_k:
+    sweep:
+      dataset_name: *all_datasets
+
+  min_k_plus_plus:
+    sweep:
+      dataset_name: *all_datasets
+
+  neighborhood:
+    base:
+      num_neighbours: 6
+    sweep:
+      dataset_name: *all_datasets
+
+  recall:
+    base:
+      num_shots: 1
+    sweep:
+      dataset_name: *all_datasets
+
+  reference:
+    sweep:
+      dataset_name: *all_datasets
+
+  samia:
+    base:
+      num_samples: 3
+    sweep:
+      dataset_name: *all_datasets
+
+  spv_mia:
+    base:
+      num_paraphrases: 2
+      self_prompt_tokens: 4
+    sweep:
+      dataset_name: *all_datasets
+
+  wbc:
+    base:
+      reference_model_id: distilgpt2
+    sweep:
+      dataset_name: *all_datasets
+
+  amia:
+    base:
+      probe_epochs: 20
+      attack_batch_size: 4
+    sweep:
+      dataset_name: *all_datasets
+
+  loss:
+    base:
+      calibration_nonmember_count: 6
+    sweep:
+      dataset_name: *all_datasets

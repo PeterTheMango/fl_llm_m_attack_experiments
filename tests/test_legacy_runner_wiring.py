@@ -77,3 +77,4 @@ def test_amia_runs_through_runner_with_mocked_fl(monkeypatch):
     assert len(res["run_id"]) == 24
     assert "probe_training_loss" in res
     assert res["attack_name"] == "amia"
+    assert res["config"]["firestore_collection"] == "ami_federated_llm_results"
