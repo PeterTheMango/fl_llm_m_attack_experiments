@@ -73,3 +73,27 @@ def test_parallel_yaml_roundtrip_preserves_run_id(tmp_path):
         path.write_text(yaml.safe_dump({"attacks": {name: {"base": asdict(cfg)}}}))
         (reloaded, reloaded_spec), = load_config_file(path)
         assert experiment_key(reloaded, reloaded_spec) == experiment_key(cfg, spec), name
+
+
+def test_failed_run_does_not_block_later_cli_runs(tmp_path, capsys, monkeypatch):
+    cfg = tmp_path / "continue.yaml"
+    cfg.write_text("attacks:\n  zlib: {}\n  min_k: {}\n")
+
+    from master_script.core import runner
+
+    called = []
+
+    def fake_run(config, spec, **kwargs):
+        called.append(spec.name)
+        if spec.name == "zlib":
+            raise RuntimeError("simulation engine crashed")
+        return {"run_id": "min-k-ok", "status": "complete"}
+
+    monkeypatch.setattr(runner, "run_single_experiment", fake_run)
+    monkeypatch.setattr(runner, "reset_ray_after_failure", lambda: None)
+
+    assert main([
+        "--config", str(cfg), "--no-firestore", "--no-charts",
+    ]) == 1
+    assert called == ["zlib", "min_k"]
+    assert "1/2 run(s) complete" in capsys.readouterr().out

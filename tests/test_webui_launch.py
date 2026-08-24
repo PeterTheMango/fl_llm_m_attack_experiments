@@ -87,6 +87,33 @@ def test_child_calls_core_run_sweep_not_a_private_copy(monkeypatch):
     assert messages.items[0]["results"] == [{"run_id": "x", "status": "complete"}]
 
 
+def test_child_reports_mixed_results_as_done(monkeypatch):
+    """One failed attack is a completed sweep outcome, not a worker crash."""
+    import master_script.webui.launch as mod
+
+    monkeypatch.setattr(
+        mod,
+        "run_sweep",
+        lambda pairs, **kwargs: [
+            {"run_id": "failed", "status": "failed", "error": "Ray crashed"},
+            {"run_id": "complete", "status": "complete"},
+        ],
+    )
+    monkeypatch.setattr(mod, "setup_session_logging", lambda level: None)
+    monkeypatch.setattr(mod.os, "setsid", lambda: None)
+    messages = _Messages()
+
+    mod._run_in_child([("a", "b"), ("c", "d")], False, None, messages)
+
+    assert messages.items == [{
+        "type": "done",
+        "results": [
+            {"run_id": "failed", "status": "failed"},
+            {"run_id": "complete", "status": "complete"},
+        ],
+    }]
+
+
 def test_worker_reports_not_running_before_start():
     assert SweepWorker().is_running is False
 

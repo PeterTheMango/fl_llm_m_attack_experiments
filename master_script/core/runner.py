@@ -24,6 +24,47 @@ def cleanup_artifacts(artifact_dir) -> None:
         shutil.rmtree(artifact_dir)
 
 
+def reset_ray_after_failure() -> None:
+    """Best-effort reset of a Ray driver left unhealthy by a failed simulation.
+
+    Ray is an optional dependency for toy/no-HF runs, so importing it here must
+    remain lazy.  Cleanup must never replace the experiment error or prevent the
+    rest of a sweep from running.
+    """
+    try:
+        import ray
+    except ImportError:
+        return
+
+    try:
+        # Safe even when Ray failed before completing initialization.  This
+        # disconnects the current driver and clears its local global state so
+        # the next Flower simulation can initialize a fresh backend.
+        ray.shutdown()
+    except Exception:
+        log.exception("could not reset Ray after a failed experiment")
+
+
+def failed_sweep_result(config, spec, run_id: str, exc: Exception) -> dict:
+    """Small result envelope used to keep a sweep moving after one run fails."""
+    try:
+        config_payload = asdict(config)
+    except TypeError:
+        # Real runs use dataclass configs.  Keeping this defensive makes the
+        # orchestration boundary tolerant of lightweight callers and tests.
+        config_payload = dict(config) if isinstance(config, dict) else {}
+
+    message = f"{type(exc).__name__}: {exc}"
+    return {
+        "run_id": run_id,
+        "status": "failed",
+        "updated_at_unix": int(time.time()),
+        "attack_name": getattr(config, "attack_name", spec.name),
+        "config": config_payload,
+        "error": message[:2000],
+    }
+
+
 def run_attack_trial(config, spec, trial_id: int, truth_member: bool) -> dict:
     # Per-trial reseed, exactly as the notebooks do. NOTE: trial_config is never
     # hashed -- the run_id belongs to the original config. Real-data trials use
@@ -123,10 +164,11 @@ def run_sweep(pairs, *, use_firestore: bool = True, keep_artifacts=None,
     """pairs: iterable of (config, spec). Sequential; --max-parallel is the CLI's job.
 
     on_run_start/on_run_end bracket each run so an observer (the dashboard's
-    run-state report) can say which run is in flight *now*. on_run_end fires in
-    a finally: a run that raises must not leave the observer believing it is
-    still running. A hard kill still can -- that is what the reader-side
-    staleness check is for.
+    run-state report) can say which run is in flight *now*. A failed run is
+    returned with status=failed and the next run proceeds. on_run_end fires in
+    a finally so failures never leave the observer believing a run is active.
+    A hard kill still can -- that is what reader-side staleness detection is
+    for.
     """
     results = []
     for config, spec in pairs:
@@ -137,6 +179,17 @@ def run_sweep(pairs, *, use_firestore: bool = True, keep_artifacts=None,
             result = run_single_experiment(
                 config, spec, use_firestore=use_firestore, keep_artifacts=keep_artifacts
             )
+        except Exception as exc:
+            # run_single_experiment logs the traceback and persists the failed
+            # status for execution failures.  The sweep boundary is deliberately
+            # fail-soft: retain a compact local result, reset a possibly broken
+            # Ray driver, and advance to the next independent attack/config.
+            log.error(
+                "continuing sweep after run %s (%s) failed: %s: %s",
+                run_id, spec.name, type(exc).__name__, exc,
+            )
+            reset_ray_after_failure()
+            result = failed_sweep_result(config, spec, run_id, exc)
         finally:
             if on_run_end is not None:
                 on_run_end(run_id, spec.name, config)

@@ -65,17 +65,20 @@ def test_run_sweep_brackets_every_run_not_just_the_first(monkeypatch, published)
 
 
 def test_a_failing_run_still_clears_its_run_state(monkeypatch, published):
-    """Otherwise one crash leaves a permanent ghost in the running set."""
+    """A failed run clears its marker while the fail-soft sweep completes."""
     from master_script.core import runner
 
     def _boom(config, spec, **kw):
         raise RuntimeError("CUDA out of memory")
 
     monkeypatch.setattr(runner, "run_single_experiment", _boom)
+    monkeypatch.setattr(runner, "reset_ray_after_failure", lambda: None)
     reporter = RunStateReporter()
-    with pytest.raises(RuntimeError):
-        runner.run_sweep([("cfg", _spec("zlib"))], use_firestore=False, **reporter.hooks)
+    results = runner.run_sweep(
+        [("cfg", _spec("zlib"))], use_firestore=False, **reporter.hooks
+    )
     reporter.stop()
+    assert results[0]["status"] == "failed"
     assert _running(published)[-1] == []
 
 

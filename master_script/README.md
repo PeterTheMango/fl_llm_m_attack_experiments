@@ -506,8 +506,10 @@ in `/` exactly like one started from `/launch`. It is off under
 It is written **per run**: `run_sweep`'s `on_run_start` / `on_run_end` hooks
 bracket each run, so the running set is the run actually in flight, and
 `on_run_end` fires from a `finally` — a run that raises still clears itself.
-`_run` clears the whole report in its own `finally`, so an aborted sweep
-doesn't leave the last run claimed.
+Ordinary experiment failures are recorded as failed results, followed by a
+best-effort Ray reset, and the sweep advances to its next run. Interrupts and
+hard process failures still stop the sweep. `_run` clears the whole report in
+its own `finally`, so an interrupted sweep doesn't leave the last run claimed.
 
 Under `--max-parallel 2` the **parent** owns the report for the whole sweep and
 the GPU-pinned children are suppressed (`MASTER_SCRIPT_SUPPRESS_RUN_STATE`).

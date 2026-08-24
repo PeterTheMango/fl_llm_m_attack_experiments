@@ -84,6 +84,45 @@ def test_failed_run_does_not_clean_artifacts(monkeypatch, tmp_path):
     assert cleaned == []
 
 
+def test_sweep_continues_after_a_failed_run(monkeypatch):
+    first = ATTACKS["zlib"]
+    second = ATTACKS["min_k"]
+    calls = []
+    resets = []
+
+    def fake_run(config, spec, **kwargs):
+        calls.append(spec.name)
+        if spec.name == "zlib":
+            raise RuntimeError("Ray GCS failed to start")
+        return {"run_id": "second", "status": "complete"}
+
+    monkeypatch.setattr(runner, "run_single_experiment", fake_run)
+    monkeypatch.setattr(runner, "reset_ray_after_failure", lambda: resets.append(True))
+
+    results = runner.run_sweep(
+        [(first.config_cls(), first), (second.config_cls(), second)],
+        use_firestore=False,
+    )
+
+    assert calls == ["zlib", "min_k"]
+    assert [result["status"] for result in results] == ["failed", "complete"]
+    assert results[0]["run_id"]
+    assert results[0]["attack_name"] == "zlib"
+    assert results[0]["error"] == "RuntimeError: Ray GCS failed to start"
+    assert resets == [True]
+
+
+def test_ray_reset_is_best_effort(monkeypatch):
+    class BrokenRay:
+        @staticmethod
+        def shutdown():
+            raise RuntimeError("cleanup failed")
+
+    monkeypatch.setitem(__import__("sys").modules, "ray", BrokenRay)
+    # Cleanup errors must not escape and abort the remaining sweep.
+    runner.reset_ray_after_failure()
+
+
 def test_no_firestore_flag_skips_cache_and_write(monkeypatch):
     spec = ATTACKS["zlib"]
     monkeypatch.setattr(
