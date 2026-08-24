@@ -19,9 +19,9 @@ const STAGES = ['fine-tune', 'attack', 'measure'];
 const TIMELINE_WINDOW_S = 360;
 const POLL_MS = 2500;
 const TICK_MS = 1000;
-// Only rounding noise counts as "at bottom". Once the user scrolls upward,
-// even by a few pixels, live refreshes must stop following new log entries.
-const LOG_BOTTOM_EPSILON_PX = 2;
+// Only sub-pixel rounding noise counts as "at bottom". A one-pixel upward
+// scroll is an explicit request to stop following new log entries.
+const LOG_BOTTOM_EPSILON_PX = 0.5;
 const MONO = "'IBM Plex Mono',monospace";
 
 // ---------- state ----------
@@ -65,6 +65,7 @@ let root = null;
 // ---------- helpers ----------
 const esc = (v) => String(v === null || v === undefined ? '' : v)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const logKey = (entry) => JSON.stringify([entry.t || '', entry.stream || '', entry.text || '']);
 const now = () => Date.now() / 1000 + S.serverOffset;
 const fmt3 = (x) => (x === null || x === undefined || Number.isNaN(x)) ? '—' : Number(x).toFixed(3);
 const shortModel = (m) => String(m || '').split('/').pop();
@@ -483,7 +484,7 @@ function resourcesPanel() {
     </div>`;
   }).join('');
 
-  const logs = S.live.logs.map((l) => `<div style="display:flex;gap:8px">
+  const logs = S.live.logs.map((l) => `<div data-log-key="${esc(logKey(l))}" style="display:flex;gap:8px">
       <span style="color:#3b4654;flex:0 0 auto">${esc(l.t)}</span>
       <span style="color:${l.stream === 'err' ? 'var(--no,#f0606a)' : 'var(--fd,#9aa6b2)'};white-space:pre-wrap;word-break:break-word">${esc(l.text)}</span>
     </div>`).join('');
@@ -1470,6 +1471,56 @@ function currentView() {
   }
 }
 
+function captureLogViewport(pane) {
+  if (!pane) return { following: true, scrollTop: null, anchors: [] };
+  const distanceFromBottom = pane.scrollHeight - pane.scrollTop - pane.clientHeight;
+  if (distanceFromBottom <= LOG_BOTTOM_EPSILON_PX) {
+    return { following: true, scrollTop: pane.scrollTop, anchors: [] };
+  }
+
+  // scrollTop alone is not stable in a rolling tail: when the oldest of the
+  // 60 records drops out, the same offset points at a different record. Keep
+  // visible records as anchors so a surviving one can hold the viewport still.
+  const paneRect = pane.getBoundingClientRect();
+  const targetY = paneRect.top + pane.clientHeight / 2;
+  const anchors = Array.from(pane.querySelectorAll('[data-log-key]'))
+    .map((row) => {
+      const rect = row.getBoundingClientRect();
+      return {
+        key: row.dataset.logKey,
+        offset: rect.top - paneRect.top,
+        distance: Math.abs((rect.top + rect.bottom) / 2 - targetY),
+        visible: rect.bottom > paneRect.top && rect.top < paneRect.bottom,
+      };
+    })
+    .filter((anchor) => anchor.visible)
+    .sort((a, b) => a.distance - b.distance)
+    .map(({ key, offset }) => ({ key, offset }));
+  return { following: false, scrollTop: pane.scrollTop, anchors };
+}
+
+function restoreLogViewport(pane, viewport) {
+  if (!pane) return;
+  if (viewport.following) {
+    pane.scrollTop = pane.scrollHeight;
+    return;
+  }
+
+  const rows = Array.from(pane.querySelectorAll('[data-log-key]'));
+  for (const anchor of viewport.anchors) {
+    const row = rows.find((candidate) => candidate.dataset.logKey === anchor.key);
+    if (!row) continue;
+    const paneTop = pane.getBoundingClientRect().top;
+    const currentOffset = row.getBoundingClientRect().top - paneTop;
+    pane.scrollTop += currentOffset - anchor.offset;
+    return;
+  }
+
+  // If an entire new tail arrived between polls, no old record can be held.
+  // Keep the prior offset as a browser-clamped fallback.
+  if (viewport.scrollTop !== null) pane.scrollTop = viewport.scrollTop;
+}
+
 function render(opts) {
   if (!root) return;
   // Preserve the caret across the full re-render: the whole page is rebuilt on
@@ -1481,9 +1532,7 @@ function render(opts) {
   if (opts && opts.background && focusKey) return;
   const caret = focusKey && active.selectionStart !== undefined ? active.selectionStart : null;
   const logPane = root.querySelector('#logpane');
-  const logScrollTop = logPane ? logPane.scrollTop : null;
-  const logAtBottom = !logPane ||
-    logPane.scrollHeight - logPane.scrollTop - logPane.clientHeight <= LOG_BOTTOM_EPSILON_PX;
+  const logViewport = captureLogViewport(logPane);
   // Scroll offsets survive the rebuild too, so a poll doesn't yank the table
   // back to the top while you're reading row 40.
   const scrolls = {};
@@ -1504,17 +1553,9 @@ function render(opts) {
     if (saved) el.scrollTop = saved;
   });
   const pane = root.querySelector('#logpane');
-  if (pane) {
-    if (logAtBottom) {
-      // Initial render and an untouched live tail stay pinned to the newest
-      // entry as lines arrive.
-      pane.scrollTop = pane.scrollHeight;
-    } else if (logScrollTop !== null) {
-      // A deliberate upward scroll opts out of auto-follow. The pane is
-      // recreated on every poll, so restore its exact previous viewport.
-      pane.scrollTop = logScrollTop;
-    }
-  }
+  // Initial render and an untouched live tail stay at the newest entry. Once
+  // the user moves upward, restore the same visible record after every poll.
+  restoreLogViewport(pane, logViewport);
   syncCharts();
 }
 

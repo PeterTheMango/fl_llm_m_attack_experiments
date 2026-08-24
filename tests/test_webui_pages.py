@@ -93,12 +93,13 @@ def test_static_assets_are_served_locally():
 
 
 def test_live_log_tail_ships_follow_and_manual_scroll_policies():
-    """A rerender follows the tail only while the viewer is already at bottom."""
+    """A rerender follows at bottom and anchors a manually scrolled viewport."""
     javascript = _client().get("/static/app.js").text
-    assert "LOG_BOTTOM_EPSILON_PX = 2" in javascript
-    assert "const logScrollTop = logPane ? logPane.scrollTop : null" in javascript
+    assert "LOG_BOTTOM_EPSILON_PX = 0.5" in javascript
+    assert 'data-log-key="${esc(logKey(l))}"' in javascript
+    assert "const logViewport = captureLogViewport(logPane)" in javascript
     assert "pane.scrollTop = pane.scrollHeight" in javascript
-    assert "pane.scrollTop = logScrollTop" in javascript
+    assert "pane.scrollTop += currentOffset - anchor.offset" in javascript
 
 
 def test_dashboard_ships_confirmed_stop_and_delete_controls():
