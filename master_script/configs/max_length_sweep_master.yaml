@@ -1,0 +1,59 @@
+# Sequence-length sweep: all 11 attacks across 64, 128, and 256 tokens.
+# 33 runs total; every other value matches baseline_master.yaml.
+
+defaults:
+  use_hf_models: true
+  model_id: distilgpt2
+  dataset_name: squad
+  num_clients: 2
+  clients_per_round: 2
+  federated_rounds: 1
+  local_epochs: 1
+  local_batch_size: 4
+  attack_trials: 6
+  max_length: 64
+  seed: 7
+  sim_num_gpus: 0.5
+  keep_artifacts: false
+
+attacks:
+  zlib:
+    sweep:
+      max_length: &lengths [64, 128, 256]
+  min_k:
+    sweep:
+      max_length: *lengths
+  min_k_plus_plus:
+    sweep:
+      max_length: *lengths
+  neighborhood:
+    base: {num_neighbours: 6}
+    sweep:
+      max_length: *lengths
+  recall:
+    base: {num_shots: 1}
+    sweep:
+      max_length: *lengths
+  reference:
+    sweep:
+      max_length: *lengths
+  samia:
+    base: {num_samples: 3}
+    sweep:
+      max_length: *lengths
+  spv_mia:
+    base: {num_paraphrases: 2, self_prompt_tokens: 4}
+    sweep:
+      max_length: *lengths
+  wbc:
+    base: {reference_model_id: distilgpt2}
+    sweep:
+      max_length: *lengths
+  amia:
+    base: {probe_epochs: 20, attack_batch_size: 4}
+    sweep:
+      max_length: *lengths
+  loss:
+    base: {calibration_nonmember_count: 6}
+    sweep:
+      max_length: *lengths

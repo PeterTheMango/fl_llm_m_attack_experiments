@@ -1,0 +1,57 @@
+# Higher-client configuration: all 11 attacks with eight total clients and
+# full participation by all eight clients in every federated round.
+#
+# 11 runs total. Every value other than num_clients and clients_per_round is
+# held equal to baseline_master.yaml.
+
+defaults:
+  use_hf_models: true
+  model_id: distilgpt2
+  dataset_name: squad
+  num_clients: 8
+  clients_per_round: 8
+  federated_rounds: 1
+  local_epochs: 1
+  local_batch_size: 4
+  attack_trials: 6
+  max_length: 64
+  seed: 7
+  sim_num_gpus: 0.5
+  keep_artifacts: false
+
+attacks:
+  zlib: {}
+  min_k: {}
+  min_k_plus_plus: {}
+
+  neighborhood:
+    base:
+      num_neighbours: 6
+
+  recall:
+    base:
+      num_shots: 1
+
+  reference: {}
+
+  samia:
+    base:
+      num_samples: 3
+
+  spv_mia:
+    base:
+      num_paraphrases: 2
+      self_prompt_tokens: 4
+
+  wbc:
+    base:
+      reference_model_id: distilgpt2
+
+  amia:
+    base:
+      probe_epochs: 20
+      attack_batch_size: 4
+
+  loss:
+    base:
+      calibration_nonmember_count: 6

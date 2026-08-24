@@ -1,0 +1,62 @@
+# Client-participation sweep: all 11 attacks with a fixed pool of eight clients
+# and 2, 4, or 8 participating clients per round.
+#
+# 33 runs total. num_clients is intentionally fixed at 8; clients_per_round is
+# the swept factor. Every remaining value matches baseline_master.yaml.
+
+defaults:
+  use_hf_models: true
+  model_id: distilgpt2
+  dataset_name: squad
+  num_clients: 8
+  clients_per_round: 2
+  federated_rounds: 1
+  local_epochs: 1
+  local_batch_size: 4
+  attack_trials: 6
+  max_length: 64
+  seed: 7
+  sim_num_gpus: 0.5
+  keep_artifacts: false
+
+attacks:
+  zlib:
+    sweep:
+      clients_per_round: &participation [2, 4, 8]
+  min_k:
+    sweep:
+      clients_per_round: *participation
+  min_k_plus_plus:
+    sweep:
+      clients_per_round: *participation
+  neighborhood:
+    base: {num_neighbours: 6}
+    sweep:
+      clients_per_round: *participation
+  recall:
+    base: {num_shots: 1}
+    sweep:
+      clients_per_round: *participation
+  reference:
+    sweep:
+      clients_per_round: *participation
+  samia:
+    base: {num_samples: 3}
+    sweep:
+      clients_per_round: *participation
+  spv_mia:
+    base: {num_paraphrases: 2, self_prompt_tokens: 4}
+    sweep:
+      clients_per_round: *participation
+  wbc:
+    base: {reference_model_id: distilgpt2}
+    sweep:
+      clients_per_round: *participation
+  amia:
+    base: {probe_epochs: 20, attack_batch_size: 4}
+    sweep:
+      clients_per_round: *participation
+  loss:
+    base: {calibration_nonmember_count: 6}
+    sweep:
+      clients_per_round: *participation

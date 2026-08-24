@@ -228,6 +228,22 @@ Two larger baseline-controlled sweeps are also shipped:
   dataset profiles (77 runs), changing only `dataset_name`.
 - `configs/gpt2_master.yaml` runs all 11 attacks with `gpt2` (11 runs),
   changing only the target model and WBC's matching reference model.
+- `configs/seed_sweep_master.yaml` runs all 11 attacks across seeds
+  `7, 11, 23, 42, 101` (55 runs), changing only the seed.
+- `configs/high_trials_master.yaml` runs all 11 attacks with 100 balanced
+  attack trials (11 runs), changing only `attack_trials`.
+- `configs/high_clients_master.yaml` runs all 11 attacks with eight clients and
+  full participation in each round (11 runs), changing only the client counts.
+- `configs/federated_rounds_sweep_master.yaml` varies FL rounds over `1, 2, 4`.
+- `configs/local_epochs_sweep_master.yaml` varies local epochs over `1, 2, 4`.
+- `configs/client_participation_sweep_master.yaml` fixes eight total clients and
+  varies participating clients per round over `2, 4, 8`.
+- `configs/client_lr_sweep_master.yaml` varies client learning rate over
+  `1e-5, 5e-5, 1e-4`.
+- `configs/max_length_sweep_master.yaml` varies sequence length over
+  `64, 128, 256` tokens.
+
+Each factor sweep contains 33 runs: three values for each of the 11 attacks.
 
 ## Lightweight master baseline
 

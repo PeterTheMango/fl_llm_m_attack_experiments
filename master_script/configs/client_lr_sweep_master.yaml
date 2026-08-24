@@ -1,0 +1,60 @@
+# Client-learning-rate sweep: all 11 attacks across 1e-5, 5e-5, and 1e-4.
+# 33 runs total; every other value matches baseline_master.yaml.
+
+defaults:
+  use_hf_models: true
+  model_id: distilgpt2
+  dataset_name: squad
+  num_clients: 2
+  clients_per_round: 2
+  federated_rounds: 1
+  local_epochs: 1
+  local_batch_size: 4
+  client_lr: 5.0e-5
+  attack_trials: 6
+  max_length: 64
+  seed: 7
+  sim_num_gpus: 0.5
+  keep_artifacts: false
+
+attacks:
+  zlib:
+    sweep:
+      client_lr: &learning_rates [1.0e-5, 5.0e-5, 1.0e-4]
+  min_k:
+    sweep:
+      client_lr: *learning_rates
+  min_k_plus_plus:
+    sweep:
+      client_lr: *learning_rates
+  neighborhood:
+    base: {num_neighbours: 6}
+    sweep:
+      client_lr: *learning_rates
+  recall:
+    base: {num_shots: 1}
+    sweep:
+      client_lr: *learning_rates
+  reference:
+    sweep:
+      client_lr: *learning_rates
+  samia:
+    base: {num_samples: 3}
+    sweep:
+      client_lr: *learning_rates
+  spv_mia:
+    base: {num_paraphrases: 2, self_prompt_tokens: 4}
+    sweep:
+      client_lr: *learning_rates
+  wbc:
+    base: {reference_model_id: distilgpt2}
+    sweep:
+      client_lr: *learning_rates
+  amia:
+    base: {probe_epochs: 20, attack_batch_size: 4}
+    sweep:
+      client_lr: *learning_rates
+  loss:
+    base: {calibration_nonmember_count: 6}
+    sweep:
+      client_lr: *learning_rates

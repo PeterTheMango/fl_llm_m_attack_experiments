@@ -151,3 +151,107 @@ def test_gpt2_master_changes_only_the_model_from_baseline():
             assert actual.pop("reference_model_id") == "gpt2"
             assert expected.pop("reference_model_id") == "distilgpt2"
         assert actual == expected
+
+
+def test_seed_sweep_master_changes_only_seed_from_baseline():
+    from master_script.paths import CONFIGS_DIR
+
+    baseline = {
+        spec.name: cfg for cfg, spec in load_config_file(CONFIGS_DIR / "baseline_master.yaml")
+    }
+    pairs = load_config_file(CONFIGS_DIR / "seed_sweep_master.yaml")
+
+    assert len(pairs) == 55
+    assert {cfg.seed for cfg, _spec in pairs} == {7, 11, 23, 42, 101}
+    for cfg, spec in pairs:
+        actual = asdict(cfg)
+        expected = asdict(baseline[spec.name])
+        actual.pop("seed")
+        expected.pop("seed")
+        assert actual == expected
+
+
+def test_high_trials_master_changes_only_trial_count_from_baseline():
+    from master_script.paths import CONFIGS_DIR
+
+    baseline = {
+        spec.name: cfg for cfg, spec in load_config_file(CONFIGS_DIR / "baseline_master.yaml")
+    }
+    pairs = load_config_file(CONFIGS_DIR / "high_trials_master.yaml")
+
+    assert len(pairs) == 11
+    assert {cfg.attack_trials for cfg, _spec in pairs} == {100}
+    for cfg, spec in pairs:
+        actual = asdict(cfg)
+        expected = asdict(baseline[spec.name])
+        actual.pop("attack_trials")
+        expected.pop("attack_trials")
+        assert actual == expected
+
+
+def test_high_clients_master_changes_only_client_counts_from_baseline():
+    from master_script.paths import CONFIGS_DIR
+
+    baseline = {
+        spec.name: cfg for cfg, spec in load_config_file(CONFIGS_DIR / "baseline_master.yaml")
+    }
+    pairs = load_config_file(CONFIGS_DIR / "high_clients_master.yaml")
+
+    assert len(pairs) == 11
+    assert {(cfg.num_clients, cfg.clients_per_round) for cfg, _spec in pairs} == {(8, 8)}
+    for cfg, spec in pairs:
+        actual = asdict(cfg)
+        expected = asdict(baseline[spec.name])
+        for field in ("num_clients", "clients_per_round"):
+            actual.pop(field)
+            expected.pop(field)
+        assert actual == expected
+
+
+@pytest.mark.parametrize(
+    "filename,field,values",
+    [
+        ("federated_rounds_sweep_master.yaml", "federated_rounds", {1, 2, 4}),
+        ("local_epochs_sweep_master.yaml", "local_epochs", {1, 2, 4}),
+        ("client_lr_sweep_master.yaml", "client_lr", {1e-5, 5e-5, 1e-4}),
+        ("max_length_sweep_master.yaml", "max_length", {64, 128, 256}),
+    ],
+)
+def test_single_factor_master_sweeps_change_only_the_named_baseline_field(
+    filename, field, values
+):
+    from master_script.paths import CONFIGS_DIR
+
+    baseline = {
+        spec.name: cfg for cfg, spec in load_config_file(CONFIGS_DIR / "baseline_master.yaml")
+    }
+    pairs = load_config_file(CONFIGS_DIR / filename)
+
+    assert len(pairs) == 33
+    assert {getattr(cfg, field) for cfg, _spec in pairs} == values
+    for cfg, spec in pairs:
+        actual = asdict(cfg)
+        expected = asdict(baseline[spec.name])
+        actual.pop(field)
+        expected.pop(field)
+        assert actual == expected
+
+
+def test_client_participation_sweep_fixes_eight_clients_and_changes_only_participation():
+    from master_script.paths import CONFIGS_DIR
+
+    baseline = {
+        spec.name: cfg for cfg, spec in load_config_file(CONFIGS_DIR / "baseline_master.yaml")
+    }
+    pairs = load_config_file(CONFIGS_DIR / "client_participation_sweep_master.yaml")
+
+    assert len(pairs) == 33
+    assert {cfg.num_clients for cfg, _spec in pairs} == {8}
+    assert {cfg.clients_per_round for cfg, _spec in pairs} == {2, 4, 8}
+    for cfg, spec in pairs:
+        actual = asdict(cfg)
+        expected = asdict(baseline[spec.name])
+        for field in ("num_clients", "clients_per_round"):
+            actual.pop(field)
+            expected.pop(field)
+        assert actual == expected

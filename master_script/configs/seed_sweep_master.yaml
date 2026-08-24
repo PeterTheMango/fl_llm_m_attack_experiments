@@ -1,0 +1,80 @@
+# Seed-reliability sweep: all 11 attacks across five training/data seeds.
+#
+# 55 runs total. Every value other than seed is held equal to
+# baseline_master.yaml.
+
+defaults:
+  use_hf_models: true
+  model_id: distilgpt2
+  dataset_name: squad
+  num_clients: 2
+  clients_per_round: 2
+  federated_rounds: 1
+  local_epochs: 1
+  local_batch_size: 4
+  attack_trials: 6
+  max_length: 64
+  seed: 7
+  sim_num_gpus: 0.5
+  keep_artifacts: false
+
+attacks:
+  zlib:
+    sweep:
+      seed: &validation_seeds [7, 11, 23, 42, 101]
+
+  min_k:
+    sweep:
+      seed: *validation_seeds
+
+  min_k_plus_plus:
+    sweep:
+      seed: *validation_seeds
+
+  neighborhood:
+    base:
+      num_neighbours: 6
+    sweep:
+      seed: *validation_seeds
+
+  recall:
+    base:
+      num_shots: 1
+    sweep:
+      seed: *validation_seeds
+
+  reference:
+    sweep:
+      seed: *validation_seeds
+
+  samia:
+    base:
+      num_samples: 3
+    sweep:
+      seed: *validation_seeds
+
+  spv_mia:
+    base:
+      num_paraphrases: 2
+      self_prompt_tokens: 4
+    sweep:
+      seed: *validation_seeds
+
+  wbc:
+    base:
+      reference_model_id: distilgpt2
+    sweep:
+      seed: *validation_seeds
+
+  amia:
+    base:
+      probe_epochs: 20
+      attack_batch_size: 4
+    sweep:
+      seed: *validation_seeds
+
+  loss:
+    base:
+      calibration_nonmember_count: 6
+    sweep:
+      seed: *validation_seeds
