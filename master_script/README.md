@@ -222,64 +222,71 @@ See `master_script/configs/smoke.yaml` (9 toy runs, no credentials) and
 `master_script/configs/example_sweep.yaml` (a real sweep) for worked
 examples.
 
-## The baseline evaluation
+## Lightweight master baseline
 
-`configs/baseline_*.yaml` is one experiment split across five files: all 11
-attacks x `federated_rounds` [1, 3, 6] x `seed` [7, 11, 23], against five
-target models. 99 runs per file, **495 in total**, every `run_id` distinct.
+[`configs/baseline_master.yaml`](configs/baseline_master.yaml) is the single
+baseline file for all 11 attacks. It uses `distilgpt2`, two clients, one FL
+round, one local epoch, and six balanced attack trials. For the nine shared
+scorers and LOSS, that bounds a run at:
 
-| File | Target model | Params | `sim_num_gpus` |
-| --- | --- | --- | --- |
-| `baseline_distilgpt2.yaml` | `distilgpt2` | 82M | 0.5 |
-| `baseline_gpt2.yaml` | `gpt2` | 124M | 0.5 |
-| `baseline_opt125m.yaml` | `facebook/opt-125m` | 125M | 0.5 |
-| `baseline_gpt2_medium.yaml` | `gpt2-medium` | 355M | 1.0 |
-| `baseline_pythia410m.yaml` | `EleutherAI/pythia-410m` | 410M | 1.0 |
-
-Run the pre-flight file first, then the five in order, cheapest model first:
-
-```bash
-python -m master_script.perform_experiments \
-    --config master_script/configs/baseline_smoke_hf.yaml --no-firestore --no-charts
-
-for m in distilgpt2 gpt2 opt125m gpt2_medium pythia410m; do
-    python -m master_script.perform_experiments \
-        --config master_script/configs/baseline_$m.yaml --max-parallel 2
-done
+```text
+6 trials x 1 FL round x 2 clients = 12 client fine-tunes
 ```
 
-Four things about that design are deliberate:
+Both clients participate in every round, so the target client's record really
+does enter training in each positive world. Expensive attack-only loops are
+also reduced: six neighbourhoods, three SaMIA samples, two SPV paraphrases,
+20 AMIA probe epochs, and six LOSS calibration records.
 
-- **One file per model, not `sweep: {model_id: [...]}`.** `sweep` is an
-  `itertools.product` grid, so it cannot *pair* two fields, and `wbc` needs
-  `reference_model_id` to track `model_id` — the paper compares a fine-tuned
-  target against its own pre-fine-tune base. A shared sweep would score every
-  target against one fixed reference. Splitting by model also lets
-  `sim_num_gpus` follow the model's footprint and gives the sweep a checkpoint
-  every 99 runs.
-- **Thresholds are left alone.** Every attack's `threshold` is a constant tuned
-  for `sshleifer/tiny-gpt2`. Across five models it is miscalibrated, so
-  `pred_member` — and therefore Adv — is comparable only *within* a model.
-  Across models, compare AUC/ROC, which the dashboard computes from
-  `attack_trials[]` and which needs no threshold.
-- **`clients_per_round` (8) is below `num_clients` (16).** FedAvg then samples
-  a real subset each round (`fraction_fit = 0.5`), which is both closer to real
-  FL than always-all-clients and half the per-round cost.
-- **`baseline_smoke_hf.yaml` exists because of `strict=True`.**
-  `core/federation.py` round-trips the *full* `state_dict` — buffers included —
-  through FedAvg and back via `load_state_dict(strict=True)`. That path is
-  well-proven on GPT-2 and unproven on OPT and GPT-NeoX, so the pre-flight file
-  runs 2-trial versions of all five models across all three code paths (the
-  nine modern scorers, `amia`'s `custom_trials`, `loss`'s own FL loop). A model
-  family that breaks weight aggregation fails there in minutes rather than
-  hours into the real sweep.
+The intended budget is about 10–15 minutes per attack on the lab GPU after the
+model and dataset are cached. That is a target, not a portable guarantee:
+Flower/Ray startup, storage speed, GPU type, and Hugging Face cache state all
+matter. Time one attack before launching the full file:
 
-Budget it before starting: per-run cost is `attack_trials x federated_rounds x
-clients_per_round` client fine-tunes, and **every client fit reloads the model
-from disk** (`core/federation.py`), so at 16 trials and 8 clients per round a
-run is 128, 384, or 768 model loads for 1, 3, or 6 rounds. Firestore caching is
-what makes this survivable: a completed run cache-hits and is skipped, so the
-sweep resumes after any interruption (see *Job resumption*).
+```bash
+time python -m master_script.perform_experiments \
+    --config master_script/configs/baseline_master.yaml \
+    --attack zlib --no-firestore --no-charts
+
+python -m master_script.perform_experiments \
+    --config master_script/configs/baseline_master.yaml
+```
+
+Every attack's static decision threshold was originally tuned for
+`sshleifer/tiny-gpt2`; `baseline_master.yaml` deliberately does not pretend
+those constants are calibrated for `distilgpt2`. Use ROC-AUC for the first
+cross-attack analysis, then calibrate thresholds on a disjoint validation set
+before treating Adv as a final result.
+
+### Real Hugging Face datasets
+
+The active dataset is the one `defaults.dataset_name` line in the master file.
+All 11 attacks, including the separate AMIA and LOSS pipelines, use the same
+loader and deterministic client-world construction.
+
+| `dataset_name` | Hub dataset | Domain / record format |
+| --- | --- | --- |
+| `nq_open` | `google-research-datasets/nq_open` | General QA; question + short answer |
+| `trivia_qa` | `mandarjoshi/trivia_qa` (`rc.nocontext`) | General QA; question + answer without large evidence documents |
+| `squad` | `rajpurkar/squad` | General QA; question + answer |
+| `hotpot_qa` | `hotpotqa/hotpot_qa` (`distractor`) | Multi-hop QA; question + answer |
+| `medical_medquad` | `bpingua/medquad` | Medical QA; input + output |
+| `financial_phrasebank` | `FinanceMTEB/financial_phrasebank` | Financial news sentence |
+| `corporate_enron` | `LLM-PBE/enron-email` | Real corporate email text |
+
+The loader streams and caches a deterministic pool instead of downloading a
+whole corpus for each trial. It assigns four base records per client, then
+appends either the target record (positive world) or a disjoint held-out record
+(negative world). Adjacent positive/negative trials share a seed, target, and
+base client partitions so membership is the only changed payload. LOSS
+calibration records are disjoint from both worlds. Model tokenization still
+enforces `max_length`.
+
+`corporate_enron` is intentionally opt-in. It contains real email and may
+include names and contact details. Dataset rows are used in memory and are not
+written into Firestore result payloads; use the profile only under the
+project's approved research and data-handling policy. It represents corporate
+communications, not a clean HR/employee-record table.
 
 ### Scaling the federation past four clients
 

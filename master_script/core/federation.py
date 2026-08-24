@@ -10,6 +10,7 @@ import random
 import zlib
 from typing import List, Sequence
 
+from . import datasets as dataset_sources
 from .config import AttackConfig
 
 TARGET_RECORD = "Client 0 private appointment note: Ana's insulin refill is scheduled for Friday at 10am."
@@ -58,14 +59,26 @@ def synthetic_partition(config: AttackConfig, client_id: int) -> List[str]:
     return [f"Client {client_id} {topic}." for topic in topics]
 
 
-def build_client_partitions(config: AttackConfig, truth_member: bool) -> List[List[str]]:
+def build_membership_world(config: AttackConfig, truth_member: bool):
     random.seed(config.seed)
+    if dataset_sources.uses_real_dataset(config):
+        return dataset_sources.build_real_membership_world(config, truth_member=truth_member)
+
     partitions = [list(records) for records in CLIENT_CORPUS[: config.num_clients]]
     while len(partitions) < config.num_clients:
         partitions.append(synthetic_partition(config, len(partitions)))
     target_payload = TARGET_RECORD if truth_member else HELD_OUT_RECORD
     partitions[config.target_client_id].append(target_payload)
-    return partitions
+    return dataset_sources.MembershipWorld(
+        partitions=partitions,
+        target_record=TARGET_RECORD,
+        held_out_record=HELD_OUT_RECORD,
+        dataset_name=config.dataset_name,
+    )
+
+
+def build_client_partitions(config: AttackConfig, truth_member: bool) -> List[List[str]]:
+    return build_membership_world(config, truth_member=truth_member).partitions
 
 
 class ToyFederatedLM:
@@ -110,8 +123,10 @@ def toy_fedavg(global_model: ToyFederatedLM, client_models: Sequence[ToyFederate
 def run_toy_federated_finetune(config: AttackConfig, truth_member: bool):
     global_model = ToyFederatedLM()
     history = []
+    world = None
     for round_id in range(config.federated_rounds):
-        partitions = build_client_partitions(config, truth_member=truth_member)
+        world = build_membership_world(config, truth_member=truth_member)
+        partitions = world.partitions
         selected = list(range(min(config.clients_per_round, len(partitions))))
         client_models = []
         for client_id in selected:
@@ -119,6 +134,9 @@ def run_toy_federated_finetune(config: AttackConfig, truth_member: bool):
             client_models.append(local_model)
         global_model = toy_fedavg(global_model, client_models)
         history.append({"round": round_id, "selected_clients": selected})
+    # The runner needs to score the actual dataset row, not the legacy canary.
+    # Attaching it preserves the historical two-item return signature.
+    global_model.target_record = world.target_record if world is not None else TARGET_RECORD
     return global_model, history
 
 
@@ -147,7 +165,8 @@ def run_hf_federated_finetune(config: AttackConfig, truth_member: bool):
     client_dev = "cuda" if use_cuda else "cpu"
     eval_dev = "cuda" if torch.cuda.is_available() else "cpu"
 
-    partitions = build_client_partitions(config, truth_member=truth_member)
+    world = build_membership_world(config, truth_member=truth_member)
+    partitions = world.partitions
     num_clients = len(partitions)
 
     def get_parameters(model):
@@ -245,7 +264,13 @@ def run_hf_federated_finetune(config: AttackConfig, truth_member: bool):
     if capture["parameters"] is not None:
         set_parameters(global_model, capture["parameters"])
     global_model.to(eval_dev).eval()
-    return {"model": global_model, "tokenizer": tokenizer, "device": eval_dev}, capture["history"]
+    return {
+        "model": global_model,
+        "tokenizer": tokenizer,
+        "device": eval_dev,
+        "target_record": world.target_record,
+        "dataset_name": world.dataset_name,
+    }, capture["history"]
 
 
 def load_reference_bundle(cfg):

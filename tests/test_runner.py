@@ -24,6 +24,25 @@ def test_run_id_is_stable_despite_per_trial_reseed():
     assert experiment_key(cfg) == before
 
 
+def test_real_dataset_trials_pair_member_and_nonmember_seeds(monkeypatch):
+    spec = ATTACKS["zlib"]
+    cfg = spec.config_cls(dataset_name="squad", use_hf_models=True, attack_trials=4)
+    seen = []
+
+    def fake_finetune(trial_cfg, truth_member):
+        seen.append((trial_cfg.seed, truth_member))
+        return {
+            "model": object(), "tokenizer": object(), "device": "cpu",
+            "target_record": f"target-for-seed-{trial_cfg.seed}",
+        }, []
+
+    monkeypatch.setattr(runner.federation, "run_hf_federated_finetune", fake_finetune)
+    paired_spec = replace(spec, score_hf=lambda ctx: 1.0 if ctx.config.seed else 0.0)
+    runner.run_attack_trials(cfg, paired_spec)
+
+    assert seen == [(7, True), (7, False), (8, True), (8, False)]
+
+
 def test_cache_hit_skips_compute(monkeypatch):
     spec = ATTACKS["zlib"]
     cfg = spec.config_cls()

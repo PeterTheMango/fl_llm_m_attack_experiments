@@ -10,6 +10,7 @@ import shutil
 import time
 
 from . import federation, firestore
+from . import datasets as dataset_sources
 from .config import artifact_dir_for, experiment_key
 from .metrics import summarize
 from .scoring import ScoreContext
@@ -25,18 +26,23 @@ def cleanup_artifacts(artifact_dir) -> None:
 
 def run_attack_trial(config, spec, trial_id: int, truth_member: bool) -> dict:
     # Per-trial reseed, exactly as the notebooks do. NOTE: trial_config is never
-    # hashed -- the run_id belongs to the original config.
-    trial_config = replace(config, seed=config.seed + trial_id)
+    # hashed -- the run_id belongs to the original config. Real-data trials use
+    # the same seed in adjacent positive/negative trials so each pair differs
+    # only in target membership, not in the sampled target or client corpus.
+    seed_offset = trial_id // 2 if dataset_sources.uses_real_dataset(config) else trial_id
+    trial_config = replace(config, seed=config.seed + seed_offset)
     if trial_config.use_hf_models:
         target, history = federation.run_hf_federated_finetune(trial_config, truth_member=truth_member)
         reference = federation.load_reference_bundle(trial_config) if spec.needs_reference else None
-        score = spec.score_hf(ScoreContext(trial_config, target, federation.TARGET_RECORD, reference))
+        candidate_text = target.get("target_record", federation.TARGET_RECORD)
+        score = spec.score_hf(ScoreContext(trial_config, target, candidate_text, reference))
     else:
         target, history = federation.run_toy_federated_finetune(trial_config, truth_member=truth_member)
         reference = None
         if spec.needs_reference:
             reference, _ = federation.run_toy_federated_finetune(trial_config, truth_member=False)
-        score = spec.score_toy(ScoreContext(trial_config, target, federation.TARGET_RECORD, reference))
+        candidate_text = getattr(target, "target_record", federation.TARGET_RECORD)
+        score = spec.score_toy(ScoreContext(trial_config, target, candidate_text, reference))
 
     return {
         "trial_id": trial_id,

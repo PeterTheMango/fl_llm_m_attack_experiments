@@ -13,6 +13,7 @@ from typing import List, Optional, Sequence, Tuple
 import yaml
 
 from .config import expand_sweep
+from .datasets import validate_dataset_name
 from .registry import ATTACKS
 
 
@@ -91,5 +92,9 @@ def load_config_doc(doc: dict, only: Optional[Sequence[str]] = None,
                 raise ConfigError(
                     f"attack '{name}' has no toy path and requires use_hf_models: true"
                 )
+            try:
+                validate_dataset_name(expanded.dataset_name)
+            except ValueError as exc:
+                raise ConfigError(f"{source}: attack '{name}': {exc}") from exc
             pairs.append((expanded, spec))
     return pairs

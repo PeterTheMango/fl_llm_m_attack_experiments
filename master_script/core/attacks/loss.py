@@ -17,10 +17,11 @@ this function.
 """
 import gc
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Optional
 
+from .. import datasets as dataset_sources
 from ..config import AttackConfig, key_named_prefix
 from ..spec import AttackSpec
 
@@ -138,6 +139,13 @@ def _synthetic_client_texts(config, client_id: int) -> list:
 
 
 def make_membership_world(config, include_target: bool, replacement_text: Optional[str] = None) -> list:
+    if dataset_sources.uses_real_dataset(config):
+        return dataset_sources.build_real_membership_world(
+            config,
+            truth_member=include_target,
+            records_per_client=dataset_sources.DEFAULT_REAL_RECORDS_PER_CLIENT,
+        ).partitions
+
     clients = [list(records) for records in BASE_CLIENT_TEXTS[: config.num_clients]]
     while len(clients) < config.num_clients:
         clients.append(_synthetic_client_texts(config, len(clients)))
@@ -417,7 +425,12 @@ def estimate_loss_threshold(losses: list, config) -> dict:
 
 
 def compute_calibration_losses(model, tokenizer, config) -> list:
-    calibration_texts = CALIBRATION_NONMEMBER_TEXTS[: config.calibration_nonmember_count]
+    if dataset_sources.uses_real_dataset(config):
+        calibration_texts = dataset_sources.calibration_records(
+            config, config.calibration_nonmember_count
+        )
+    else:
+        calibration_texts = CALIBRATION_NONMEMBER_TEXTS[: config.calibration_nonmember_count]
     return [sequence_nll(model, tokenizer, text, config) for text in calibration_texts]
 
 
@@ -428,14 +441,24 @@ def predict_member_from_loss(loss: float, threshold: float) -> bool:
 def run_attack_trial(config, trial_id: int, truth_member: bool, base_artifact_dir: Path) -> dict:
     import torch
 
-    replacement = NEGATIVE_TARGET_TEXTS[trial_id % len(NEGATIVE_TARGET_TEXTS)]
+    # Pair adjacent member/non-member worlds on the same real target and client
+    # partitions.  Preserve the legacy synthetic behavior byte-for-byte.
+    if dataset_sources.uses_real_dataset(config):
+        config = replace(config, seed=config.seed + trial_id // 2)
+    real_dataset = dataset_sources.uses_real_dataset(config)
+    replacement = (
+        dataset_sources.held_out_record_for(config, NEGATIVE_TARGET_TEXTS[0])
+        if real_dataset
+        else NEGATIVE_TARGET_TEXTS[trial_id % len(NEGATIVE_TARGET_TEXTS)]
+    )
     client_texts = make_membership_world(config, include_target=truth_member, replacement_text=replacement)
     artifact_dir = base_artifact_dir / f"trial_{trial_id:03d}_{'member' if truth_member else 'nonmember'}"
 
     model, tokenizer, history, artifacts = federated_fine_tune(client_texts, config, artifact_dir)
     calibration_losses = compute_calibration_losses(model, tokenizer, config)
     threshold_info = estimate_loss_threshold(calibration_losses, config)
-    target_loss = sequence_nll(model, tokenizer, TARGET_TEXT, config)
+    target_text = dataset_sources.target_record_for(config, TARGET_TEXT)
+    target_loss = sequence_nll(model, tokenizer, target_text, config)
     pred_member = predict_member_from_loss(target_loss, threshold_info["threshold"])
 
     trial = {
@@ -446,7 +469,11 @@ def run_attack_trial(config, trial_id: int, truth_member: bool, base_artifact_di
         "score": target_loss,
         "threshold": threshold_info["threshold"],
         "pred_member": pred_member,
-        "replacement_text": None if truth_member else replacement,
+        # Never persist raw records from real datasets.  In particular, Enron
+        # messages may contain personal contact information.
+        "replacement_text": (
+            None if truth_member else "<redacted real dataset record>" if real_dataset else replacement
+        ),
         "federated_history": history,
         "threshold_info": threshold_info,
         "artifacts": artifacts,

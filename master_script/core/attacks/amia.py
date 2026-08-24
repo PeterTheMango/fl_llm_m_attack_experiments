@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
+from .. import datasets as dataset_sources
 from ..config import AttackConfig, key_sha24_default_str
 from ..spec import AttackSpec
 
@@ -94,6 +95,13 @@ def set_seed(seed: int) -> None:
 
 
 def build_client_texts(config, include_target: bool = True) -> list:
+    if dataset_sources.uses_real_dataset(config):
+        return dataset_sources.build_real_membership_world(
+            config,
+            truth_member=include_target,
+            records_per_client=dataset_sources.DEFAULT_REAL_RECORDS_PER_CLIENT,
+        ).partitions
+
     rng = random.Random(config.seed)
     clients: list = []
     for client_id in range(config.num_clients):
@@ -352,8 +360,9 @@ def train_ami_probe(model, tokenizer, clients: list, config, artifact_dir=None):
     artifact_dir = Path(artifact_dir) if artifact_dir is not None else artifact_dir_for(config, SPEC)
     artifact_dir.mkdir(parents=True, exist_ok=True)
     device = next(model.parameters()).device
-    non_targets = [text for cid, texts in enumerate(clients) for text in texts if text != TARGET_TEXT]
-    positives = [TARGET_TEXT] * min(16, max(4, len(non_targets) // 2))
+    target_text = dataset_sources.target_record_for(config, TARGET_TEXT)
+    non_targets = [text for cid, texts in enumerate(clients) for text in texts if text != target_text]
+    positives = [target_text] * min(16, max(4, len(non_targets) // 2))
     probe_texts = positives + non_targets
     labels = torch.tensor([1] * len(positives) + [0] * len(non_targets), dtype=torch.float32, device=device)
     embeddings = sentence_embedding(model, tokenizer, probe_texts, config).to(device)
@@ -387,11 +396,12 @@ def probe_gradient_score(model, tokenizer, probe, texts: list, config) -> float:
 
 
 def sample_attack_batch(clients: list, config, include_target: bool, rng: random.Random) -> list:
-    pool = [text for texts in clients for text in texts if text != TARGET_TEXT]
+    target_text = dataset_sources.target_record_for(config, TARGET_TEXT)
+    pool = [text for texts in clients for text in texts if text != target_text]
     batch = rng.sample(pool, k=min(config.attack_batch_size, len(pool)))
     if include_target:
         replace_idx = rng.randrange(len(batch))
-        batch[replace_idx] = TARGET_TEXT
+        batch[replace_idx] = target_text
     rng.shuffle(batch)
     return batch
 

@@ -1,0 +1,90 @@
+# Lightweight master baseline: one real-data configuration for all 11 attacks.
+#
+# Runtime target: roughly 10-15 minutes per attack on the lab GPU after the
+# model and dataset are cached.  Runtime is hardware-dependent, so benchmark a
+# single attack first.  The nine shared scorers and LOSS perform:
+#
+#   6 trials x 1 FL round x 2 participating clients = 12 client fine-tunes
+#
+# Both clients participate, so a positive world's target client actually
+# trains in every trial.  AMIA trains the federation once and then runs its
+# probe trials, so its attack-specific settings are bounded separately below.
+#
+# Active real dataset (change this ONE line for the whole baseline):
+#   general QA: nq_open | trivia_qa | squad | hotpot_qa
+#   medical:    medical_medquad
+#   financial:  financial_phrasebank
+#   corporate:  corporate_enron
+#
+# corporate_enron contains real Enron email and may include personal contact
+# information.  The runner never writes dataset record text to Firestore, but
+# use that profile only under the project's approved research/data policy.
+#
+# Run one timed calibration first:
+#
+#   time python -m master_script.perform_experiments \
+#       --config master_script/configs/baseline_master.yaml \
+#       --attack zlib --no-firestore --no-charts
+#
+# Then run all attacks with Firestore caching enabled:
+#
+#   python -m master_script.perform_experiments \
+#       --config master_script/configs/baseline_master.yaml
+
+defaults:
+  use_hf_models: true
+  model_id: distilgpt2
+  dataset_name: squad
+  num_clients: 2
+  clients_per_round: 2
+  federated_rounds: 1
+  local_epochs: 1
+  local_batch_size: 4
+  attack_trials: 6
+  max_length: 64
+  seed: 7
+  sim_num_gpus: 0.5
+  keep_artifacts: false
+
+attacks:
+  zlib: {}
+  min_k: {}
+  min_k_plus_plus: {}
+
+  # Neighbour generation adds one forward pass per neighbour and trial.
+  neighborhood:
+    base:
+      num_neighbours: 6
+
+  recall:
+    base:
+      num_shots: 1
+
+  reference: {}
+
+  # Autoregressive generation is the dominant SaMIA scoring cost.
+  samia:
+    base:
+      num_samples: 3
+
+  # SPV-MIA also trains its self-prompt reference model per trial.
+  spv_mia:
+    base:
+      num_paraphrases: 2
+      self_prompt_tokens: 4
+
+  wbc:
+    base:
+      reference_model_id: distilgpt2
+
+  # AMIA performs one FL run, then trains and evaluates its probe.
+  amia:
+    base:
+      probe_epochs: 20
+      attack_batch_size: 4
+
+  # LOSS performs one FL run per attack trial and evaluates each calibration
+  # record, so keep calibration compact for the baseline timing envelope.
+  loss:
+    base:
+      calibration_nonmember_count: 6
