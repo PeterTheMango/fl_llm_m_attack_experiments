@@ -1,0 +1,86 @@
+# One research config: 11 attacks x 3 training conditions x 3 seeds = 99 runs.
+# Full-model training; sized for one 20GB GPU allocation, NOT a 7B fitting claim.
+# Prepare data ON THE SERVER before loading this file:
+#   python -m master_script.prepare_research_study
+# Run with durable results:
+#   python -m master_script.perform_experiments --queue \
+#     master_script/configs/pipeline_research_master.yaml --no-firestore --no-charts
+# See master_script/docs/research_config.md for cost and interpretation limits.
+
+defaults:
+  use_hf_models: true
+  model_id: Qwen/Qwen2.5-0.5B-Instruct  # 0.49B actual parameters; below the 7B ceiling.
+  reference_model_id: Qwen/Qwen2.5-0.5B-Instruct
+  dataset_name: squad_research  # 32 base records/client; 4096-record training pool.
+  num_clients: 4
+  clients_per_round: 4
+  federated_rounds: 3
+  local_epochs: 1
+  local_batch_size: 2
+  client_lr: 0.00002
+  attack_trials: 200  # 100 member / 100 nonmember trials for shared/LOSS attacks.
+  max_length: 128
+  seed: 7
+  sim_num_gpus: 1.0  # Reserve the whole visible allocation: one FL client at a time.
+  keep_artifacts: false
+
+# Each variant uses exactly the same attack settings and corpus-seed grid.
+# The native chat template applies only to RAG generation/answer likelihood.
+# Training releases from ALL trials are still included in privacy accounting.
+pipeline:
+  - defense:
+      mechanism: none
+    rag: &rag
+      study_file: research_data/squad_rag_study.json
+      embedding_model: sentence-transformers/all-MiniLM-L6-v2
+      top_k: 4
+      max_context_tokens: 768
+      max_new_tokens: 64
+      significance: 0.05
+      prompt_format: chat
+      evaluation_trials: 2  # First member/nonmember pair per run; AMIA evaluates once.
+  - defense:
+      mechanism: dp_sgd
+      clip_norm: 1.0
+      noise_multiplier: 2.0
+      delta: 0.00001
+    rag: *rag
+  - defense:
+      mechanism: dp_fedavg
+      clip_norm: 0.1
+      noise_multiplier: 2.0
+      delta: 0.00001
+    rag: *rag
+
+attacks:
+  zlib:
+    sweep: &replicates
+      seed: [7, 107, 207]  # Nonoverlapping seed ranges for 100 paired worlds/run.
+  min_k:
+    base: {min_k_percent: 20}
+    sweep: *replicates
+  min_k_plus_plus:
+    base: {min_k_percent: 20}
+    sweep: *replicates
+  neighborhood:
+    base: {num_neighbours: 25}
+    sweep: *replicates
+  recall:
+    base: {num_shots: 1}
+    sweep: *replicates
+  reference:
+    sweep: *replicates
+  samia:
+    base: {num_samples: 10}
+    sweep: *replicates
+  spv_mia:
+    base: {num_paraphrases: 4, self_prompt_tokens: 16}
+    sweep: *replicates
+  wbc:
+    sweep: *replicates
+  amia:
+    base: {probe_epochs: 80, attack_batch_size: 4}
+    sweep: *replicates
+  loss:
+    base: {calibration_nonmember_count: 64}
+    sweep: *replicates

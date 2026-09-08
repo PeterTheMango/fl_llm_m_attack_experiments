@@ -99,7 +99,6 @@ def build_client_texts(config, include_target: bool = True) -> list:
         return dataset_sources.build_real_membership_world(
             config,
             truth_member=include_target,
-            records_per_client=dataset_sources.DEFAULT_REAL_RECORDS_PER_CLIENT,
         ).partitions
 
     rng = random.Random(config.seed)

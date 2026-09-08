@@ -106,6 +106,15 @@ python -m master_script.perform_experiments --config master_script/configs/examp
     --attack zlib --attack min_k
 ```
 
+### Larger research batch
+
+`configs/pipeline_research_master.yaml` combines all 11 attacks, three training
+conditions and three seeds. It targets a single 20GB GPU allocation with a
+0.49B model and larger SQuAD training/RAG samples. Prepare the data before
+loading it; see [setup, workload and commands](docs/research_config.md).
+This file requires the accompanying loader/profile changes and does not run
+7B full-model DP training.
+
 ### `--queue` and `--queue-output`
 
 See the [implementation report](docs/queue_defense_rag_implementation.md) for

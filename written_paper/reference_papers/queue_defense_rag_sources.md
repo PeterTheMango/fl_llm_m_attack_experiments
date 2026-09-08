@@ -79,3 +79,24 @@ and hiding (`choi2025`), and separate/low-FPR membership reporting motivated
 by `huang2023` and `carlini2022`. `andrew2021` and `koga2025` informed the
 choice discussion but adaptive private clipping and DPVoteRAG were not selected.
 The implementation report is `master_script/docs/queue_defense_rag_implementation.md`.
+
+## Larger research configuration (September 8, 2026)
+
+**rajpurkar2016** — Pranav Rajpurkar, Jian Zhang, Konstantin Lopyrev, Percy Liang.
+*SQuAD: 100,000+ Questions for Machine Comprehension*. EMNLP 2016, pp. 2383–2392.
+[Publisher record](https://aclanthology.org/D16-1264/),
+[official dataset and distribution](https://rajpurkar.github.io/SQuAD-explorer/).
+The new `squad_research` profile uses training QA records; the RAG preparation
+command samples contexts and answered questions from the validation distribution.
+Public/private corpus assignment is a simulated access boundary on public data,
+not a claim that SQuAD is sensitive or absent from model pretraining.
+
+Implementation model source: [Qwen2.5-0.5B-Instruct official model card](https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct),
+verified 0.49B total parameters and the documented native chat-template format.
+This size is selected for a single 20GB allocation with the existing full-model
+DP optimizer, not because the user's approved ceiling is only 0.5B. The
+[1.5B](https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct),
+[3B](https://huggingface.co/Qwen/Qwen2.5-3B-Instruct), and
+[7B](https://huggingface.co/Qwen/Qwen2.5-7B-Instruct) cards were inspected as
+alternatives; the last reports 7.61B total parameters. No larger model is
+silently selected by the research config.

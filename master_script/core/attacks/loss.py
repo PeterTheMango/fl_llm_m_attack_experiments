@@ -144,7 +144,6 @@ def make_membership_world(config, include_target: bool, replacement_text: Option
         return dataset_sources.build_real_membership_world(
             config,
             truth_member=include_target,
-            records_per_client=dataset_sources.DEFAULT_REAL_RECORDS_PER_CLIENT,
         ).partitions
 
     clients = [list(records) for records in BASE_CLIENT_TEXTS[: config.num_clients]]
@@ -522,7 +521,7 @@ def run_attack_trial(config, trial_id: int, truth_member: bool, base_artifact_di
         trial["pipeline_evaluation"] = evaluate_pipeline(
             {"model": model, "tokenizer": tokenizer, "device": next(model.parameters()).device,
              "privacy": getattr(model, "_training_privacy", {}),
-             "training_records": [text for part in client_texts for text in part]}, config, pipeline)
+             "training_records": [text for part in client_texts for text in part]}, config, pipeline, trial_id=trial_id)
     del model, tokenizer
     gc.collect()
     if torch.cuda.is_available():

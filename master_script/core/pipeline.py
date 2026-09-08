@@ -24,6 +24,8 @@ class Rag:
     max_context_tokens: int = 256
     max_new_tokens: int = 32
     significance: float = 0.05
+    prompt_format: str = "plain"
+    evaluation_trials: int | None = None
 
 
 @dataclass(frozen=True)
@@ -36,6 +38,10 @@ class Pipeline:
         if data["rag"]:
             # Record provenance, never private document contents, in results.
             data["rag"].pop("study_json")
+            if data["rag"]["prompt_format"] == "plain":
+                data["rag"].pop("prompt_format")  # Preserve existing pipeline identities.
+            if data["rag"]["evaluation_trials"] is None:
+                data["rag"].pop("evaluation_trials")
         return data
 
     def identity(self):
@@ -74,7 +80,8 @@ def parse_pipeline(value, source="<config>"):
     rag = None
     if value.get("rag") is not None:
         r = _mapping(value["rag"], ("study_file", "embedding_model", "top_k", "max_context_tokens",
-                                     "max_new_tokens", "significance"), "pipeline.rag")
+                                     "max_new_tokens", "significance", "prompt_format",
+                                     "evaluation_trials"), "pipeline.rag")
         if not isinstance(r.get("study_file"), str) or not r["study_file"]:
             raise ValueError("rag.study_file is required")
         base = Path(source).resolve().parent if source != "<config>" else Path.cwd()
@@ -94,6 +101,10 @@ def parse_pipeline(value, source="<config>"):
             raise ValueError("rag.significance must be below 1")
         if not isinstance(rag.embedding_model, str) or not rag.embedding_model.strip():
             raise ValueError("rag.embedding_model must be a nonempty model identifier")
+        if rag.prompt_format not in ("plain", "chat"):
+            raise ValueError("rag.prompt_format must be plain or chat")
+        if rag.evaluation_trials is not None and (type(rag.evaluation_trials) is not int or rag.evaluation_trials <= 0):
+            raise ValueError("rag.evaluation_trials must be a positive integer or null")
     if defense.mechanism == "none" and rag is None:
         return None
     return Pipeline(defense, rag)

@@ -97,7 +97,7 @@ def run_attack_trial(config, spec, trial_id: int, truth_member: bool) -> dict:
     }
     if spec.pipeline is not None:
         from .rag import evaluate_pipeline
-        trial["pipeline_evaluation"] = evaluate_pipeline(target, trial_config, spec.pipeline)
+        trial["pipeline_evaluation"] = evaluate_pipeline(target, trial_config, spec.pipeline, trial_id=trial_id)
     return trial
 
 

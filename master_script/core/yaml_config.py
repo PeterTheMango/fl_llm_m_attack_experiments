@@ -42,6 +42,16 @@ def load_config_doc(doc: dict, only: Optional[Sequence[str]] = None,
     this validation and expansion rather than reimplementing it. `source` is
     whatever the caller wants errors to name.
     """
+    # A list reuses the same attack grid for matched training conditions.
+    if isinstance(doc.get("pipeline"), list):
+        if not doc["pipeline"]:
+            raise ConfigError(f"{source}: pipeline list must not be empty")
+        pairs = []
+        for variant in doc["pipeline"]:
+            if not isinstance(variant, dict):
+                raise ConfigError(f"{source}: each pipeline variant must be a mapping")
+            pairs.extend(load_config_doc({**doc, "pipeline": variant}, only, source))
+        return pairs
     defaults = doc.get("defaults") or {}
     attacks = doc.get("attacks") or {}
     if not attacks:

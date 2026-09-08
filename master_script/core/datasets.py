@@ -28,6 +28,8 @@ class DatasetSpec:
     domain: str
     formatter: Formatter
     contains_personal_data: bool = False
+    records_per_client: int = 4
+    pool_size: int = 256
 
 
 @dataclass(frozen=True)
@@ -164,6 +166,13 @@ SYNTHETIC_DATASET_NAMES = {
     "synthetic_private_client_text",
 }
 
+# Opt-in research profile: existing dataset profiles and hashes stay unchanged.
+DATASET_CATALOG["squad_research"] = DatasetSpec(
+    key="squad_research", hub_path="rajpurkar/squad", subset=None,
+    split="train", domain="general_qa", formatter=_format_squad,
+    records_per_client=32, pool_size=4096,
+)
+
 DEFAULT_POOL_SIZE = 256
 DEFAULT_REAL_RECORDS_PER_CLIENT = 4
 _STREAM_SHUFFLE_SEED = 1729
@@ -248,7 +257,7 @@ def _load_dataset_pool(dataset_name: str, pool_size: int, max_chars: int) -> Tup
 
 
 def _ordered_records(config: Any, required: int) -> List[str]:
-    pool_size = max(DEFAULT_POOL_SIZE, required * 2)
+    pool_size = max(DEFAULT_POOL_SIZE, dataset_spec(config.dataset_name).pool_size, required * 2)
     pool = list(
         _load_dataset_pool(
             config.dataset_name,
@@ -266,11 +275,13 @@ def _ordered_records(config: Any, required: int) -> List[str]:
 def build_real_membership_world(
     config: Any,
     truth_member: bool,
-    records_per_client: int = DEFAULT_REAL_RECORDS_PER_CLIENT,
+    records_per_client: Optional[int] = None,
 ) -> MembershipWorld:
     """Build matched positive/negative client partitions from real records."""
     if not uses_real_dataset(config):
         raise ValueError(f"dataset {config.dataset_name!r} is not a real dataset profile")
+    if records_per_client is None:
+        records_per_client = dataset_spec(config.dataset_name).records_per_client
     if config.num_clients <= 0:
         raise ValueError("num_clients must be positive")
     if not 0 <= config.target_client_id < config.num_clients:
@@ -300,7 +311,7 @@ def build_real_membership_world(
 def target_record_for(
     config: Any,
     synthetic_default: str,
-    records_per_client: int = DEFAULT_REAL_RECORDS_PER_CLIENT,
+    records_per_client: Optional[int] = None,
 ) -> str:
     if not uses_real_dataset(config):
         return synthetic_default
@@ -312,7 +323,7 @@ def target_record_for(
 def held_out_record_for(
     config: Any,
     synthetic_default: str,
-    records_per_client: int = DEFAULT_REAL_RECORDS_PER_CLIENT,
+    records_per_client: Optional[int] = None,
 ) -> str:
     if not uses_real_dataset(config):
         return synthetic_default
@@ -332,6 +343,6 @@ def calibration_records(config: Any, count: int) -> List[str]:
         return []
     if not uses_real_dataset(config):
         raise ValueError("calibration_records is only for real dataset profiles")
-    offset = 2 + config.num_clients * DEFAULT_REAL_RECORDS_PER_CLIENT
+    offset = 2 + config.num_clients * dataset_spec(config.dataset_name).records_per_client
     ordered = _ordered_records(config, required=offset + count)
     return ordered[offset: offset + count]

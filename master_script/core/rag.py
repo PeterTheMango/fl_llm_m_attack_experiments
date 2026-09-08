@@ -110,9 +110,20 @@ def _prompt_tokens(bundle, question, contexts, settings, answer_tokens=0):
     tokenizer, model = bundle["tokenizer"], bundle["model"]
     capacity = getattr(model.config, "max_position_embeddings", getattr(model.config, "n_positions", 1024))
     capacity = int(capacity or 1024)
-    prefix = tokenizer.encode("Use the context to answer the question.\nQuestion: " + question + "\nContext:\n",
-                              add_special_tokens=False)
-    suffix = tokenizer.encode("\nAnswer:", add_special_tokens=False)
+    lead = "Use the context to answer the question.\nQuestion: " + question + "\nContext:\n"
+    tail = "\nAnswer:"
+    if getattr(settings, "prompt_format", "plain") == "chat":
+        # Keep the same context budget, inside the model's native user turn.
+        marker = "__RETRIEVED_CONTEXT_SLOT_9217__"
+        if marker in question:
+            raise ValueError("Question contains the reserved context marker")
+        formatted = tokenizer.apply_chat_template(
+            [{"role": "user", "content": lead + marker + tail}],
+            tokenize=False, add_generation_prompt=True,
+        )
+        lead, tail = formatted.split(marker)
+    prefix = tokenizer.encode(lead, add_special_tokens=False)
+    suffix = tokenizer.encode(tail, add_special_tokens=False)
     reserve = max(settings.max_new_tokens, answer_tokens)
     available = capacity - len(prefix) - len(suffix) - reserve
     if available < 0:
@@ -162,7 +173,7 @@ def answer_utility(answer, expected):
             "token_f1": 2 * overlap / (len(actual) + len(target)) if actual or target else 1.0}
 
 
-def evaluate_pipeline(bundle, config, pipeline):
+def evaluate_pipeline(bundle, config, pipeline, trial_id=None):
     evaluation = {"training_privacy": bundle.get("privacy", {}),
                   "audit_outputs_private": True}
     if pipeline.rag is None:
@@ -170,6 +181,9 @@ def evaluate_pipeline(bundle, config, pipeline):
     from .metrics import base_metrics, roc_auc
 
     settings = pipeline.rag
+    if settings.evaluation_trials is not None and trial_id is not None and trial_id >= settings.evaluation_trials:
+        evaluation["rag_evaluation_skipped"] = True
+        return evaluation
     study = json.loads(settings.study_json)
     training_records = set(bundle.get("training_records", []))
     # Utility is held out from FL training; retrieved evidence may of course
