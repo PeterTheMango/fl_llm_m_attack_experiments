@@ -159,6 +159,17 @@ def launch_start(body: LaunchRequest):
     return launch.start_sweep(body.config_file, body.attacks, body.use_firestore)
 
 
+class QueueRequest(BaseModel):
+    config_files: List[str]
+    attacks: Optional[List[str]] = None
+    use_firestore: bool = True
+
+
+@router.post("/launch/queue")
+def launch_queue(body: QueueRequest):
+    return launch.start_queue(body.config_files, body.attacks, body.use_firestore)
+
+
 @router.post("/launch/stop", dependencies=LOCAL_ONLY)
 def launch_stop():
     result = launch.stop_sweep()

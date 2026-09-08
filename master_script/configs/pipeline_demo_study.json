@@ -1,0 +1,84 @@
+{
+  "public_documents": [
+    {
+      "id": "public_hours",
+      "text": "The community library opens at nine in the morning."
+    },
+    {
+      "id": "public_transport",
+      "text": "The green city bus route terminates at Central Station."
+    },
+    {
+      "id": "public_recycling",
+      "text": "Glass bottles belong in the blue recycling bin."
+    },
+    {
+      "id": "public_park",
+      "text": "Riverside Park closes at sunset each day."
+    },
+    {
+      "id": "public_museum",
+      "text": "The science museum offers free admission on Tuesdays."
+    },
+    {
+      "id": "public_water",
+      "text": "The public water office is located on Oak Street."
+    }
+  ],
+  "private_documents": [
+    {
+      "id": "private_appointment",
+      "text": "Synthetic patient P17 has a checkup scheduled for Monday."
+    },
+    {
+      "id": "private_account",
+      "text": "Synthetic account A42 uses a monthly statement cycle."
+    },
+    {
+      "id": "private_refill",
+      "text": "Synthetic patient P23 collects a refill on Thursday."
+    },
+    {
+      "id": "private_transfer",
+      "text": "Synthetic transfer T81 is scheduled for Wednesday."
+    },
+    {
+      "id": "private_visit",
+      "text": "Synthetic patient P56 has an annual visit in June."
+    },
+    {
+      "id": "private_loan",
+      "text": "Synthetic loan L12 has a review planned in August."
+    }
+  ],
+  "membership_candidates": [
+    {
+      "id": "public_hours",
+      "text": "The community library opens at nine in the morning."
+    },
+    {
+      "id": "public_transport",
+      "text": "The green city bus route terminates at Central Station."
+    },
+    {
+      "id": "private_appointment",
+      "text": "Synthetic patient P17 has a checkup scheduled for Monday."
+    },
+    {
+      "id": "private_account",
+      "text": "Synthetic account A42 uses a monthly statement cycle."
+    }
+  ],
+  "utility_queries": [
+    {
+      "id": "hours",
+      "question": "When does the community library open?",
+      "answer": "nine in the morning"
+    },
+    {
+      "id": "appointment",
+      "question": "When is the checkup for synthetic patient P17?",
+      "answer": "Monday"
+    }
+  ]
+}

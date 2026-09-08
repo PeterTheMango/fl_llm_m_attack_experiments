@@ -34,8 +34,13 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
-    p.add_argument("--config", type=Path, default=CONFIGS_DIR / "smoke.yaml",
+    selection = p.add_mutually_exclusive_group()
+    selection.add_argument("--config", type=Path, default=CONFIGS_DIR / "smoke.yaml",
                    help="YAML config file (default: configs/smoke.yaml)")
+    selection.add_argument("--queue", type=Path, nargs="+", metavar="CONFIG",
+                   help="Validate and run config files sequentially in the supplied order.")
+    p.add_argument("--queue-output", type=Path,
+                   help="Parent directory for new queue manifests and per-run JSON results.")
     p.add_argument("--attack", action="append", dest="attacks", metavar="NAME",
                    help="Attack to run; repeatable. Default: every attack in the config.")
     p.add_argument("--list-attacks", action="store_true",
@@ -73,7 +78,16 @@ def main(argv=None) -> int:
     from .core.yaml_config import ConfigError, load_config_file
 
     try:
-        pairs = load_config_file(args.config, only=args.attacks)
+        if args.queue:
+            if args.max_parallel != 1:
+                raise ConfigError("--queue requires --max-parallel 1")
+            from .core.queue import load_batch
+            args.batch = load_batch(args.queue, only=args.attacks)
+            pairs = args.batch.pairs
+        else:
+            if args.queue_output:
+                raise ConfigError("--queue-output requires --queue")
+            pairs = load_config_file(args.config, only=args.attacks)
     except ConfigError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -122,7 +136,16 @@ def _run(pairs, args) -> int:
         publish_manifest(pairs)
 
     try:
-        if args.max_parallel == 2:
+        if getattr(args, "batch", None) is not None:
+            from .core.queue import run_batch
+            results, directory = run_batch(
+                args.batch, output_root=args.queue_output,
+                use_firestore=not args.no_firestore,
+                keep_artifacts=args.keep_artifacts or None,
+                **(reporter.hooks if reporter else {}),
+            )
+            print(f"queue results: {directory}")
+        elif args.max_parallel == 2:
             results = _run_parallel(pairs, args, reporter)
         else:
             results = run_sweep(
@@ -167,12 +190,23 @@ def _run_parallel(pairs, args, reporter=None) -> list:
 
     def _one(item):
         index, (cfg, spec) = item
+        study_file = None
         with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as fh:
             from dataclasses import asdict
 
             import yaml
 
-            yaml.safe_dump({"attacks": {spec.name: {"base": asdict(cfg)}}}, fh)
+            document = {"attacks": {spec.name: {"base": asdict(cfg)}}}
+            if spec.pipeline is not None:
+                options = spec.pipeline.metadata()
+                if spec.pipeline.rag is not None:
+                    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as study:
+                        study.write(spec.pipeline.rag.study_json)
+                        study_file = study.name
+                    options["rag"].pop("study_sha256")
+                    options["rag"]["study_file"] = study_file
+                document["pipeline"] = options
+            yaml.safe_dump(document, fh)
             single = fh.name
         # The parent owns the run-state report for the whole sweep: the report
         # is one array, so a child publishing its own would clobber its sibling.
@@ -192,7 +226,9 @@ def _run_parallel(pairs, args, reporter=None) -> list:
         finally:
             if reporter is not None:
                 reporter.on_run_end(run_id)
-        os.unlink(single)
+            os.unlink(single)
+            if study_file:
+                os.unlink(study_file)
         if proc.returncode != 0:
             print(proc.stderr, file=sys.stderr)
             return None

@@ -193,17 +193,28 @@ def _ami_flower_client_cls():
     from flwr.client import NumPyClient
 
     class AMIFlowerClient(NumPyClient):
-        def __init__(self, partition_id: int, client_texts: list, config):
+        def __init__(self, partition_id: int, client_texts: list, config, defense=None):
             self.partition_id = partition_id
             self.client_texts = client_texts
             self.config = config
+            self.defense = defense
 
         def fit(self, parameters, fit_config):
+            if self.defense is not None:
+                torch.manual_seed(self.config.seed + 1009 * self.partition_id + int(fit_config["server_round"]))
             device = client_device(self.config)
             model, tokenizer = build_model_and_tokenizer(self.config)
             set_parameters(model, parameters)
             model.to(device)
             model.train()
+            if self.defense is not None and self.defense.mechanism == "dp_sgd":
+                from ..defenses import private_train
+                steps = private_train(model, tokenizer, self.client_texts, self.config, self.defense)
+                updated = get_parameters(model)
+                del model
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                return updated, 1, {"partition_id": self.partition_id, "dp_steps": steps}
             loader = make_loader(self.client_texts, tokenizer, self.config, shuffle=True)
             optimizer = torch.optim.AdamW(model.parameters(), lr=self.config.client_lr)
             losses: list = []
@@ -229,7 +240,7 @@ def _ami_flower_client_cls():
 AMIFlowerClient = None  # populated lazily; see federated_fine_tune
 
 
-def federated_fine_tune(config, artifact_dir=None):
+def federated_fine_tune(config, artifact_dir=None, pipeline=None):
     import numpy as np
     import torch
     from flwr.client import ClientApp
@@ -249,6 +260,7 @@ def federated_fine_tune(config, artifact_dir=None):
     set_seed(config.seed)
 
     clients = build_client_texts(config, include_target=True)
+    defense = pipeline.defense if pipeline is not None else None
     init_model, _ = build_model_and_tokenizer(config)
     initial_parameters = ndarrays_to_parameters(get_parameters(init_model))
     del init_model
@@ -256,6 +268,7 @@ def federated_fine_tune(config, artifact_dir=None):
     clients_per_round = min(config.clients_per_round, config.num_clients)
     fraction_fit = clients_per_round / config.num_clients
     capture: dict = {"parameters": None, "history": []}
+    privacy = {}
 
     class SaveModelFedAvg(FedAvg):
         def aggregate_fit(self, server_round, results, failures):
@@ -268,6 +281,8 @@ def federated_fine_tune(config, artifact_dir=None):
                     "mean_client_loss": float(np.nanmean(client_losses)) if client_losses else math.nan,
                     "client_losses": client_losses,
                 })
+                if pipeline is not None and pipeline.defense.mechanism != "none":
+                    capture["history"][-1] = {"round": server_round, "selected_clients": selected}
             aggregated_parameters, aggregated_metrics = super().aggregate_fit(server_round, results, failures)
             if aggregated_parameters is not None:
                 capture["parameters"] = parameters_to_ndarrays(aggregated_parameters)
@@ -275,15 +290,23 @@ def federated_fine_tune(config, artifact_dir=None):
 
     def client_fn(context: Context):
         partition_id = int(context.node_config["partition-id"])
-        return AMIFlowerClient(partition_id, clients[partition_id], config).to_client()
+        return AMIFlowerClient(partition_id, clients[partition_id], config,
+                               **({"defense": defense} if defense is not None else {})).to_client()
 
     def server_fn(context: Context):
-        strategy = SaveModelFedAvg(
+        strategy_type = SaveModelFedAvg
+        if pipeline is not None and pipeline.defense.mechanism != "none":
+            from ..defenses import strategy_class
+            strategy_type = strategy_class(SaveModelFedAvg, pipeline.defense,
+                                           parameters_to_ndarrays(initial_parameters), privacy)
+        strategy = strategy_type(
             fraction_fit=fraction_fit,
             fraction_evaluate=0.0,
             min_fit_clients=clients_per_round,
             min_available_clients=config.num_clients,
             initial_parameters=initial_parameters,
+            **({"on_fit_config_fn": lambda round_id: {"server_round": round_id}}
+               if pipeline is not None else {}),
         )
         return ServerAppComponents(strategy=strategy, config=ServerConfig(num_rounds=config.federated_rounds))
 
@@ -300,6 +323,8 @@ def federated_fine_tune(config, artifact_dir=None):
     if capture["parameters"] is not None:
         set_parameters(global_model, capture["parameters"])
     global_model.to(device)
+    if pipeline is not None:
+        global_model._training_privacy = privacy
 
     history = capture["history"]
     model_path = artifact_dir / "federated_model"
@@ -504,16 +529,25 @@ def clear_experiment_objects(*objects: Any) -> None:
 _AMIA_RUN_CONTEXT: dict = {}
 
 
-def custom_trials_adapter(config, artifact_dir):
+def custom_trials_adapter(config, artifact_dir, pipeline=None):
     """Orchestrates AMIA exactly like the notebook's run_single_experiment:
     federated fine-tune -> train probe -> run attack trials."""
     from ..config import experiment_key
 
     model = tokenizer = clients = probe = None
     try:
-        model, tokenizer, clients, fed_history, model_path = federated_fine_tune(config, artifact_dir)
+        model, tokenizer, clients, fed_history, model_path = federated_fine_tune(
+            config, artifact_dir, **({"pipeline": pipeline} if pipeline is not None else {}))
         probe, probe_history, probe_path = train_ami_probe(model, tokenizer, clients, config, artifact_dir)
         trials = run_attack_trials(model, tokenizer, probe, clients, config)
+        if pipeline is not None:
+            from ..rag import evaluate_pipeline
+            evaluation = evaluate_pipeline(
+                {"model": model, "tokenizer": tokenizer, "device": next(model.parameters()).device,
+                 "privacy": getattr(model, "_training_privacy", {}),
+                 "training_records": [text for part in clients for text in part]}, config, pipeline)
+            if trials:
+                trials[0]["pipeline_evaluation"] = evaluation
         _AMIA_RUN_CONTEXT[experiment_key(config, SPEC)] = {
             "fed_history": fed_history,
             "probe_history": probe_history,

@@ -1,0 +1,400 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{microtype}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage[hidelinks]{hyperref}
+
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\ind}{\mathbb{I}}
+\newcommand{\LL}{\operatorname{LL}}
+\newcommand{\BottomK}{\operatorname{BottomK}}
+
+\title{Membership Inference Against Federated Fine-Tuned Language Models:\\Theory and Experimental Design}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section{Introduction}
+
+Large language models are commonly adapted to specialized tasks with data that belong to several users or institutions. Centralizing those data can conflict with legal, operational, or confidentiality requirements. Federated learning addresses this constraint by sending a model to participating clients, training it on each client's local records, and aggregating the resulting updates at a coordinating server. Federated fine-tuning applies this procedure to a pretrained language model. Current surveys describe direct parameter exchange, knowledge distillation, split learning, and parameter-efficient methods as major design choices for this setting \citep{yao2026federated,yan2025federated,wu2026survey,cheng2025toward}.
+
+Keeping raw records on client devices limits direct disclosure. The trained model and the updates exchanged during training can still retain information about individual examples. A membership inference attack asks whether a candidate record was used during training. The answer may reveal that a person participated in a sensitive dataset even when the record itself is never transmitted. The risk arises from measurable differences between the model's behavior on training records and its behavior on records that were absent from training \citep{yeom2018privacy}. Federated learning also gives the server access to model states and client updates. A malicious server can use this position to increase the membership signal \citep{nguyen2023active,nguyen2025theoretically}.
+
+Language-model membership attacks use several forms of evidence. Some attacks measure sequence loss. Others calibrate likelihood with a compressor, a reference model, neighboring sentences, or a nonmember prefix. Token-level attacks focus on low-probability tokens or normalize each observed token against the full vocabulary distribution. Generation-based attacks compare sampled continuations with a hidden suffix. These methods were introduced under different datasets, access assumptions, model scales, and training regimes \citep{carlini2021extracting,shi2024detecting,mattern2023membership,zhang2025minkpp,xie2024recall,kaneko2024sampling,fu2024membership,chen2026window}. A direct comparison requires a common membership game and a clear record of every adaptation.
+
+This study evaluates existing membership inference attacks, adapts them to federated fine-tuning of language models, and scales the resulting experiments for systematic comparison. The experimental framework permits controlled variation of federated training conditions, model configurations, attack parameters, and decision thresholds. These variations support an analysis of how each factor affects metrics such as balanced accuracy, ROC AUC, precision, recall, true-positive rate, and true-negative rate across the evaluated attacks.
+
+The experimental objective is to measure how well each score separates a world in which a target record belongs to a target client's local data from a world in which it is absent. Nine paths share one federated runner, LOSS uses a custom matched-world pipeline, and AMIA uses a separate probe-batch protocol. The target record, trial labels, persistence layer, and configuration expansion are shared wherever the attack permits. The attack statistic is adapted only after the relevant membership event has been defined.
+
+The present manuscript documents the theory and experimental design. The experiment jobs are still in progress. The Experimental Results, Result Analysis, Conclusion, and Further Studies Recommendations sections are intentionally empty until verified run records are available.
+
+\section{Background of the Study}
+
+\subsection{Federated fine-tuning}
+
+Consider $K$ clients indexed by $k\in\{1,\ldots,K\}$. Client $k$ owns a local text dataset $D_k$. At communication round $r$, the server sends global parameters $\theta_r$ to a selected client set $S_r$. Each selected client performs $E$ local epochs with learning rate $\eta$ and returns locally trained parameters
+\begin{equation}
+    \theta_{r,k}=\operatorname{LocalTrain}(\theta_r,D_k,E,\eta).
+\end{equation}
+The standard weighted aggregation rule is
+\begin{equation}
+    \theta_{r+1}=\sum_{k\in S_r}\alpha_{r,k}\theta_{r,k},
+    \qquad
+    \alpha_{r,k}=\frac{|D_k|}{\sum_{j\in S_r}|D_j|}.
+    \label{eq:fedavg}
+\end{equation}
+This exchange repeats for $R$ rounds. Direct-update federated LLMs can communicate full model states or parameter-efficient updates. Knowledge-distillation and split-learning variants communicate different objects and produce different privacy surfaces \citep{yan2025federated,cheng2025toward}. The implemented Hugging Face paths train all model parameters and exchange full state dictionaries. The nine modern paths and AMIA report one aggregation example per client, which gives $\alpha_{r,k}=1/|S_r|$. LOSS reports each client's actual dataset size and uses example-weighted aggregation.
+
+Federated fine-tuning reduces the need to collect raw text at one site. It does not provide a formal privacy guarantee by itself. Shared updates, final parameters, and model outputs can all contain information about local records \citep{yao2026federated,wu2026survey}. Differential privacy can limit record-level influence through clipping and calibrated noise. Its privacy budget and mechanism must be part of the implemented experiment before a privacy guarantee can be claimed. The consolidated FL-LLM runner contains no $\epsilon$ or local differential privacy mechanism. The local AMIA recreation includes LDP and no-LDP vision scripts. The FL-LLM experiments described here do not evaluate an LDP condition.
+
+\subsection{The membership inference game}
+
+Let $x^\star$ be the target record and $k^\star$ the target client. A binary variable $m\in\{0,1\}$ defines two worlds. The member world contains $x^\star$ in the target client's data,
+\begin{equation}
+    D_{k^\star}^{(1)}=D_{k^\star}^{\mathrm{base}}\cup\{x^\star\},
+\end{equation}
+and the nonmember world replaces or omits it,
+\begin{equation}
+    D_{k^\star}^{(0)}=D_{k^\star}^{\mathrm{base}}\cup\{x^{\mathrm{hold}}\}.
+\end{equation}
+The ideal security game holds all remaining design choices fixed. Federated training yields final models $\theta^{(1)}$ and $\theta^{(0)}$. Attack $a$ computes a scalar score $s_a$ and applies a threshold $\tau_a$:
+\begin{equation}
+    \widehat m_a=\ind[s_a\geq\tau_a].
+    \label{eq:generic-decision}
+\end{equation}
+The score definitions below are oriented so that larger values provide stronger membership evidence. LOSS retains its natural lower-loss decision in the implementation, and AMIA uses a strict greater-than comparison. Their exact rules are stated separately.
+
+Most implemented attacks observe the final global model. They answer an example-level question about $x^\star$ after federated training. The source AMI threat model is stronger. It gives a dishonest server control over global parameters and access to a target client's returned update \citep{nguyen2023active}. The implemented AMIA path uses final-model hidden states and a local post-training probe. This distinction is part of the experiment's scope.
+
+The implemented trials approximate the ideal comparison with a shared partition template. Modern trial $i$ also sets its seed to the base seed plus $i$, so adjacent positive and negative trials follow different stochastic trajectories. LOSS keeps seed 13 across trials and varies the target replacement. The study therefore treats the worlds as structurally controlled comparisons and does not describe them as exact same-randomness pairs.
+
+\subsection{Unified notation}
+
+Table~\ref{tab:notation} introduces the common notation before the attack equations. A symbol keeps one meaning across all sections. Superscripts identify the membership world or a score variant.
+
+\small
+\begin{longtable}{@{}L{0.19\textwidth}L{0.55\textwidth}L{0.19\textwidth}@{}}
+\caption{Unified notation for federated training and the membership attacks.}\label{tab:notation}\\
+\toprule
+Symbol & Meaning & Main use \\
+\midrule
+\endfirsthead
+\multicolumn{3}{l}{\tablename\ \thetable\ continued}\\
+\toprule
+Symbol & Meaning & Main use \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+$K$, $k$, $k^\star$ & Number of clients, a client index, and the target client. & Federated protocol \\
+$r$, $R$, $S_r$ & Round index, total rounds, and clients selected in round $r$. & Federated protocol \\
+$D_k$, $D_k^{(m)}$ & Local client data and its version in membership world $m$. & Membership game \\
+$x^\star$, $x^{\mathrm{hold}}$ & Target record and held-out replacement used in the nonmember world. & Membership game \\
+$m$, $\widehat m$ & True and predicted membership labels. & All attacks \\
+$\theta_r$, $\theta_{r,k}$ & Global parameters at round $r$ and locally trained parameters returned by client $k$. & FedAvg \\
+$\theta$, $\phi$, $\dot\theta$, $\rho$ & Final attacked model, pretrained reference model, self-prompt reference model, and the auxiliary model actually supplied to a scorer. & Reference, WBC, SPV-MIA \\
+$\alpha_{r,k}$ & Aggregation weight assigned to client $k$ in round $r$. & FedAvg \\
+$p_\theta(x_t\mid x_{<t})$ & Conditional probability of token $x_t$ given earlier tokens. & Language-model scores \\
+$a_t$ & Observed-token log probability, $a_t=\log p_\theta(x_t\mid x_{<t})$. & Min-K\% \\
+$\ell_{\theta,t}(x)$ & Per-token negative log-likelihood, $-a_t$. & LOSS, WBC \\
+$\bar\ell_\theta(x)$ & Mean next-token negative log-likelihood of sequence $x$. & LOSS and calibration \\
+$s_a$, $\tau_a$ & Membership-oriented score and decision threshold for attack $a$. & All attacks \\
+$H_z(x)$ & Bit length of the zlib-compressed representation of $x$. & zlib \\
+$k_{\%}$, $I_k(x)$ & Selected percentage and indices of the lowest-scoring tokens. & Min-K methods \\
+$\mu_t$, $\sigma_t$, $z_t$ & Mean, standard deviation, and standardized observed-token log probability under the full vocabulary distribution. & Min-K\%++ \\
+$N(x)$, $\widetilde x_i$ & Neighborhood of $x$ and its $i$th perturbed text. & Neighborhood \\
+$P$, $\LL_\theta(x\mid P)$ & Fixed nonmember prefix and target log-likelihood conditioned on that prefix. & ReCaLL \\
+$p(x)$, $r(x)$, $c_j$ & Revealed prefix, held-out suffix, and sampled continuation. & SaMIA \\
+$R_N(c_j,r)$ & ROUGE-$N$ recall between a continuation and the true suffix. & SaMIA \\
+$\Delta_t$, $S_i(w)$, $\mathcal W$ & Tokenwise reference-minus-target NLL, a length-$w$ window sum, and the set of window sizes. & WBC \\
+$D_{\mathrm{self}}$, $\operatorname{PV}_\theta$ & Self-prompt reference data and the implemented probability-variation statistic. & SPV-MIA \\
+$e_\theta(x)$, $q$, $B$ & Frozen sentence embedding, learned probe, and attack batch. & AMIA gradient mode \\
+$g_q(B)$ & Gradient of the selected probe layer produced by batch $B$. & AMIA gradient mode \\
+$\mathrm{TPR}$, $\mathrm{TNR}$ & True-positive and true-negative rates. & Evaluation \\
+$\mathrm{BA}$, $\mathrm{AUC}$ & Balanced accuracy and area under the ROC curve. & Evaluation \\
+\end{longtable}
+\normalsize
+
+\subsection{Attack signals}
+
+\subsubsection{LOSS}
+
+The LOSS attack begins with the generalization gap. A model often assigns lower loss to records used in training than to comparable held-out records \citep{yeom2018privacy}. For a token sequence of length $T$, the implemented sequence loss is
+\begin{equation}
+    \bar\ell_\theta(x)=\frac{1}{T-1}\sum_{t=2}^{T}\ell_{\theta,t}(x).
+\end{equation}
+A membership-oriented score is $s_{\mathrm{LOSS}}(x)=-\bar\ell_\theta(x)$. The implementation stores the positive NLL and predicts membership when
+\begin{equation}
+    \bar\ell_\theta(x)\leq Q_{0.10}
+    \left(\{\bar\ell_\theta(u):u\in D_{\mathrm{cal}}^{\mathrm{non}}\}\right).
+    \label{eq:loss}
+\end{equation}
+This empirical nonmember quantile is an adaptation. Yeom et al. analyze a bounded-loss randomized adversary and a likelihood-ratio decision based on conditional error distributions.
+
+\subsubsection{Reference calibration and zlib calibration}
+
+Raw loss confounds membership with intrinsic text difficulty. Reference calibration measures how much more confidently the attacked model scores a record than a model that did not receive the same fine-tuning data \citep{carlini2021extracting}. The implemented Reference mode uses
+\begin{equation}
+    s_{\mathrm{ref}}(x)=\bar\ell_\phi(x)-\bar\ell_\theta(x),
+    \label{eq:reference}
+\end{equation}
+where $\phi$ is the unfine-tuned base model in the Hugging Face path. Carlini et al. report a target-to-reference perplexity ratio. Equation~\ref{eq:reference} retains the difficulty-calibration principle in log-loss difference form.
+
+zlib provides a model-independent calibration term. It measures generic compressibility with
+\begin{equation}
+    H_z(x)=8\,|\operatorname{zlib.compress}(x)|,
+    \qquad
+    s_{\mathrm{zlib}}(x)=-\frac{\bar\ell_\theta(x)}{H_z(x)}.
+    \label{eq:zlib}
+\end{equation}
+The negative sign gives the shared higher-is-member orientation. Short strings can be strongly affected by compressor headers and byte-level overhead.
+
+\subsubsection{Min-K\% and Min-K\%++}
+
+Min-K\% focuses on the tokens that the model finds hardest. Let $I_k(x)=\BottomK_{k_{\%}}\{a_t\}$ be the indices of the lowest $k_{\%}$ observed-token log probabilities. The score is
+\begin{equation}
+    s_{\mathrm{MinK}}(x)=\frac{1}{|I_k(x)|}\sum_{t\in I_k(x)}a_t.
+    \label{eq:mink}
+\end{equation}
+Members are expected to contain fewer extreme low-probability tokens, which raises the lower-tail average \citep{shi2024detecting}.
+
+Min-K\%++ standardizes each observed token against the complete next-token distribution \citep{zhang2025minkpp}. For vocabulary item $v$ at position $t$,
+\begin{align}
+    \mu_t &= \sum_v p_t(v)\log p_t(v),\\
+    \sigma_t &= \sqrt{\sum_v p_t(v)(\log p_t(v))^2-\mu_t^2},\\
+    z_t &= \frac{\log p_t(x_t)-\mu_t}{\sigma_t}.
+\end{align}
+The attack averages the smallest $k_{\%}$ values:
+\begin{equation}
+    s_{\mathrm{MinK++}}(x)=\frac{1}{|I_k^z(x)|}\sum_{t\in I_k^z(x)}z_t.
+    \label{eq:minkpp}
+\end{equation}
+This method needs the full vocabulary logits at every scored position.
+
+\subsubsection{Neighborhood comparison and ReCaLL}
+
+Neighborhood comparison calibrates loss with small textual perturbations \citep{mattern2023membership}. Given $N(x)=\{\widetilde x_1,\ldots,\widetilde x_n\}$,
+\begin{equation}
+    s_{\mathrm{NB}}(x)=\frac{1}{n}\sum_{i=1}^{n}\bar\ell_\theta(\widetilde x_i)-\bar\ell_\theta(x).
+    \label{eq:neighborhood}
+\end{equation}
+The Hugging Face implementation uses BERT-based substitutions. The toy path uses deterministic filler substitutions and verifies only the subtraction and thresholding logic.
+
+ReCaLL calibrates a sequence with a fixed prefix $P$ made from known nonmembers \citep{xie2024recall}:
+\begin{equation}
+    s_{\mathrm{ReCaLL}}(x;P)=\frac{\LL_\theta(x\mid P)}{\LL_\theta(x)}.
+    \label{eq:recall}
+\end{equation}
+Both log-likelihoods are negative. A larger ratio indicates that the nonmember context changed the candidate's likelihood more strongly. Prefix tokens are excluded from the loss when the conditional value is computed.
+
+\subsubsection{SaMIA}
+
+SaMIA uses generated text and does not require token probabilities \citep{kaneko2024sampling}. The candidate is split into a visible prefix $p(x)$ and a held-out suffix $r(x)$. For $m_s$ sampled continuations $c_j\sim p_\theta(\cdot\mid p(x))$,
+\begin{equation}
+    s_{\mathrm{SaMIA}}(x)=\frac{1}{m_s}\sum_{j=1}^{m_s}R_N(c_j,r(x)).
+    \label{eq:samia}
+\end{equation}
+High ROUGE-$N$ recall indicates that the model can reconstruct the hidden continuation. The optional zlib-weighted variant is disabled in the default configuration.
+
+\subsubsection{WBC}
+
+WBC localizes the difference between a fine-tuned model and its base reference model \citep{chen2026window}. Define
+\begin{equation}
+    \Delta_t=\ell_{\phi,t}(x)-\ell_{\theta,t}(x),
+    \qquad
+    S_i(w)=\sum_{j=i}^{i+w-1}\Delta_j.
+\end{equation}
+Each window votes for membership when $S_i(w)>0$. The source paper first normalizes within each window size and then averages the normalized values. The implementation pools all windows:
+\begin{equation}
+    s_{\mathrm{WBC}}^{\mathrm{pool}}(x)=
+    \frac{\sum_{w\in\mathcal W}\sum_{i=1}^{T-w+1}\ind[S_i(w)>0]}
+         {\sum_{w\in\mathcal W}(T-w+1)}.
+    \label{eq:wbc}
+\end{equation}
+This pooling assigns greater influence to shorter window sizes because they produce more windows.
+
+\subsubsection{SPV-MIA}
+
+SPV-MIA combines a self-prompt reference model with a local probability-variation score \citep{fu2024membership}. The adaptation notebook and scorer contain a self-prompt routine that creates $D_{\mathrm{self}}$ from target-model generations and fine-tunes $\dot\theta$ on that data. Given paraphrases $\{\widetilde x_j\}_{j=1}^{J}$,
+\begin{equation}
+    \operatorname{PV}_\theta(x)=p_\theta(x)-\frac{1}{J}\sum_{j=1}^{J}p_\theta(\widetilde x_j),
+\end{equation}
+where the code approximates $p_\theta(x)$ by $\exp[-\bar\ell_\theta(x)]$. For an auxiliary model $\rho$, the implemented score function is
+\begin{equation}
+    s_{\mathrm{SPV}}^{\mathrm{impl}}(x)=
+    \operatorname{PV}_\theta(x)-\operatorname{PV}_{\rho}(x).
+    \label{eq:spv}
+\end{equation}
+The notebook intends $\rho=\dot\theta$. The current consolidated runner always supplies a pretrained reference bundle, which gives $\rho=\phi$ and prevents the scorer's self-prompt fallback from running. The source paper writes the variation with the opposite sign and uses paired positive and negative perturbations. The implementation uses independently masked paraphrases. Equation~\ref{eq:spv} therefore names the implemented variant explicitly.
+
+\subsubsection{AMIA/reference project family}
+
+The project uses AMIA and Reference as one reporting family. The Reference mode is defined in Equation~\ref{eq:reference}. The AMIA gradient mode draws its rationale from the chosen-neuron active attack of Nguyen et al. \citep{nguyen2023active}. In the source protocol, a dishonest server places a target-selective neuron in the global model before local training and detects membership from the returned client gradient. The source also analyzes the attack under local differential privacy.
+
+The implemented FL-LLM mode completes ordinary federated training first. It freezes the final language model, maps each text to a pooled hidden-state embedding $e_\theta(x)$, and trains a two-layer ReLU probe $q$. For an attack batch $B$, the score is
+\begin{equation}
+    s_{\mathrm{AMI}}^{\mathrm{grad}}(B)=
+    \left\|\nabla_{w_{\mathrm{fc2}}}
+    \sum_{x\in B}\operatorname{ReLU}(q(e_\theta(x)))\right\|_2.
+    \label{eq:amia}
+\end{equation}
+The decision uses $s_{\mathrm{AMI}}^{\mathrm{grad}}>10^{-8}$. Trial membership controls whether $x^\star$ appears in $B$. The FL training data already contain $x^\star$ for every AMIA trial. The resulting metric measures probe-batch target detection. It does not reproduce target-client membership across matched FL worlds and does not observe a returned Flower client update. The two modes share one project-level family name, and their empirical meanings remain separate.
+
+\section{Experimental Setup}
+
+\subsection{Study questions and comparison principle}
+
+The experiments are designed around four questions. First, can each attack statistic separate member and nonmember records after federated language-model fine-tuning? Second, how does separation change with federated rounds, client participation, local training, model choice, and random seed? Third, how do access requirements affect the practical comparison among loss, logit, auxiliary-model, generation, and probe-gradient signals? Fourth, which published mechanisms transfer directly and which implemented approximations need separate interpretation?
+
+Every comparison uses an immutable configuration. A configuration fixes the model, client topology, target client, local optimizer settings, attack parameters, threshold, number of trials, and seed. Factor sweeps expand selected fields into independent configurations. Model, tokenizer, optimizer, client state, and attack state are reinitialized for each run. Per-trial reseeding changes sampling without changing the run identifier.
+
+\subsection{Common federated protocol}
+
+The main evaluation path uses a Hugging Face causal language model and Flower's simulation interface. The protocol is:
+\begin{enumerate}
+    \item Select $m\in\{0,1\}$ for the trial, set the trial seed, and construct the corresponding client partitions.
+    \item Load the pretrained model and tokenizer.
+    \item Broadcast the global state to the selected clients.
+    \item Train each selected client locally for the configured number of epochs.
+    \item Aggregate complete client state dictionaries with Flower FedAvg.
+    \item Evaluate the attack score on $x^\star$ using the final global model and any authorized auxiliary object.
+    \item Store the trial label, scalar score, thresholded prediction, federated history, configuration, and metrics.
+\end{enumerate}
+
+For the nine modern shared-runner paths, even-numbered trial identifiers use the member world and odd-numbered identifiers use the nonmember world. Trial $i$ uses seed $\texttt{seed}+i$. The LOSS custom path follows the same alternating pattern, keeps its base seed fixed, uses actual client sizes in FedAvg, and retrains a separate FL model for every trial. The AMIA gradient path trains one unweighted FL model containing the target, trains one probe, and alternates target-present and target-absent probe batches. Its output is analyzed as a separate experimental mode.
+
+The default synthetic corpus has four clients. The target record is assigned to client 0 in the member world. The nonmember world uses a held-out record or a trial-specific replacement. This small corpus supports controlled execution and score validation. Claims about realistic non-IID text, production-scale communication, or deployment-scale language models require experiments with appropriate datasets and checkpoints.
+
+\subsection{Attack adaptation matrix}
+
+Table~\ref{tab:adaptation} connects each source mechanism to the implemented FL observation. The access label describes the information used by the attack after training.
+
+\small
+\begin{longtable}{@{}L{0.14\textwidth}L{0.20\textwidth}L{0.27\textwidth}L{0.30\textwidth}@{}}
+\caption{Source mechanisms and implemented federated adaptations.}\label{tab:adaptation}\\
+\toprule
+Path & Access & Implemented signal & Adaptation status \\
+\midrule
+\endfirsthead
+\multicolumn{4}{l}{\tablename\ \thetable\ continued}\\
+\toprule
+Path & Access & Implemented signal & Adaptation status \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+LOSS & Final-model NLL & Mean target NLL with a 10th-percentile nonmember cutoff. & The loss intuition is retained. Quantile calibration replaces the source decision rule. \\
+Reference mode & Target and base-model NLL & Base NLL minus final FL-model NLL. & Difficulty calibration is retained in log-loss difference form. \\
+zlib & Final-model NLL and raw text & Negative mean NLL divided by compressed bit length. & Source statistic is retained up to score orientation and the FL membership event. \\
+Min-K\% & Per-token log probabilities & Mean of the lowest $k_{\%}$ observed-token log probabilities. & Source statistic is retained and evaluated on the final FL model. \\
+Min-K\%++ & Full next-token logits & Mean of the lowest $k_{\%}$ vocabulary-normalized token scores. & Source statistic is retained. The toy distribution is a functional surrogate. \\
+Neighborhood & Final-model loss and BERT & Mean neighbor loss minus target loss. & Core score transfers directly. The default number and generation procedure differ from the source setting. \\
+ReCaLL & Conditional and unconditional log-likelihood & $\LL_\theta(x\mid P)/\LL_\theta(x)$ with a fixed nonmember prefix. & Source ratio transfers directly. Default evaluation uses one prefix shot. \\
+SaMIA & Text generation & Mean ROUGE recall of sampled continuations against the target suffix. & Source generation score transfers. The default generation budget is shorter. \\
+WBC & Per-token NLL from target and base models & Fraction of all pooled windows with positive summed NLL improvement. & Token and window construction transfer. Pooling changes the weighting of window sizes. \\
+SPV-MIA & Generation and likelihood from target and auxiliary models & Difference between target and auxiliary-model probability variation. & The notebook and scorer define self-prompt calibration. The current shared runner supplies a plain pretrained reference and bypasses that construction. \\
+AMIA gradient mode & Final hidden states and local probe gradients & Norm of the selected probe-layer gradient for an attack batch. & The chosen-activation rationale transfers. The active FL intervention and client-update observation are absent. \\
+\end{longtable}
+\normalsize
+
+\subsection{Default configuration and planned sweeps}
+
+The nine modern attack paths share the following defaults: four clients, four clients per round, one federated round, one local epoch, local batch size two, client learning rate $5\times10^{-5}$, maximum sequence length 64, target client 0, and seed 7. Their default checkpoint is \texttt{sshleifer/tiny-gpt2}. The real example sweep switches to \texttt{distilgpt2}, enables the Hugging Face path, assigns one simulated GPU, sets 12 trials, and varies rounds over $\{1,2,4\}$ and seeds over $\{7,11,23\}$ for zlib and Min-K\%. This produces 18 configurations. Dashboard-created configurations can extend the same grid to other registered attacks and fields.
+
+AMIA and LOSS use custom real-model paths. Both default to two FL rounds, one local epoch, batch size four, and learning rate $5\times10^{-5}$. AMIA uses 64 probe-batch trials, probe learning rate $5\times10^{-3}$, 80 probe epochs, attack batches of size eight, and gradient threshold $10^{-8}$. LOSS uses 12 matched FL trials, seed 13, 24 nonmember calibration records, and a threshold quantile of 0.10.
+
+Table~\ref{tab:attack-defaults} records the attack-specific defaults of the modern paths.
+
+\small
+\begin{longtable}{@{}L{0.18\textwidth}L{0.38\textwidth}L{0.34\textwidth}@{}}
+\caption{Attack-specific defaults in the consolidated runner.}\label{tab:attack-defaults}\\
+\toprule
+Path & Parameters & Default decision \\
+\midrule
+\endfirsthead
+\multicolumn{3}{l}{\tablename\ \thetable\ continued}\\
+\toprule
+Path & Parameters & Default decision \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+Reference & No attack-specific sampling parameter. & $s_{\mathrm{ref}}\geq0.25$ \\
+zlib & zlib compressed length in bits. & $s_{\mathrm{zlib}}\geq-0.0058$ \\
+Min-K\% & $k_{\%}=20$. & $s_{\mathrm{MinK}}\geq-4.08$ \\
+Min-K\%++ & $k_{\%}=20$. & $s_{\mathrm{MinK++}}\geq-3.25$ \\
+Neighborhood & 25 neighbors and one word swap. & $s_{\mathrm{NB}}\geq0.02$ \\
+ReCaLL & One nonmember prefix shot. & $s_{\mathrm{ReCaLL}}\geq1.05$ \\
+SaMIA & 10 samples, ROUGE-1, zlib weighting disabled. & $s_{\mathrm{SaMIA}}\geq0.5$ \\
+SPV-MIA & Four paraphrases, mask ratio 0.2, eight self-prompt tokens. & $s_{\mathrm{SPV}}^{\mathrm{impl}}\geq0$ \\
+WBC & $\mathcal W=\{2,3,4,6,9,13,18,25,32,40\}$. & $s_{\mathrm{WBC}}^{\mathrm{pool}}\geq0.75$ \\
+\end{longtable}
+\normalsize
+
+The fixed thresholds are implementation defaults. They are not universal cutoffs from the source papers. Score distributions and threshold-free AUC are retained where the corresponding notebook records them. A threshold must be calibrated without using evaluation labels before it is used for a final comparative claim.
+
+\subsection{Toy checks and real-model experiments}
+
+Nine paths provide a dependency-light toy model. It represents memorization through token counts and implements simplified analogues of federation and attack scoring. The test suite checks deterministic execution, score orientation, both membership worlds, and metric plumbing. AMIA and LOSS have no toy path and require the Hugging Face and Flower dependencies.
+
+Toy separability is a software validation result. It does not estimate privacy leakage for a causal language model. Several toy attacks encode the expected direction through constructed pseudo-probabilities, deterministic generation, or filler neighbors. Publication-scale conclusions require \texttt{use\_hf\_models=true}. The shipped real sweep currently covers zlib and Min-K\%; an all-method Hugging Face configuration is not included. Toy runs remain useful for regression testing and configuration validation.
+
+The generic runner constructs a negative-world toy reference model for every modern path marked as reference-dependent. The Reference and WBC notebooks use untrained toy references. SaMIA's consolidated toy generator ranks unigram counts deterministically. Its notebook toy model uses bigram transitions. These paths verify interfaces and score direction without establishing numerical notebook parity.
+
+\subsection{Metrics}
+
+For member trials, the true-positive rate is
+\begin{equation}
+    \mathrm{TPR}=\frac{\mathrm{TP}}{\mathrm{TP}+\mathrm{FN}}.
+\end{equation}
+For nonmember trials, the true-negative rate is
+\begin{equation}
+    \mathrm{TNR}=\frac{\mathrm{TN}}{\mathrm{TN}+\mathrm{FP}}.
+\end{equation}
+The project stores
+\begin{equation}
+    \mathrm{adv}=\frac{1}{2}\mathrm{TPR}+\frac{1}{2}\mathrm{TNR}.
+    \label{eq:adv}
+\end{equation}
+This quantity is balanced accuracy. Nguyen et al. use the same expression for AMI success \citep{nguyen2023active}. Other MIA literature often uses the term advantage for $\mathrm{TPR}-\mathrm{FPR}$. This manuscript reports Equation~\ref{eq:adv} as $\mathrm{BA}$ and notes the stored key \texttt{adv} to prevent metric ambiguity.
+
+The common metric record also contains accuracy, precision, recall, F1, and trial counts. Most modern paths add ROC AUC. The Reference path preserves its notebook output and omits AUC. LOSS stores AUC after negating its lower-is-member loss. AMIA stores AUC from gradient scores. SaMIA also stores TPR at 10\% FPR. Thresholded BA and threshold-free AUC answer different questions and are analyzed separately when results become available.
+
+\subsection{Run identity, persistence, and auditability}
+
+Each expanded configuration receives a stable SHA-256-derived run identifier. The nine modern notebooks use a 16-character digest, AMIA uses a 24-character digest, and LOSS prefixes a 16-character digest with its experiment name. The consolidated runner preserves all three formats so that prior Firestore documents remain addressable.
+
+The execution order is cache lookup, federated training, attack scoring, measurement, Firestore persistence, and artifact cleanup. A complete cached document skips computation. Each successful document contains the immutable configuration, methodology text, federated history, aggregate metrics, compact trial records, and artifact paths. Local model and probe artifacts are deleted only after a successful persistence step unless the run is configured to keep them. Failed runs retain their artifacts for diagnosis.
+
+The positive and negative trial labels, scalar scores, predictions, and configuration hashes make each aggregate metric traceable to individual decisions. This trace is necessary for checking threshold calibration, score direction, class balance, and any discrepancy between AUC and fixed-threshold performance.
+
+\subsection{Scope and validity conditions}
+
+The present setup evaluates membership inference after full-parameter federated fine-tuning. Nine modern paths and AMIA use unweighted client aggregation, and LOSS uses example-weighted aggregation. The setup does not evaluate PEFT, secure aggregation, client-level differential privacy, local differential privacy, gradient clipping, or privacy-budget accounting. FedLLM papers are cited for system context and deployment constraints. They do not provide empirical support for an unimplemented mechanism.
+
+The AMIA gradient mode is interpreted as a probe-batch experiment. Claims about a malicious server changing a transformer's parameters, identifying membership from a returned client update, or retaining certified success under LDP require a separate implementation. The theoretical vision results of Nguyen et al. motivate that study direction and do not certify the current language-model probe \citep{nguyen2023active,nguyen2025theoretically}.
+
+The WBC and SPV-MIA implementation variants are identified by their equations. WBC uses pooled windows. The SPV scorer defines a geometric-mean probability proxy with independently masked paraphrases. Its self-prompt reference fallback is not reached by the current shared runner because the runner always supplies a pretrained reference bundle. Results from these paths are interpreted according to the executed variant. Source-paper performance values are not presented as reproduced results.
+
+The default corpus and checkpoint are deliberately small. Repeated seeds, additional checkpoints, realistic client partitions, longer records, threshold calibration data, and larger trial counts are required for statistical conclusions. The current pipeline reports point estimates without confidence intervals and has no uniform held-out model-utility metric. Results will be entered only after the full configurations and corresponding Firestore records have been verified.
+
+\section{Experimental Results}
+
+\section{Result Analysis}
+
+\section{Conclusion}
+
+\section{Further Studies Recommendations}
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}

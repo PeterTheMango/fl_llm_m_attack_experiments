@@ -62,6 +62,7 @@ def failed_sweep_result(config, spec, run_id: str, exc: Exception) -> dict:
         "attack_name": getattr(config, "attack_name", spec.name),
         "config": config_payload,
         "error": message[:2000],
+        **({"pipeline": spec.pipeline.metadata()} if getattr(spec, "pipeline", None) is not None else {}),
     }
 
 
@@ -70,10 +71,12 @@ def run_attack_trial(config, spec, trial_id: int, truth_member: bool) -> dict:
     # hashed -- the run_id belongs to the original config. Real-data trials use
     # the same seed in adjacent positive/negative trials so each pair differs
     # only in target membership, not in the sampled target or client corpus.
-    seed_offset = trial_id // 2 if dataset_sources.uses_real_dataset(config) else trial_id
+    seed_offset = trial_id // 2 if dataset_sources.uses_real_dataset(config) or spec.pipeline is not None else trial_id
     trial_config = replace(config, seed=config.seed + seed_offset)
     if trial_config.use_hf_models:
-        target, history = federation.run_hf_federated_finetune(trial_config, truth_member=truth_member)
+        target, history = federation.run_hf_federated_finetune(
+            trial_config, truth_member=truth_member,
+            **({"pipeline": spec.pipeline} if spec.pipeline is not None else {}))
         reference = federation.load_reference_bundle(trial_config) if spec.needs_reference else None
         candidate_text = target.get("target_record", federation.TARGET_RECORD)
         score = spec.score_hf(ScoreContext(trial_config, target, candidate_text, reference))
@@ -85,13 +88,17 @@ def run_attack_trial(config, spec, trial_id: int, truth_member: bool) -> dict:
         candidate_text = getattr(target, "target_record", federation.TARGET_RECORD)
         score = spec.score_toy(ScoreContext(trial_config, target, candidate_text, reference))
 
-    return {
+    trial = {
         "trial_id": trial_id,
         "truth_member": bool(truth_member),
         "score": float(score),
         "pred_member": bool(score >= trial_config.threshold),
         "federated_history": history,
     }
+    if spec.pipeline is not None:
+        from .rag import evaluate_pipeline
+        trial["pipeline_evaluation"] = evaluate_pipeline(target, trial_config, spec.pipeline)
+    return trial
 
 
 def run_attack_trials(config, spec) -> list:
@@ -101,20 +108,30 @@ def run_attack_trials(config, spec) -> list:
     ]
 
 
-def run_single_experiment(config, spec, *, use_firestore: bool = True, keep_artifacts=None) -> dict:
+def run_single_experiment(config, spec, *, use_firestore: bool = True, keep_artifacts=None,
+                          artifact_directory=None) -> dict:
     # run_id always uses spec: amia and loss have their own key formulas.
     run_id = experiment_key(config, spec)
+    cache_error = None
     if use_firestore:
-        cached = firestore.load_cached_result(config, spec)
+        try:
+            cached = firestore.load_cached_result(config, spec)
+        except Exception as exc:
+            if spec.pipeline is None and artifact_directory is None:
+                raise
+            cached = None
+            cache_error = f"{type(exc).__name__}: {exc}"[:2000]
+            log.warning("cache unavailable for %s; computing with local persistence", run_id)
         if cached and cached.get("status") == "complete":
             log.info("cache hit %s (%s); skipping compute", run_id, spec.name)
             return cached
 
-    artifact_dir = artifact_dir_for(config, spec)
+    artifact_dir = Path(artifact_directory) if artifact_directory is not None else artifact_dir_for(config, spec)
     artifact_dir.mkdir(parents=True, exist_ok=True)
     try:
         if spec.custom_trials is not None:
-            trials = spec.custom_trials(config, artifact_dir)
+            trials = spec.custom_trials(config, artifact_dir,
+                                        **({"pipeline": spec.pipeline} if spec.pipeline is not None else {}))
         else:
             trials = run_attack_trials(config, spec)
     except Exception as exc:
@@ -151,16 +168,60 @@ def run_single_experiment(config, spec, *, use_firestore: bool = True, keep_arti
             "artifacts": {"artifact_dir": str(artifact_dir), "federated_model_path": None},
         }
 
-    saved = firestore.save_result(config, result, spec) if use_firestore else False
+    if spec.pipeline is not None:
+        from .metrics import roc_auc, tpr_at_fpr
+        result["run_id"] = run_id
+        result["pipeline"] = spec.pipeline.metadata()
+        result["pipeline_evaluations"] = [
+            {"trial_id": t["trial_id"], **t["pipeline_evaluation"]}
+            for t in trials if "pipeline_evaluation" in t
+        ]
+        labels = [t["truth_member"] for t in trials]
+        scores = [(-1 if spec.name == "loss" else 1) * t["score"] for t in trials]
+        result["training_membership_metrics"] = {
+            "roc_auc": roc_auc(labels, scores), "tpr_at_fpr_0_01": tpr_at_fpr(labels, scores, 0.01),
+            "nonmember_count": labels.count(False), "member_count": labels.count(True),
+            "low_fpr_resolution": 1 / labels.count(False) if False in labels else None,
+        }
+        # Sequentially released models on overlapping records must compose.
+        from .defenses import privacy_bound
+        protected = [e.get("training_privacy", {}) for e in result["pipeline_evaluations"]]
+        if spec.pipeline.defense.mechanism != "none":
+            if not protected or any(p.get("steps", 0) <= 0 for p in protected):
+                raise RuntimeError("Private training returned no accounting evidence; refusing a privacy claim")
+            result["training_privacy_composed"] = privacy_bound(
+                sum(p.get("steps", 0) for p in protected),
+                spec.pipeline.defense.noise_multiplier, spec.pipeline.defense.delta)
+            result["training_privacy_composed"]["scope"] = (
+                "Training releases in this experiment only; audit scores, probe training, "
+                "private retrieval outputs and repeated experiments are not covered.")
+    if spec.pipeline is not None or artifact_directory is not None:
+        from .queue import write_json
+        # Keep completed computation even if the optional remote write fails.
+        if cache_error:
+            result["cache_error"] = cache_error
+        result["firestore_saved"] = False
+        write_json(artifact_dir / "result.json", result)
+    try:
+        saved = firestore.save_result(config, result, spec) if use_firestore else False
+    except Exception as exc:
+        if spec.pipeline is None and artifact_directory is None:
+            raise
+        saved = False
+        result["persistence_error"] = f"{type(exc).__name__}: {exc}"[:2000]
+        log.exception("computed run %s retained locally after Firestore write failed", run_id)
     result["firestore_saved"] = saved
+    if spec.pipeline is not None or artifact_directory is not None:
+        from .queue import write_json
+        write_json(artifact_dir / "result.json", result)
     keep = config.keep_artifacts if keep_artifacts is None else keep_artifacts
-    if saved and not keep:
+    if saved and not keep and spec.pipeline is None and artifact_directory is None:
         cleanup_artifacts(artifact_dir)
     return result
 
 
 def run_sweep(pairs, *, use_firestore: bool = True, keep_artifacts=None,
-              on_run_start=None, on_run_end=None) -> list:
+              on_run_start=None, on_run_end=None, on_result=None, artifact_base=None) -> list:
     """pairs: iterable of (config, spec). Sequential; --max-parallel is the CLI's job.
 
     on_run_start/on_run_end bracket each run so an observer (the dashboard's
@@ -171,13 +232,15 @@ def run_sweep(pairs, *, use_firestore: bool = True, keep_artifacts=None,
     for.
     """
     results = []
-    for config, spec in pairs:
+    for index, (config, spec) in enumerate(pairs):
         run_id = experiment_key(config, spec)
         if on_run_start is not None:
             on_run_start(run_id, spec.name, config)
         try:
             result = run_single_experiment(
-                config, spec, use_firestore=use_firestore, keep_artifacts=keep_artifacts
+                config, spec, use_firestore=use_firestore, keep_artifacts=keep_artifacts,
+                **({"artifact_directory": Path(artifact_base) / f"{index:04d}-{run_id}"}
+                   if artifact_base is not None else {}),
             )
         except Exception as exc:
             # run_single_experiment logs the traceback and persists the failed
@@ -194,4 +257,6 @@ def run_sweep(pairs, *, use_firestore: bool = True, keep_artifacts=None,
             if on_run_end is not None:
                 on_run_end(run_id, spec.name, config)
         results.append(result)
+        if on_result is not None:
+            on_result(result)
     return results

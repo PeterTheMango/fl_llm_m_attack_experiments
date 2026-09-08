@@ -1,0 +1,942 @@
+{
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/code_experiments/recreations/ami/img2vec_pytorch/__init__.py": {
+    "mtime": 1782325389.8520048,
+    "ast_hash": "567fbee5f5ffab03d32021ab963a1db7",
+    "semantic_hash": "567fbee5f5ffab03d32021ab963a1db7"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/code_experiments/recreations/ami/img2vec_pytorch/img_to_vec.py": {
+    "mtime": 1782325389.8521698,
+    "ast_hash": "3c73ea5e08f6e678765449f01b8fea29",
+    "semantic_hash": "3c73ea5e08f6e678765449f01b8fea29"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/code_experiments/recreations/ami/img2vec_pytorch/test_img_to_vec.py": {
+    "mtime": 1782325389.8522756,
+    "ast_hash": "1b5788f0972a4e09570cf21bc804a294",
+    "semantic_hash": "1b5788f0972a4e09570cf21bc804a294"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/code_experiments/recreations/ami/ldp/celeba-eval.py": {
+    "mtime": 1782325389.8528278,
+    "ast_hash": "730f05d3ee0366e004800e5104f4f021",
+    "semantic_hash": "730f05d3ee0366e004800e5104f4f021"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/code_experiments/recreations/ami/ldp/celeba-exp.py": {
+    "mtime": 1782325389.852957,
+    "ast_hash": "e71a16f891e0fb04ddfa0b9952820831",
+    "semantic_hash": "e71a16f891e0fb04ddfa0b9952820831"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/code_experiments/recreations/ami/ldp/cifar-eval.py": {
+    "mtime": 1782325389.8531082,
+    "ast_hash": "d574ce6c5cfba9af91126b77180497d2",
+    "semantic_hash": "d574ce6c5cfba9af91126b77180497d2"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/code_experiments/recreations/ami/ldp/cifar-exp.py": {
+    "mtime": 1782325389.8532596,
+    "ast_hash": "bb982a812df0623f80319eb48ef6b659",
+    "semantic_hash": "bb982a812df0623f80319eb48ef6b659"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/code_experiments/recreations/ami/ldp/img2vec_pytorch/__init__.py": {
+    "mtime": 1782325389.8535624,
+    "ast_hash": "567fbee5f5ffab03d32021ab963a1db7",
+    "semantic_hash": "567fbee5f5ffab03d32021ab963a1db7"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/code_experiments/recreations/ami/ldp/img2vec_pytorch/img_to_vec.py": {
+    "mtime": 1782325389.8536806,
+    "ast_hash": "3c73ea5e08f6e678765449f01b8fea29",
+    "semantic_hash": "3c73ea5e08f6e678765449f01b8fea29"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/code_experiments/recreations/ami/ldp/img2vec_pytorch/test_img_to_vec.py": {
+    "mtime": 1782325389.853851,
+    "ast_hash": "1b5788f0972a4e09570cf21bc804a294",
+    "semantic_hash": "1b5788f0972a4e09570cf21bc804a294"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/code_experiments/recreations/ami/ldp/imgnet-eval.py": {
+    "mtime": 1782325389.8540115,
+    "ast_hash": "b823d0f2843b4c0d020227026199cf13",
+    "semantic_hash": "b823d0f2843b4c0d020227026199cf13"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/code_experiments/recreations/ami/ldp/imgnet-exp.py": {
+    "mtime": 1782325389.8540986,
+    "ast_hash": "4e733359f762d1b93b02a6d47b35f0e4",
+    "semantic_hash": "4e733359f762d1b93b02a6d47b35f0e4"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/code_experiments/recreations/ami/noldp/celeba-eval-noldp.py": {
+    "mtime": 1782325389.8552325,
+    "ast_hash": "a800b0b5eff22dcfe738fcc6f9380e10",
+    "semantic_hash": "a800b0b5eff22dcfe738fcc6f9380e10"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/code_experiments/recreations/ami/noldp/celeba-exp-noldp.py": {
+    "mtime": 1782325389.8553905,
+    "ast_hash": "dc07c1839cca3a56a21b30197c7a67f5",
+    "semantic_hash": "dc07c1839cca3a56a21b30197c7a67f5"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/code_experiments/recreations/ami/noldp/cifar-eval-noldp.py": {
+    "mtime": 1782325389.855472,
+    "ast_hash": "8a9cf6541f712b47013d03c10ad16d21",
+    "semantic_hash": "8a9cf6541f712b47013d03c10ad16d21"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/code_experiments/recreations/ami/noldp/cifar-exp-noldp.py": {
+    "mtime": 1782325389.855675,
+    "ast_hash": "f66eced1d1cafa1543678150d233706b",
+    "semantic_hash": "f66eced1d1cafa1543678150d233706b"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/code_experiments/recreations/ami/noldp/img2vec_pytorch/__init__.py": {
+    "mtime": 1782325389.8558335,
+    "ast_hash": "567fbee5f5ffab03d32021ab963a1db7",
+    "semantic_hash": "567fbee5f5ffab03d32021ab963a1db7"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/code_experiments/recreations/ami/noldp/img2vec_pytorch/img_to_vec.py": {
+    "mtime": 1782325389.8559465,
+    "ast_hash": "3c73ea5e08f6e678765449f01b8fea29",
+    "semantic_hash": "3c73ea5e08f6e678765449f01b8fea29"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/code_experiments/recreations/ami/noldp/img2vec_pytorch/test_img_to_vec.py": {
+    "mtime": 1782325389.8560216,
+    "ast_hash": "1b5788f0972a4e09570cf21bc804a294",
+    "semantic_hash": "1b5788f0972a4e09570cf21bc804a294"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/code_experiments/recreations/ami/noldp/imgnet-eval-noldp.py": {
+    "mtime": 1782325389.8561513,
+    "ast_hash": "6dafad9c1d670ae3dec0b834493e21e4",
+    "semantic_hash": "6dafad9c1d670ae3dec0b834493e21e4"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/code_experiments/recreations/ami/noldp/imgnet-exp-noldp.py": {
+    "mtime": 1782325389.856292,
+    "ast_hash": "72adf95a3c320537949804c79db531eb",
+    "semantic_hash": "72adf95a3c320537949804c79db531eb"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/code_experiments/recreations/ami/preprocessing.py": {
+    "mtime": 1782325389.8563764,
+    "ast_hash": "77af6b7577aecb6418ed83ed2a6e4d61",
+    "semantic_hash": "77af6b7577aecb6418ed83ed2a6e4d61"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/__init__.py": {
+    "mtime": 1784321745.557624,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/core/__init__.py": {
+    "mtime": 1784321751.6867654,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/core/attacks/__init__.py": {
+    "mtime": 1784321752.1325142,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/core/attacks/amia.py": {
+    "mtime": 1785980192.8605795,
+    "ast_hash": "09a0090f64d18f45eaf7cf3099084746",
+    "semantic_hash": "09a0090f64d18f45eaf7cf3099084746"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/core/attacks/loss.py": {
+    "mtime": 1784326359.683727,
+    "ast_hash": "fcba2246e269335221908bb964c71036",
+    "semantic_hash": "fcba2246e269335221908bb964c71036"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/core/attacks/min_k.py": {
+    "mtime": 1784324218.4781106,
+    "ast_hash": "875b101bf1108657ab1a3a2611b48258",
+    "semantic_hash": "875b101bf1108657ab1a3a2611b48258"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/core/attacks/min_k_plus_plus.py": {
+    "mtime": 1784324237.0130894,
+    "ast_hash": "f07b7333c3ccc88a765f954d0c138b63",
+    "semantic_hash": "f07b7333c3ccc88a765f954d0c138b63"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/core/attacks/neighborhood.py": {
+    "mtime": 1784324259.5575252,
+    "ast_hash": "71f92410907a1db37a2c4a4ed5f987be",
+    "semantic_hash": "71f92410907a1db37a2c4a4ed5f987be"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/core/attacks/recall.py": {
+    "mtime": 1784324281.5724745,
+    "ast_hash": "3b320c44a4baa3a67b88a0b7863811e7",
+    "semantic_hash": "3b320c44a4baa3a67b88a0b7863811e7"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/core/attacks/reference.py": {
+    "mtime": 1784324415.991793,
+    "ast_hash": "b3f69ba23049748302747e5abf789561",
+    "semantic_hash": "b3f69ba23049748302747e5abf789561"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/core/attacks/samia.py": {
+    "mtime": 1784325905.7076504,
+    "ast_hash": "bdbc0e5146af3ff3c492e04accf4b312",
+    "semantic_hash": "bdbc0e5146af3ff3c492e04accf4b312"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/core/attacks/spv_mia.py": {
+    "mtime": 1784324432.564738,
+    "ast_hash": "3313490d917819edbaf6de3ce4370ae5",
+    "semantic_hash": "3313490d917819edbaf6de3ce4370ae5"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/core/attacks/wbc.py": {
+    "mtime": 1784324425.7368946,
+    "ast_hash": "d12b372441b0bf689216537be6532309",
+    "semantic_hash": "d12b372441b0bf689216537be6532309"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/core/attacks/zlib.py": {
+    "mtime": 1784324204.5599456,
+    "ast_hash": "9e329c1d984aa20b7dbe4a80ceaf86bb",
+    "semantic_hash": "9e329c1d984aa20b7dbe4a80ceaf86bb"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/core/charts.py": {
+    "mtime": 1784327411.075147,
+    "ast_hash": "871781ceb2cdc03c11cfba4e231685e3",
+    "semantic_hash": "871781ceb2cdc03c11cfba4e231685e3"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/core/config.py": {
+    "mtime": 1784322077.5686276,
+    "ast_hash": "741fcfbbde0a3e8d5bf440a2ea262195",
+    "semantic_hash": "741fcfbbde0a3e8d5bf440a2ea262195"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/core/federation.py": {
+    "mtime": 1784323366.2837586,
+    "ast_hash": "52bc7d294cfd17e105e6a481b7bd7350",
+    "semantic_hash": "52bc7d294cfd17e105e6a481b7bd7350"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/core/firestore.py": {
+    "mtime": 1785988533.6990247,
+    "ast_hash": "51612efaa8f5226cbc5444d8d7ab5da4",
+    "semantic_hash": "51612efaa8f5226cbc5444d8d7ab5da4"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/core/gpu.py": {
+    "mtime": 1784321917.470703,
+    "ast_hash": "1570bbab31ed8174ba63ebba404eee41",
+    "semantic_hash": "1570bbab31ed8174ba63ebba404eee41"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/core/metrics.py": {
+    "mtime": 1784322867.8209217,
+    "ast_hash": "46ed5e27f419c2c617bd959ca0f0d6d3",
+    "semantic_hash": "46ed5e27f419c2c617bd959ca0f0d6d3"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/core/registry.py": {
+    "mtime": 1784323353.1458838,
+    "ast_hash": "f492016df490131b0733450b0a299bdb",
+    "semantic_hash": "f492016df490131b0733450b0a299bdb"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/core/runner.py": {
+    "mtime": 1785987839.8720696,
+    "ast_hash": "60fd47c5e9600fcc30836101f325642c",
+    "semantic_hash": "60fd47c5e9600fcc30836101f325642c"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/core/runstate.py": {
+    "mtime": 1785988596.5635667,
+    "ast_hash": "22c0c493600af427a14503ce47ce98f9",
+    "semantic_hash": "22c0c493600af427a14503ce47ce98f9"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/core/scoring.py": {
+    "mtime": 1784324177.1926534,
+    "ast_hash": "1dd0ded1e066abee84827f23e3588590",
+    "semantic_hash": "1dd0ded1e066abee84827f23e3588590"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/core/spec.py": {
+    "mtime": 1785980181.7327478,
+    "ast_hash": "1735a14aa90e61b13ef8feede9321b57",
+    "semantic_hash": "1735a14aa90e61b13ef8feede9321b57"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/core/yaml_config.py": {
+    "mtime": 1786070771.154434,
+    "ast_hash": "b8b6114482d834f43fddf659ba3033ce",
+    "semantic_hash": "b8b6114482d834f43fddf659ba3033ce"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/logging_setup.py": {
+    "mtime": 1784321751.0530758,
+    "ast_hash": "9d642fbefbcfd91dedffb1f54a7d7ed1",
+    "semantic_hash": "9d642fbefbcfd91dedffb1f54a7d7ed1"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/paths.py": {
+    "mtime": 1784321747.5736344,
+    "ast_hash": "4556a6b56c79d850b018b1335abb72bd",
+    "semantic_hash": "4556a6b56c79d850b018b1335abb72bd"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/perform_experiments.py": {
+    "mtime": 1785988415.9141815,
+    "ast_hash": "5e19074d89e37ab644ad68ce8e741ccd",
+    "semantic_hash": "5e19074d89e37ab644ad68ce8e741ccd"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/webui/__init__.py": {
+    "mtime": 1784321752.6003938,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/webui/api.py": {
+    "mtime": 1786070771.1547296,
+    "ast_hash": "355ec9f1e7bd320a1c3de829102306e7",
+    "semantic_hash": "355ec9f1e7bd320a1c3de829102306e7"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/webui/app.py": {
+    "mtime": 1785990171.6573899,
+    "ast_hash": "a00600e044ad499943a7eb8e1bf72555",
+    "semantic_hash": "a00600e044ad499943a7eb8e1bf72555"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/webui/attackfields.py": {
+    "mtime": 1786070771.1550834,
+    "ast_hash": "008f7cd2dde5ba270e4e5ec687f1b6e3",
+    "semantic_hash": "008f7cd2dde5ba270e4e5ec687f1b6e3"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/webui/catalog.py": {
+    "mtime": 1785982648.599221,
+    "ast_hash": "89aa9ec69cde29c4839427de022c8813",
+    "semantic_hash": "89aa9ec69cde29c4839427de022c8813"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/webui/configs.py": {
+    "mtime": 1786070771.155454,
+    "ast_hash": "76d042e1e371290a388d501ca1caa57d",
+    "semantic_hash": "76d042e1e371290a388d501ca1caa57d"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/webui/envfile.py": {
+    "mtime": 1785990463.209753,
+    "ast_hash": "72fca5b5b4b941a54a8314d6bd381961",
+    "semantic_hash": "72fca5b5b4b941a54a8314d6bd381961"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/webui/gpustats.py": {
+    "mtime": 1785982653.2110407,
+    "ast_hash": "467fddcbc2dcc4aec0d4a5f1a24a1cfc",
+    "semantic_hash": "467fddcbc2dcc4aec0d4a5f1a24a1cfc"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/webui/launch.py": {
+    "mtime": 1786070771.1558588,
+    "ast_hash": "d0ca15e7843f0c9e54a35fe20e025cc1",
+    "semantic_hash": "d0ca15e7843f0c9e54a35fe20e025cc1"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/webui/localguard.py": {
+    "mtime": 1785990097.5326433,
+    "ast_hash": "499d957ba284de675595b33eb9bff6e3",
+    "semantic_hash": "499d957ba284de675595b33eb9bff6e3"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/webui/logtail.py": {
+    "mtime": 1785982664.8121998,
+    "ast_hash": "4cbaa8063818f4c00a1aa2d9bc1665f4",
+    "semantic_hash": "4cbaa8063818f4c00a1aa2d9bc1665f4"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/webui/manual.py": {
+    "mtime": 1786070771.1561213,
+    "ast_hash": "bde9d3c4360146118a7e3886992b75aa",
+    "semantic_hash": "bde9d3c4360146118a7e3886992b75aa"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/webui/monitor.py": {
+    "mtime": 1785987945.9253263,
+    "ast_hash": "c77427c2a176b99c1aa991c117a0ab02",
+    "semantic_hash": "c77427c2a176b99c1aa991c117a0ab02"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/webui/results.py": {
+    "mtime": 1785988474.1184065,
+    "ast_hash": "6808e14133f55a017ad7b7a6d0b4f8e5",
+    "semantic_hash": "6808e14133f55a017ad7b7a6d0b4f8e5"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/webui/state.py": {
+    "mtime": 1785984229.960007,
+    "ast_hash": "c263ad190ce093b5637b4ed0fc302fc1",
+    "semantic_hash": "c263ad190ce093b5637b4ed0fc302fc1"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/webui/static/app.js": {
+    "mtime": 1786070771.1567917,
+    "ast_hash": "0c6841fba5e996f124802531baec1558",
+    "semantic_hash": "0c6841fba5e996f124802531baec1558"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/webui/static/chart.umd.min.js": {
+    "mtime": 1786070771.1586847,
+    "ast_hash": "3a1612b2a2ed332a6c1793fc73fa564a",
+    "semantic_hash": "3a1612b2a2ed332a6c1793fc73fa564a"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/webui/tunnel.py": {
+    "mtime": 1785990263.9090145,
+    "ast_hash": "d2d365080792725722925cca1da0f196",
+    "semantic_hash": "d2d365080792725722925cca1da0f196"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/tests/__init__.py": {
+    "mtime": 1784322515.44921,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/tests/notebook_configs.py": {
+    "mtime": 1784322597.8211365,
+    "ast_hash": "458d5f41ac16deba541058ea631656a6",
+    "semantic_hash": "458d5f41ac16deba541058ea631656a6"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/tests/test_charts.py": {
+    "mtime": 1784327390.9245963,
+    "ast_hash": "10862b1727747b630da0c0ac7341c03c",
+    "semantic_hash": "10862b1727747b630da0c0ac7341c03c"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/tests/test_cli.py": {
+    "mtime": 1784327580.1187453,
+    "ast_hash": "5b2625f9f1f6d0a56a493ae2bf2c4f4d",
+    "semantic_hash": "5b2625f9f1f6d0a56a493ae2bf2c4f4d"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/tests/test_config.py": {
+    "mtime": 1784322089.4498603,
+    "ast_hash": "3eeb8bc32b9967ce56a225d7ea68ab9c",
+    "semantic_hash": "3eeb8bc32b9967ce56a225d7ea68ab9c"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/tests/test_docs.py": {
+    "mtime": 1784817383.4246047,
+    "ast_hash": "64ad9361d70ae077e56bd812d015affc",
+    "semantic_hash": "64ad9361d70ae077e56bd812d015affc"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/tests/test_federation.py": {
+    "mtime": 1784323055.710997,
+    "ast_hash": "cf7a890d2ce3b3b48c33ddb98d1d0988",
+    "semantic_hash": "cf7a890d2ce3b3b48c33ddb98d1d0988"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/tests/test_firestore.py": {
+    "mtime": 1785988618.8933644,
+    "ast_hash": "188705656130b76bddaff41fe64ded88",
+    "semantic_hash": "188705656130b76bddaff41fe64ded88"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/tests/test_gpu.py": {
+    "mtime": 1784321896.5484467,
+    "ast_hash": "29ceb7c6db7843e15070ea4dcd381247",
+    "semantic_hash": "29ceb7c6db7843e15070ea4dcd381247"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/tests/test_hash_equivalence.py": {
+    "mtime": 1784322272.354671,
+    "ast_hash": "60be2d588ae1ed2b4a9ab7c64c952669",
+    "semantic_hash": "60be2d588ae1ed2b4a9ab7c64c952669"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/tests/test_legacy_attacks.py": {
+    "mtime": 1784326197.9602637,
+    "ast_hash": "e02fbc8071efaea9f3b594ed0c05a038",
+    "semantic_hash": "e02fbc8071efaea9f3b594ed0c05a038"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/tests/test_legacy_runner_wiring.py": {
+    "mtime": 1785980411.9357867,
+    "ast_hash": "f3b3fbae7bb97f533cc7b2fffdeb1e2e",
+    "semantic_hash": "f3b3fbae7bb97f533cc7b2fffdeb1e2e"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/tests/test_metrics.py": {
+    "mtime": 1784322838.6681273,
+    "ast_hash": "ddeb97377b171e4c2103a255676bac48",
+    "semantic_hash": "ddeb97377b171e4c2103a255676bac48"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/tests/test_paths.py": {
+    "mtime": 1785980372.5643208,
+    "ast_hash": "641e298acce8082d4df305278949b25d",
+    "semantic_hash": "641e298acce8082d4df305278949b25d"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/tests/test_runner.py": {
+    "mtime": 1785980178.5881052,
+    "ast_hash": "11bbe1e93d25d7fb14c50f6f9daf6e0d",
+    "semantic_hash": "11bbe1e93d25d7fb14c50f6f9daf6e0d"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/tests/test_runstate.py": {
+    "mtime": 1785988569.2591155,
+    "ast_hash": "2a0c3b648a309ceccb112351b613a950",
+    "semantic_hash": "2a0c3b648a309ceccb112351b613a950"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/tests/test_scoring.py": {
+    "mtime": 1784325934.0267398,
+    "ast_hash": "b496c31d68d82d03798d7fb9c0283615",
+    "semantic_hash": "b496c31d68d82d03798d7fb9c0283615"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/tests/test_toy_parity.py": {
+    "mtime": 1784326918.5186186,
+    "ast_hash": "1bbe834b41d43578de909546d8795a2b",
+    "semantic_hash": "1bbe834b41d43578de909546d8795a2b"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/tests/test_tunnel.py": {
+    "mtime": 1785990331.58802,
+    "ast_hash": "0db21b17f1e4773bfa40e6e7892ef973",
+    "semantic_hash": "0db21b17f1e4773bfa40e6e7892ef973"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/tests/test_webui_configs.py": {
+    "mtime": 1786070771.1607177,
+    "ast_hash": "d2543fb4a1e503623ce5acd0489c2833",
+    "semantic_hash": "d2543fb4a1e503623ce5acd0489c2833"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/tests/test_webui_launch.py": {
+    "mtime": 1786070771.1611278,
+    "ast_hash": "05e5cfd4a7381d8835d853dec32f4ee0",
+    "semantic_hash": "05e5cfd4a7381d8835d853dec32f4ee0"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/tests/test_webui_manual.py": {
+    "mtime": 1786070771.1614225,
+    "ast_hash": "e297ce6689ad5da1996b3c105d90d8d8",
+    "semantic_hash": "e297ce6689ad5da1996b3c105d90d8d8"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/tests/test_webui_pages.py": {
+    "mtime": 1785990427.60527,
+    "ast_hash": "6078ae3cca33fd22e224ad02a0df46ac",
+    "semantic_hash": "6078ae3cca33fd22e224ad02a0df46ac"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/tests/test_webui_settings.py": {
+    "mtime": 1785984564.782277,
+    "ast_hash": "e75f1b77bf002826a9415f49c3ff681e",
+    "semantic_hash": "e75f1b77bf002826a9415f49c3ff681e"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/tests/test_webui_state.py": {
+    "mtime": 1784327792.6432078,
+    "ast_hash": "a6a91ba6c60b898c10beb62c9b44ceb1",
+    "semantic_hash": "a6a91ba6c60b898c10beb62c9b44ceb1"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/tests/test_yaml_config.py": {
+    "mtime": 1786070771.1617243,
+    "ast_hash": "5a30494a3eb85fa210dacf9e62a3c869",
+    "semantic_hash": "5a30494a3eb85fa210dacf9e62a3c869"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/.superpowers/sdd/final-fixes-report.md": {
+    "mtime": 1785980486.2794518,
+    "ast_hash": "981a9ef6f0897ae5ff754bc816115b35",
+    "semantic_hash": "981a9ef6f0897ae5ff754bc816115b35"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/.superpowers/sdd/progress.md": {
+    "mtime": 1785980544.6240969,
+    "ast_hash": "6df8ee588cc11351f2a800f025c42f7e",
+    "semantic_hash": "6df8ee588cc11351f2a800f025c42f7e"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/.superpowers/sdd/task-1-brief.md": {
+    "mtime": 1784321707.6409545,
+    "ast_hash": "f95ca2b888b4490002d226dab659a4e7",
+    "semantic_hash": "f95ca2b888b4490002d226dab659a4e7"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/.superpowers/sdd/task-1-report.md": {
+    "mtime": 1784321776.5401394,
+    "ast_hash": "aa9a519990503d4809e1a11a4ef51821",
+    "semantic_hash": "aa9a519990503d4809e1a11a4ef51821"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/.superpowers/sdd/task-10-brief.md": {
+    "mtime": 1784326526.0571108,
+    "ast_hash": "12da545fda624c94ac1290cc81c112a4",
+    "semantic_hash": "12da545fda624c94ac1290cc81c112a4"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/.superpowers/sdd/task-10-report.md": {
+    "mtime": 1784326973.944189,
+    "ast_hash": "200417f8c3f274a77ce14a6eea78af4d",
+    "semantic_hash": "200417f8c3f274a77ce14a6eea78af4d"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/.superpowers/sdd/task-11-brief.md": {
+    "mtime": 1784327056.465284,
+    "ast_hash": "679f31f11ef2cce11cd0e133d9aafcb6",
+    "semantic_hash": "679f31f11ef2cce11cd0e133d9aafcb6"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/.superpowers/sdd/task-11-report.md": {
+    "mtime": 1784327222.3635263,
+    "ast_hash": "d500a5f15320f3756041d2240ea839cd",
+    "semantic_hash": "d500a5f15320f3756041d2240ea839cd"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/.superpowers/sdd/task-12-brief.md": {
+    "mtime": 1784327349.216171,
+    "ast_hash": "b42d5750d5b5ccdc11438dd508eb48ac",
+    "semantic_hash": "b42d5750d5b5ccdc11438dd508eb48ac"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/.superpowers/sdd/task-12-report.md": {
+    "mtime": 1784327451.292257,
+    "ast_hash": "27c821c22a359ce88ebecde5713f7b06",
+    "semantic_hash": "27c821c22a359ce88ebecde5713f7b06"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/.superpowers/sdd/task-13-brief.md": {
+    "mtime": 1784327532.7189262,
+    "ast_hash": "0fee28b7d62859b9cf87a35801cbb80a",
+    "semantic_hash": "0fee28b7d62859b9cf87a35801cbb80a"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/.superpowers/sdd/task-13-report.md": {
+    "mtime": 1784327668.5512273,
+    "ast_hash": "863dfbb3e7a684990363a3eabc843120",
+    "semantic_hash": "863dfbb3e7a684990363a3eabc843120"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/.superpowers/sdd/task-14-brief.md": {
+    "mtime": 1784327754.105763,
+    "ast_hash": "892ce5f6084c55eb880853c573eaac85",
+    "semantic_hash": "892ce5f6084c55eb880853c573eaac85"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/.superpowers/sdd/task-14-report.md": {
+    "mtime": 1784327842.0747898,
+    "ast_hash": "ef5ba597ddd94de8805357b31fda158d",
+    "semantic_hash": "ef5ba597ddd94de8805357b31fda158d"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/.superpowers/sdd/task-15-brief.md": {
+    "mtime": 1784816665.2964513,
+    "ast_hash": "1c5143340746b1043e6f13e90c36c595",
+    "semantic_hash": "1c5143340746b1043e6f13e90c36c595"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/.superpowers/sdd/task-15-report.md": {
+    "mtime": 1784816839.1382084,
+    "ast_hash": "d670f039b3194da3852994bd505a38a6",
+    "semantic_hash": "d670f039b3194da3852994bd505a38a6"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/.superpowers/sdd/task-16-brief.md": {
+    "mtime": 1784816935.0024,
+    "ast_hash": "68859f9bb72203a6c01a31c74b394f2b",
+    "semantic_hash": "68859f9bb72203a6c01a31c74b394f2b"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/.superpowers/sdd/task-16-report.md": {
+    "mtime": 1784817050.8282208,
+    "ast_hash": "2999fad29a1049d48c6753017e6ce366",
+    "semantic_hash": "2999fad29a1049d48c6753017e6ce366"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/.superpowers/sdd/task-17-brief.md": {
+    "mtime": 1784817124.2755415,
+    "ast_hash": "476dd069bd77589734b8414bfff21598",
+    "semantic_hash": "476dd069bd77589734b8414bfff21598"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/.superpowers/sdd/task-17-report.md": {
+    "mtime": 1784817232.8521767,
+    "ast_hash": "ec19c57aebdef7eeac9b8bcda7286a8b",
+    "semantic_hash": "ec19c57aebdef7eeac9b8bcda7286a8b"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/.superpowers/sdd/task-18-brief.md": {
+    "mtime": 1784817323.640727,
+    "ast_hash": "00e0c4d9701a4909bae2f466d52702b1",
+    "semantic_hash": "00e0c4d9701a4909bae2f466d52702b1"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/.superpowers/sdd/task-18-report.md": {
+    "mtime": 1784817547.0801928,
+    "ast_hash": "487009211eec852b0f525c1a64043e1e",
+    "semantic_hash": "487009211eec852b0f525c1a64043e1e"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/.superpowers/sdd/task-2-brief.md": {
+    "mtime": 1784321853.499342,
+    "ast_hash": "41eb78c427417a67ca2f374b62ae2272",
+    "semantic_hash": "41eb78c427417a67ca2f374b62ae2272"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/.superpowers/sdd/task-2-report.md": {
+    "mtime": 1784321952.2275097,
+    "ast_hash": "c61c33490d7717e8c8d6c2d1260e5a97",
+    "semantic_hash": "c61c33490d7717e8c8d6c2d1260e5a97"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/.superpowers/sdd/task-3-brief.md": {
+    "mtime": 1784322019.438972,
+    "ast_hash": "859a78bf281ef980e98e4bd6ab4dc057",
+    "semantic_hash": "859a78bf281ef980e98e4bd6ab4dc057"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/.superpowers/sdd/task-3-report.md": {
+    "mtime": 1784322124.4963086,
+    "ast_hash": "d9d2c42e12668d960c01eb0d20503773",
+    "semantic_hash": "d9d2c42e12668d960c01eb0d20503773"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/.superpowers/sdd/task-4-brief.md": {
+    "mtime": 1784322210.4818778,
+    "ast_hash": "b40b1fdf1f189800832fdf71f10bed19",
+    "semantic_hash": "b40b1fdf1f189800832fdf71f10bed19"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/.superpowers/sdd/task-4-report.md": {
+    "mtime": 1784322687.7080367,
+    "ast_hash": "00cc79c0921b55afd3f3ea047fa34dd1",
+    "semantic_hash": "00cc79c0921b55afd3f3ea047fa34dd1"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/.superpowers/sdd/task-5-brief.md": {
+    "mtime": 1784322805.6561909,
+    "ast_hash": "75f03c5fb2026fd7ed7c2949dafea508",
+    "semantic_hash": "75f03c5fb2026fd7ed7c2949dafea508"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/.superpowers/sdd/task-5-report.md": {
+    "mtime": 1784322898.9067423,
+    "ast_hash": "fe8a02435f7e307b0d434ceb738e1d45",
+    "semantic_hash": "fe8a02435f7e307b0d434ceb738e1d45"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/.superpowers/sdd/task-6-brief.md": {
+    "mtime": 1784322983.6981697,
+    "ast_hash": "bd2842ede6bc1abb307f37e1e8c682df",
+    "semantic_hash": "bd2842ede6bc1abb307f37e1e8c682df"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/.superpowers/sdd/task-6-report.md": {
+    "mtime": 1784323406.6360605,
+    "ast_hash": "a42af9a7026e08e15cdc759b2f6ab372",
+    "semantic_hash": "a42af9a7026e08e15cdc759b2f6ab372"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/.superpowers/sdd/task-7-brief.md": {
+    "mtime": 1784323517.1364322,
+    "ast_hash": "2b02d3320f1cada78a989042a1560d5c",
+    "semantic_hash": "2b02d3320f1cada78a989042a1560d5c"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/.superpowers/sdd/task-7-report.md": {
+    "mtime": 1784323658.8892868,
+    "ast_hash": "135f2317639ddea8126c80dcaf48bc06",
+    "semantic_hash": "135f2317639ddea8126c80dcaf48bc06"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/.superpowers/sdd/task-8-brief.md": {
+    "mtime": 1784323734.2808242,
+    "ast_hash": "114855c5e2399d277aa414d40cafdca8",
+    "semantic_hash": "114855c5e2399d277aa414d40cafdca8"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/.superpowers/sdd/task-8-report.md": {
+    "mtime": 1784325967.541464,
+    "ast_hash": "768e84a1af9605c8f570c91f30ef9190",
+    "semantic_hash": "768e84a1af9605c8f570c91f30ef9190"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/.superpowers/sdd/task-9-brief.md": {
+    "mtime": 1784326101.8537416,
+    "ast_hash": "498cc74943432c8016c924c4d86e410b",
+    "semantic_hash": "498cc74943432c8016c924c4d86e410b"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/.superpowers/sdd/task-9-report.md": {
+    "mtime": 1784326415.3138297,
+    "ast_hash": "e82ada02b768cf1add411bf165b662a0",
+    "semantic_hash": "e82ada02b768cf1add411bf165b662a0"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/code_experiments/adaptations/AGENTS.md": {
+    "mtime": 1782330529.0090005,
+    "ast_hash": "a1e7c2f933329ed3b80c305a43491ad6",
+    "semantic_hash": "a1e7c2f933329ed3b80c305a43491ad6"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/code_experiments/recreations/ami/README.md": {
+    "mtime": 1782325389.851518,
+    "ast_hash": "83db298563bef8398f17fccae519baa9",
+    "semantic_hash": "83db298563bef8398f17fccae519baa9"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/code_experiments/recreations/ami/UPSTREAM_SOURCE.txt": {
+    "mtime": 1782334169.9853563,
+    "ast_hash": "3425f18fa78a72fe85ffd144add9d1f8",
+    "semantic_hash": "3425f18fa78a72fe85ffd144add9d1f8"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/code_experiments/recreations/ami/data_celebA/celeba/README.md": {
+    "mtime": 1782325389.8516946,
+    "ast_hash": "c240a7c8a11e13ab2ee0e47ac01538b0",
+    "semantic_hash": "c240a7c8a11e13ab2ee0e47ac01538b0"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/code_experiments/recreations/ami/data_imgnet/README.md": {
+    "mtime": 1782325389.8518093,
+    "ast_hash": "5ecf415213dacefd7505a5e0649fd2a3",
+    "semantic_hash": "5ecf415213dacefd7505a5e0649fd2a3"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/code_experiments/recreations/ami/ldp/README.md": {
+    "mtime": 1782325389.8524618,
+    "ast_hash": "bdd70c66cedee49a032c51e85d13e3c3",
+    "semantic_hash": "bdd70c66cedee49a032c51e85d13e3c3"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/code_experiments/recreations/ami/noldp/README.md": {
+    "mtime": 1782325389.8551168,
+    "ast_hash": "f4c495e049550ffc3df52788794e6031",
+    "semantic_hash": "f4c495e049550ffc3df52788794e6031"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/code_experiments/recreations/ami/spec-list.txt": {
+    "mtime": 1782325389.8566136,
+    "ast_hash": "7628662fddf38f7ed941e8572c8e9b5c",
+    "semantic_hash": "7628662fddf38f7ed941e8572c8e9b5c"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/docs/superpowers/plans/2026-07-16-master-script.md": {
+    "mtime": 1784214135.6897612,
+    "ast_hash": "d205b535b7de217de4cd350dd0abda90",
+    "semantic_hash": "d205b535b7de217de4cd350dd0abda90"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/docs/superpowers/plans/2026-08-06-launch-manual-mode.md": {
+    "mtime": 1786070771.1536498,
+    "ast_hash": "590a0af6e0e227f6dca6ae0ffc291614",
+    "semantic_hash": "590a0af6e0e227f6dca6ae0ffc291614"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/docs/superpowers/specs/2026-07-16-master-script-design.md": {
+    "mtime": 1784213342.3471656,
+    "ast_hash": "180c2222cdb9280f450f35831adb89e6",
+    "semantic_hash": "180c2222cdb9280f450f35831adb89e6"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/docs/superpowers/specs/2026-08-06-launch-manual-mode-design.md": {
+    "mtime": 1785991171.5150635,
+    "ast_hash": "5cf7e738c9eb89b04d92904607c39564",
+    "semantic_hash": "5cf7e738c9eb89b04d92904607c39564"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/environment.yml": {
+    "mtime": 1786071070.3778844,
+    "ast_hash": "c3043568584ed91355349e8d0832098f",
+    "semantic_hash": "c3043568584ed91355349e8d0832098f"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/README.md": {
+    "mtime": 1786071092.605637,
+    "ast_hash": "e5c5c34eef650946f7981ee7d981a97b",
+    "semantic_hash": "e5c5c34eef650946f7981ee7d981a97b"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/configs/example_sweep.yaml": {
+    "mtime": 1784327138.5521169,
+    "ast_hash": "6882e90753787bb3994883e3225e8b25",
+    "semantic_hash": "6882e90753787bb3994883e3225e8b25"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/configs/smoke.yaml": {
+    "mtime": 1784327135.3595943,
+    "ast_hash": "a8a485a83fff7ee21d6e1bce59bc6daa",
+    "semantic_hash": "a8a485a83fff7ee21d6e1bce59bc6daa"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/webui/static/index.html": {
+    "mtime": 1786070771.1601653,
+    "ast_hash": "895ed941c8149656dd277759e1698785",
+    "semantic_hash": "895ed941c8149656dd277759e1698785"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/papers/note_tamper-detection.md": {
+    "mtime": 1781560509.9186487,
+    "ast_hash": "b92fdf80950aa8540fe3e8d0d07f95e2",
+    "semantic_hash": "b92fdf80950aa8540fe3e8d0d07f95e2"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/papers/summary/01_loss.md": {
+    "mtime": 1782330081.2275546,
+    "ast_hash": "fd2f8974c6ae5dd21af5bdc0ab3980fe",
+    "semantic_hash": "fd2f8974c6ae5dd21af5bdc0ab3980fe"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/papers/summary/02_reference.md": {
+    "mtime": 1782330105.3298023,
+    "ast_hash": "cfbfd4acd6723a965d701ec970ce6a63",
+    "semantic_hash": "cfbfd4acd6723a965d701ec970ce6a63"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/papers/summary/03_zlib.md": {
+    "mtime": 1782330121.7785587,
+    "ast_hash": "f167102af38df1b6ca39d6f17bb79ef9",
+    "semantic_hash": "f167102af38df1b6ca39d6f17bb79ef9"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/papers/summary/04_min_k.md": {
+    "mtime": 1782330146.2752547,
+    "ast_hash": "25010ed081e491599c0259f69207585e",
+    "semantic_hash": "25010ed081e491599c0259f69207585e"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/papers/summary/05_neighborhood.md": {
+    "mtime": 1782330169.547508,
+    "ast_hash": "f637e8374a00a2b118e94f691e9f6ead",
+    "semantic_hash": "f637e8374a00a2b118e94f691e9f6ead"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/papers/summary/06_min_k_plus_plus.md": {
+    "mtime": 1782330192.952649,
+    "ast_hash": "a35e15e104d6047c87b9556a79fa65b1",
+    "semantic_hash": "a35e15e104d6047c87b9556a79fa65b1"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/papers/summary/07_wbc.md": {
+    "mtime": 1782330216.2871466,
+    "ast_hash": "14220effddd001738d7382f4ff5501dc",
+    "semantic_hash": "14220effddd001738d7382f4ff5501dc"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/papers/summary/08_recall.md": {
+    "mtime": 1782330239.2546077,
+    "ast_hash": "f5220b69d6fba7160376e704df645286",
+    "semantic_hash": "f5220b69d6fba7160376e704df645286"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/papers/summary/09_samia.md": {
+    "mtime": 1782330257.7640471,
+    "ast_hash": "faad13009e34d3efed55a4efd9fed2ce",
+    "semantic_hash": "faad13009e34d3efed55a4efd9fed2ce"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/papers/summary/10_spv_mia.md": {
+    "mtime": 1782330291.8805494,
+    "ast_hash": "f255c43d96b369a23e42b2d25a952849",
+    "semantic_hash": "f255c43d96b369a23e42b2d25a952849"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/reports/ami/report.md": {
+    "mtime": 1782341424.0258062,
+    "ast_hash": "5ce2d182721c17f1f7aa8ae491e1ddf2",
+    "semantic_hash": "5ce2d182721c17f1f7aa8ae491e1ddf2"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/reports/loss/report.md": {
+    "mtime": 1782341479.6058855,
+    "ast_hash": "79b65654bff8efc9c961230253b2b924",
+    "semantic_hash": "79b65654bff8efc9c961230253b2b924"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/reports/zlib/report.md": {
+    "mtime": 1782376242.8440886,
+    "ast_hash": "d487c0d51f616158d452481e32f7fb3a",
+    "semantic_hash": "d487c0d51f616158d452481e32f7fb3a"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/requirements.txt": {
+    "mtime": 1786071079.1802683,
+    "ast_hash": "aa4a729e8e0f09ea9e3870f78f1a2a47",
+    "semantic_hash": "aa4a729e8e0f09ea9e3870f78f1a2a47"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/research_monitor_ideation.md": {
+    "mtime": 1782332496.3375196,
+    "ast_hash": "b112558c3a48515637511ebd81f6dbaa",
+    "semantic_hash": "b112558c3a48515637511ebd81f6dbaa"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/papers/AMI-under-LDP_explained.md": {
+    "mtime": 1781559561.5230424,
+    "ast_hash": "e8f63fdbaefb66ffb1cb9c8f08211725",
+    "semantic_hash": "e8f63fdbaefb66ffb1cb9c8f08211725"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/papers/IEEE-2023-Active Membership Inference Attack under Local Differential Privacy in Federated Learning.pdf": {
+    "mtime": 1780388395.6474404,
+    "ast_hash": "c9baae4e6e384e9a3971f51216c9cb2e",
+    "semantic_hash": "c9baae4e6e384e9a3971f51216c9cb2e"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/papers/related litertures/2026-s413-paper.pdf": {
+    "mtime": 1781590749.5586333,
+    "ast_hash": "f1b4beb9932c93da2924c4615eeb9516",
+    "semantic_hash": "f1b4beb9932c93da2924c4615eeb9516"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/papers/related litertures/2409.15723v3.pdf": {
+    "mtime": 1781591613.4329455,
+    "ast_hash": "a4319eb26ba529bb0e7f7fe6ad998b3d",
+    "semantic_hash": "a4319eb26ba529bb0e7f7fe6ad998b3d"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/papers/related litertures/2501.04436v1.pdf": {
+    "mtime": 1781591577.244345,
+    "ast_hash": "0a5404f1709b9cf5fec6bb8f6672c6af",
+    "semantic_hash": "0a5404f1709b9cf5fec6bb8f6672c6af"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/papers/related litertures/2503.12016v3.pdf": {
+    "mtime": 1781591409.2341845,
+    "ast_hash": "c379412e2d04c3d7dddc63e2d975a8e9",
+    "semantic_hash": "c379412e2d04c3d7dddc63e2d975a8e9"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/papers/related litertures/2506.17292v2.pdf": {
+    "mtime": 1781591022.2063918,
+    "ast_hash": "bebe5cc2bd6f7c6b69290978705ebeee",
+    "semantic_hash": "bebe5cc2bd6f7c6b69290978705ebeee"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/papers/related litertures/2510.23931v1.pdf": {
+    "mtime": 1781591626.132075,
+    "ast_hash": "279af708805c9b079082d1361a0ae16e",
+    "semantic_hash": "279af708805c9b079082d1361a0ae16e"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/papers/related litertures/COMST-AUG25.pdf": {
+    "mtime": 1781591424.097114,
+    "ast_hash": "04a647929aa57245b82e402b5467fb64",
+    "semantic_hash": "04a647929aa57245b82e402b5467fb64"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/papers/related litertures/Federated_Large_Language_Models_Current_Progress_a.pdf": {
+    "mtime": 1781591275.1652813,
+    "ast_hash": "09d4b50829d4e63c01c09c5c23ffdb77",
+    "semantic_hash": "09d4b50829d4e63c01c09c5c23ffdb77"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/papers/related litertures/RP_9788770041010C3.pdf": {
+    "mtime": 1781591002.8749137,
+    "ast_hash": "63e41b20e2738ec1b57e149e255406f8",
+    "semantic_hash": "63e41b20e2738ec1b57e149e255406f8"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/papers/related litertures/United_We_Defend_Collaborative_Membership_Inferenc.pdf": {
+    "mtime": 1781590708.4222407,
+    "ast_hash": "19e17ebffbd3f8b559368ffe14f83841",
+    "semantic_hash": "19e17ebffbd3f8b559368ffe14f83841"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/papers/summary/README.md": {
+    "mtime": 1782330058.9707868,
+    "ast_hash": "2077192b868885e9e540c73f6d876024",
+    "semantic_hash": "2077192b868885e9e540c73f6d876024"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/papers/summary/papers/loss.pdf": {
+    "mtime": 1782341102.8375313,
+    "ast_hash": "bc3d324cd7007468cf8cf32ae02fd237",
+    "semantic_hash": "bc3d324cd7007468cf8cf32ae02fd237"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/papers/summary/papers/min_k.pdf": {
+    "mtime": 1784210982.6509068,
+    "ast_hash": "d8df20ccd3908d793d45172c136a761f",
+    "semantic_hash": "d8df20ccd3908d793d45172c136a761f"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/papers/summary/papers/min_k_plus_plus.pdf": {
+    "mtime": 1784211062.3108888,
+    "ast_hash": "13b7d1c87608d8a5a43b808d17a1bf01",
+    "semantic_hash": "13b7d1c87608d8a5a43b808d17a1bf01"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/papers/summary/papers/neighborhood.pdf": {
+    "mtime": 1784211017.200692,
+    "ast_hash": "6049961db9d495f91fe087ce3a21252b",
+    "semantic_hash": "6049961db9d495f91fe087ce3a21252b"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/papers/summary/papers/recall.pdf": {
+    "mtime": 1784211113.513596,
+    "ast_hash": "ec6295827099747c4c6ccb93c4a2a923",
+    "semantic_hash": "ec6295827099747c4c6ccb93c4a2a923"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/papers/summary/papers/reference.pdf": {
+    "mtime": 1782341146.479437,
+    "ast_hash": "5299d62bb19fcb726be4c65dd027ec5e",
+    "semantic_hash": "5299d62bb19fcb726be4c65dd027ec5e"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/papers/summary/papers/samia.pdf": {
+    "mtime": 1784211166.0399036,
+    "ast_hash": "dae116578f43c485b60499b9aa7b4079",
+    "semantic_hash": "dae116578f43c485b60499b9aa7b4079"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/papers/summary/papers/spv_mia.pdf": {
+    "mtime": 1784211201.7160254,
+    "ast_hash": "18316f891f63e2aabef3fe886a297da1",
+    "semantic_hash": "18316f891f63e2aabef3fe886a297da1"
+  },
+  "/Users/pyeshuajs23/Documents/MITACS/Research Documents/papers/summary/papers/wbc.pdf": {
+    "mtime": 1784211084.5456803,
+    "ast_hash": "eafc36916ff7adced127b5e206319a2b",
+    "semantic_hash": "eafc36916ff7adced127b5e206319a2b"
+  }
+}

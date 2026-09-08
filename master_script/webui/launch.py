@@ -20,7 +20,7 @@ from ..logging_setup import setup_session_logging
 from ..paths import CONFIGS_DIR
 
 
-def _run_in_child(pairs, use_firestore: bool, keep_artifacts, messages) -> None:
+def _run_in_child(pairs, use_firestore: bool, keep_artifacts, messages, batch=None) -> None:
     """Run the sweep in an isolated process that the dashboard can terminate.
 
     A new POSIX process group keeps descendants such as training workers inside
@@ -33,12 +33,20 @@ def _run_in_child(pairs, use_firestore: bool, keep_artifacts, messages) -> None:
     setup_session_logging("INFO")
     reporter = RunStateReporter() if use_firestore else None
     try:
-        completed = run_sweep(
-            pairs,
-            use_firestore=use_firestore,
-            keep_artifacts=keep_artifacts,
-            **(reporter.hooks if reporter else {}),
-        )
+        if batch is not None:
+            from ..core.queue import run_batch
+            completed, _ = run_batch(
+                batch, use_firestore=use_firestore, keep_artifacts=keep_artifacts,
+                on_progress=lambda state: messages.put({"type": "progress", **state}),
+                **(reporter.hooks if reporter else {}),
+            )
+        else:
+            completed = run_sweep(
+                pairs,
+                use_firestore=use_firestore,
+                keep_artifacts=keep_artifacts,
+                **(reporter.hooks if reporter else {}),
+            )
         # Result documents can be large. The parent only needs session status;
         # Firestore remains the authoritative results layer.
         messages.put({
@@ -73,6 +81,8 @@ class SweepWorker:
         self.started_unix: Optional[int] = None
         self.stopped_unix: Optional[int] = None
         self.was_stopped: bool = False
+        self.batch_dir = None
+        self.finished = 0
 
     def _drain_messages(self) -> None:
         if self._messages is None:
@@ -86,6 +96,9 @@ class SweepWorker:
                 self.results = message.get("results") or []
             elif message.get("type") == "error":
                 self.error = message.get("error") or "Experiment process failed."
+            elif message.get("type") == "progress":
+                self.batch_dir = message["batch_dir"]
+                self.finished = message["finished"]
 
     def _sync(self) -> None:
         self._drain_messages()
@@ -96,6 +109,9 @@ class SweepWorker:
         self._drain_messages()
         if process.exitcode not in (None, 0) and not self.was_stopped and not self.error:
             self.error = f"Experiment process exited with code {process.exitcode}."
+        if process.exitcode not in (None, 0) and self.batch_dir:
+            from ..core.queue import interrupt_batch
+            interrupt_batch(self.batch_dir)
 
     def _close_messages(self) -> None:
         if self._messages is not None and hasattr(self._messages, "close"):
@@ -109,22 +125,28 @@ class SweepWorker:
         self._sync()
         return self._process is not None and self._process.is_alive()
 
-    def start(self, pairs, *, use_firestore: bool = True, keep_artifacts=None) -> bool:
+    def start(self, pairs, *, use_firestore: bool = True, keep_artifacts=None, batch=None) -> bool:
         if self.is_running:
             return False
         self._close_messages()
         self.error = ""
         self.results = []
+        self.batch_dir = None
+        self.finished = 0
         pairs = list(pairs)
         self.planned = len(pairs)
         self.started_unix = int(time.time())
         self.stopped_unix = None
         self.was_stopped = False
         self._use_firestore = use_firestore
+        if batch is not None:
+            from ..core.queue import reserve_directory
+            batch.directory = str(reserve_directory())
+            self.batch_dir = batch.directory
         self._messages = self._context.Queue()
         self._process = self._context.Process(
             target=_run_in_child,
-            args=(pairs, use_firestore, keep_artifacts, self._messages),
+            args=(pairs, use_firestore, keep_artifacts, self._messages, batch),
             name="canary-experiment-sweep",
         )
         try:
@@ -184,6 +206,9 @@ class SweepWorker:
         self.error = ""
         self._terminate_process(process)
         self._sync()
+        if self.batch_dir and not process.is_alive():
+            from ..core.queue import interrupt_batch
+            interrupt_batch(self.batch_dir)
         return not process.is_alive()
 
     def cancel(self) -> None:
@@ -196,7 +221,8 @@ class SweepWorker:
         return {
             "running": running,
             "planned": self.planned,
-            "finished": len(self.results),
+            "finished": max(self.finished, len(self.results)),
+            "batch_dir": self.batch_dir,
             "error": self.error,
             "started_unix": self.started_unix,
             "stopped": self.was_stopped and not running,
@@ -223,7 +249,7 @@ def launch_payload() -> dict:
     }
 
 
-def _start(pairs, use_firestore: bool, empty_message: str) -> dict:
+def _start(pairs, use_firestore: bool, empty_message: str, batch=None) -> dict:
     """Publish the plan and hand the pairs to the worker. Never raises."""
     if not pairs:
         # Starting nothing must not read as success.
@@ -239,7 +265,8 @@ def _start(pairs, use_firestore: bool, empty_message: str) -> dict:
     if use_firestore:
         publish_manifest(pairs)
 
-    if not WORKER.start(pairs, use_firestore=use_firestore):
+    if not WORKER.start(pairs, use_firestore=use_firestore,
+                        **({"batch": batch} if batch is not None else {})):
         if use_firestore:
             try:
                 publish_monitor_state({"running": [], "manifest": []})
@@ -262,6 +289,23 @@ def start_sweep(config_file: str, attacks: Optional[List[str]] = None,
     return _start(pairs, use_firestore, (
         f"No runs to start: {config_file} defines none of the selected attack(s)."
     ))
+
+
+def start_queue(config_files, attacks=None, use_firestore=True):
+    from pathlib import Path
+    from ..core.queue import load_batch
+
+    try:
+        paths = []
+        for name in config_files:
+            path = (CONFIGS_DIR / name).resolve()
+            if Path(name).name != name or path.parent != CONFIGS_DIR.resolve():
+                raise ConfigError("Queue files must be saved config filenames")
+            paths.append(path)
+        batch = load_batch(paths, only=attacks or None)
+    except ConfigError as exc:
+        return {"ok": False, "message": f"Config error: {exc}"}
+    return _start(batch.pairs, use_firestore, "No runs to queue.", batch=batch)
 
 
 def start_manual(payload: dict, use_firestore: bool = True) -> dict:

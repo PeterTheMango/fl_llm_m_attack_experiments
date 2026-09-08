@@ -106,6 +106,87 @@ python -m master_script.perform_experiments --config master_script/configs/examp
     --attack zlib --attack min_k
 ```
 
+### `--queue` and `--queue-output`
+
+See the [implementation report](docs/queue_defense_rag_implementation.md) for
+mechanism details, privacy boundaries, citations and verification evidence.
+
+
+Submit multiple saved YAML files in their execution order. Every file is
+validated and snapshotted before training starts. Runs within each file finish
+before the next file begins. Ordinary experiment failures are recorded and the
+queue continues; interrupts stop the batch. `--max-parallel 2` is rejected for
+a queue. The existing single-file `--config` command is unchanged.
+
+```bash
+python -m master_script.perform_experiments --queue \
+  master_script/configs/pipeline_zlib_dp.yaml \
+  master_script/configs/pipeline_min_k_dp.yaml \
+  master_script/configs/pipeline_min_kpp_dp.yaml \
+  --no-firestore --no-charts
+```
+
+Each invocation creates `master_script/outputs/queues/<batch-id>/`, containing
+an atomic `manifest.json`, one numbered JSON result per completed/failed run,
+and isolated artifact directories. `--queue-output /path/to/parent` changes the
+parent directory. Existing configs and outputs are not edited. These local
+results are saved even without Firestore. The manifest records source hashes,
+run IDs, ordering, timestamps, and status; resubmission creates a new batch and
+uses the existing optional Firestore cache, rather than resuming model steps.
+
+In the dashboard's **Existing config** mode, select a saved config and click
+**Add to queue** for each file. The numbered list is the execution order.
+**Start queue** runs the batch through the same runner. The existing stop
+control terminates its owned process tree and marks unfinished work accordingly.
+
+### Opt-in defenses and inference RAG
+
+Add a top-level `pipeline` mapping, or an `attacks.<name>.pipeline` override:
+
+```yaml
+pipeline:
+  defense:
+    mechanism: dp_sgd  # none | dp_sgd | dp_fedavg
+    clip_norm: 1.0
+    noise_multiplier: 1.0
+    delta: 0.00001
+  rag:
+    study_file: pipeline_demo_study.json  # relative to this YAML file
+    embedding_model: sentence-transformers/all-MiniLM-L6-v2
+    top_k: 2
+    max_context_tokens: 128
+    max_new_tokens: 8
+    significance: 0.05
+```
+
+`dp_sgd` clips individual training-sequence gradients and adds Gaussian noise
+before AdamW updates. `dp_fedavg` clips each client delta and noises the uniform
+mean, under a trusted-server model. Fixed-cardinality replacement bounds use
+conservative Gaussian composition without sampling amplification. Neither a
+small attack score nor a small smoke batch establishes privacy efficacy.
+
+RAG remains at inference. The study JSON supplies `public_documents` and
+`private_documents` as `{id, text}` rows, `membership_candidates` in the same
+format, and held-out `utility_queries` as `{id, question, answer}` rows.
+Each corpus needs at least three distinct documents and candidates from both
+membership classes. The included study contains synthetic public-service,
+medical, and financial records only. Replace it with an explicitly curated
+study to conduct substantive experiments.
+
+Each trained model is evaluated with ordinary and Mirabel-filtered retrieval
+for both corpora, plus a no-context utility control. Existing training attacks
+remain separate from the black-box datastore-membership attack. Results include
+answer exact match, token F1, answer-only NLL, membership metrics and privacy
+accounting. Raw corpus text and generated answers are not saved in result JSON.
+Audit metrics, AMIA probes and private retrieval responses are outside the
+training DP guarantee; Mirabel is an empirical defense, not differential privacy.
+
+Pipeline runs require actual Hugging Face models; there is no synthetic toy DP
+substitute. The new `pipeline_*` configs use a tiny pretrained GPT-2 and very few
+trials for integration checks, not scientific conclusions. Omitting `pipeline`
+or disabling all its features preserves every historical run ID. Enabled
+settings and the study's content hash produce separate `pipeline_v1_*` IDs.
+
 ### `--list-attacks`
 
 Print the attack registry (name, whether it has a toy path, and its config

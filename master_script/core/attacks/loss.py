@@ -264,19 +264,30 @@ def _loss_flower_client_cls():
         TextListDataset = _text_list_dataset_cls()
 
     class LossFlowerClient(NumPyClient):
-        def __init__(self, partition_id: int, texts: list, config):
+        def __init__(self, partition_id: int, texts: list, config, defense=None):
             self.partition_id = partition_id
             self.texts = texts
             self.config = config
+            self.defense = defense
 
         def fit(self, parameters, fit_config):
             from torch.utils.data import DataLoader
 
+            if self.defense is not None:
+                torch.manual_seed(self.config.seed + 1009 * self.partition_id + int(fit_config["server_round"]))
             device = client_device(self.config)
             model, tokenizer = load_model_and_tokenizer(self.config)
             set_parameters(model, parameters)
             model.to(device)
             model.train()
+            if self.defense is not None and self.defense.mechanism == "dp_sgd":
+                from ..defenses import private_train
+                steps = private_train(model, tokenizer, self.texts, self.config, self.defense)
+                updated = get_parameters(model)
+                del model
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                return updated, len(self.texts), {"partition_id": self.partition_id, "dp_steps": steps}
             dataset = TextListDataset(self.texts, tokenizer, self.config.max_length)
             collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
             num_examples = len(dataset)
@@ -309,7 +320,7 @@ def _loss_flower_client_cls():
 LossFlowerClient = None  # populated lazily; see federated_fine_tune
 
 
-def federated_fine_tune(client_texts: list, config, artifact_dir: Path):
+def federated_fine_tune(client_texts: list, config, artifact_dir: Path, pipeline=None):
     require_training_deps()
     import numpy as np
     import torch
@@ -326,6 +337,7 @@ def federated_fine_tune(client_texts: list, config, artifact_dir: Path):
     set_seed(config.seed)
 
     num_clients = len(client_texts)
+    defense = pipeline.defense if pipeline is not None else None
     init_model, _ = load_model_and_tokenizer(config)
     initial_parameters = ndarrays_to_parameters(get_parameters(init_model))
     del init_model
@@ -333,6 +345,7 @@ def federated_fine_tune(client_texts: list, config, artifact_dir: Path):
     clients_per_round = min(config.clients_per_round, num_clients)
     fraction_fit = clients_per_round / num_clients
     capture = {"parameters": None, "history": []}
+    privacy = {}
 
     class SaveModelFedAvg(FedAvg):
         def aggregate_fit(self, server_round, results, failures):
@@ -346,6 +359,9 @@ def federated_fine_tune(client_texts: list, config, artifact_dir: Path):
                     for _, fitres in results
                 ]
                 capture["history"].append({"round": server_round - 1, "clients": client_losses})
+                if pipeline is not None and pipeline.defense.mechanism != "none":
+                    capture["history"][-1] = {"round": server_round - 1,
+                                               "selected_clients": [c["client_id"] for c in client_losses]}
             aggregated_parameters, aggregated_metrics = super().aggregate_fit(server_round, results, failures)
             if aggregated_parameters is not None:
                 capture["parameters"] = parameters_to_ndarrays(aggregated_parameters)
@@ -353,15 +369,23 @@ def federated_fine_tune(client_texts: list, config, artifact_dir: Path):
 
     def client_fn(context: Context):
         partition_id = int(context.node_config["partition-id"])
-        return LossFlowerClient(partition_id, client_texts[partition_id], config).to_client()
+        return LossFlowerClient(partition_id, client_texts[partition_id], config,
+                                **({"defense": defense} if defense is not None else {})).to_client()
 
     def server_fn(context: Context):
-        strategy = SaveModelFedAvg(
+        strategy_type = SaveModelFedAvg
+        if pipeline is not None and pipeline.defense.mechanism != "none":
+            from ..defenses import strategy_class
+            strategy_type = strategy_class(SaveModelFedAvg, pipeline.defense,
+                                           parameters_to_ndarrays(initial_parameters), privacy)
+        strategy = strategy_type(
             fraction_fit=fraction_fit,
             fraction_evaluate=0.0,
             min_fit_clients=clients_per_round,
             min_available_clients=num_clients,
             initial_parameters=initial_parameters,
+            **({"on_fit_config_fn": lambda round_id: {"server_round": round_id}}
+               if pipeline is not None else {}),
         )
         return ServerAppComponents(strategy=strategy, config=ServerConfig(num_rounds=config.federated_rounds))
 
@@ -378,6 +402,8 @@ def federated_fine_tune(client_texts: list, config, artifact_dir: Path):
     if capture["parameters"] is not None:
         set_parameters(global_model, capture["parameters"])
     global_model.to(device)
+    if pipeline is not None:
+        global_model._training_privacy = privacy
 
     artifact_dir = Path(artifact_dir)
     artifact_dir.mkdir(parents=True, exist_ok=True)
@@ -449,12 +475,12 @@ def loss_experiment_key(config) -> str:
     return key_named_prefix(replace(config, firestore_collection=LEGACY_LOSS_COLLECTION))
 
 
-def run_attack_trial(config, trial_id: int, truth_member: bool, base_artifact_dir: Path) -> dict:
+def run_attack_trial(config, trial_id: int, truth_member: bool, base_artifact_dir: Path, pipeline=None) -> dict:
     import torch
 
     # Pair adjacent member/non-member worlds on the same real target and client
     # partitions.  Preserve the legacy synthetic behavior byte-for-byte.
-    if dataset_sources.uses_real_dataset(config):
+    if dataset_sources.uses_real_dataset(config) or pipeline is not None:
         config = replace(config, seed=config.seed + trial_id // 2)
     real_dataset = dataset_sources.uses_real_dataset(config)
     replacement = (
@@ -465,7 +491,8 @@ def run_attack_trial(config, trial_id: int, truth_member: bool, base_artifact_di
     client_texts = make_membership_world(config, include_target=truth_member, replacement_text=replacement)
     artifact_dir = base_artifact_dir / f"trial_{trial_id:03d}_{'member' if truth_member else 'nonmember'}"
 
-    model, tokenizer, history, artifacts = federated_fine_tune(client_texts, config, artifact_dir)
+    model, tokenizer, history, artifacts = federated_fine_tune(
+        client_texts, config, artifact_dir, **({"pipeline": pipeline} if pipeline is not None else {}))
     calibration_losses = compute_calibration_losses(model, tokenizer, config)
     threshold_info = estimate_loss_threshold(calibration_losses, config)
     target_text = dataset_sources.target_record_for(config, TARGET_TEXT)
@@ -490,6 +517,12 @@ def run_attack_trial(config, trial_id: int, truth_member: bool, base_artifact_di
         "artifacts": artifacts,
     }
 
+    if pipeline is not None:
+        from ..rag import evaluate_pipeline
+        trial["pipeline_evaluation"] = evaluate_pipeline(
+            {"model": model, "tokenizer": tokenizer, "device": next(model.parameters()).device,
+             "privacy": getattr(model, "_training_privacy", {}),
+             "training_records": [text for part in client_texts for text in part]}, config, pipeline)
     del model, tokenizer
     gc.collect()
     if torch.cuda.is_available():
@@ -497,13 +530,14 @@ def run_attack_trial(config, trial_id: int, truth_member: bool, base_artifact_di
     return trial
 
 
-def run_attack_trials(config, artifact_dir: Path) -> list:
+def run_attack_trials(config, artifact_dir: Path, pipeline=None) -> list:
     from tqdm.auto import tqdm
 
     trials = []
     for trial_idx in tqdm(range(config.attack_trials), desc="LOSS membership trials"):
         truth_member = trial_idx % 2 == 0
-        trials.append(run_attack_trial(config, trial_idx, truth_member, artifact_dir))
+        trials.append(run_attack_trial(config, trial_idx, truth_member, artifact_dir,
+                                      **({"pipeline": pipeline} if pipeline is not None else {})))
     return trials
 
 

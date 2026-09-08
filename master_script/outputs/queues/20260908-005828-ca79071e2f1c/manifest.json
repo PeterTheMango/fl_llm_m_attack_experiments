@@ -1,0 +1,41 @@
+{
+  "batch_id": "20260908-005828-ca79071e2f1c",
+  "status": "failed",
+  "started_unix": 1788843508.595598,
+  "entries": [
+    {
+      "index": 0,
+      "source": "/private/tmp/mitacs-pipeline-custom-smoke/amia.yaml",
+      "source_sha256": "8e3fb08de2512ff1cd47391311a17584fb205b60cda2f233b4773aec8a7eaffc",
+      "run_id": "pipeline_v1_533a8468b731477e6858a307",
+      "attack": "amia",
+      "status": "complete",
+      "started_unix": 1788843508.5963762,
+      "ended_unix": 1788843652.207066,
+      "result_file": "0000-pipeline_v1_533a8468b731477e6858a307.json"
+    },
+    {
+      "index": 1,
+      "source": "/private/tmp/mitacs-pipeline-custom-smoke/loss.yaml",
+      "source_sha256": "720fc09d71f13556acce2660c8e6f2ae8af66dfbf634d41752b69643c59cd4c5",
+      "run_id": "pipeline_v1_43e21907ee3eb699d61f635c",
+      "attack": "loss",
+      "status": "complete",
+      "started_unix": 1788843652.207819,
+      "ended_unix": 1788844000.211593,
+      "result_file": "0001-pipeline_v1_43e21907ee3eb699d61f635c.json"
+    },
+    {
+      "index": 2,
+      "source": "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/configs/pipeline_baseline.yaml",
+      "source_sha256": "424e86d54c0290b97397824cd658bf0a43fd8235355f37fa09148a280e4a95cb",
+      "run_id": "pipeline_v1_2bd80fbc22c3e2ead4b472dd",
+      "attack": "zlib",
+      "status": "failed",
+      "started_unix": 1788844000.25822,
+      "ended_unix": 1788844079.991123,
+      "result_file": "0002-pipeline_v1_2bd80fbc22c3e2ead4b472dd.json"
+    }
+  ],
+  "ended_unix": 1788844079.993734
+}

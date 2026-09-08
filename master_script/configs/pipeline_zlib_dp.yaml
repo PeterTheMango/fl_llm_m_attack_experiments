@@ -1,0 +1,28 @@
+# Real-model integration smoke only; synthetic documents and too few trials for privacy claims.
+# New pipeline settings do not alter historical attack config hashes.
+defaults:
+  use_hf_models: true
+  model_id: sshleifer/tiny-gpt2
+  num_clients: 2
+  clients_per_round: 2
+  federated_rounds: 1
+  local_epochs: 1
+  local_batch_size: 4
+  attack_trials: 2
+  max_length: 32
+  seed: 7
+  sim_num_gpus: 0.0
+pipeline:
+  defense:
+    mechanism: dp_sgd
+    clip_norm: 1.0
+    noise_multiplier: 1.0
+    delta: 0.00001
+  rag:
+    study_file: pipeline_demo_study.json
+    top_k: 2
+    max_context_tokens: 128
+    max_new_tokens: 8
+    significance: 0.05
+attacks:
+  zlib: {}

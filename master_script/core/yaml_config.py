@@ -59,6 +59,13 @@ def load_config_doc(doc: dict, only: Optional[Sequence[str]] = None,
         spec = ATTACKS[name]
         allowed = _field_names(spec.config_cls)
         section = attacks[name] or {}
+        from .pipeline import parse_pipeline, validate_pipeline_run
+        try:
+            pipeline = parse_pipeline(section.get("pipeline", doc.get("pipeline")), source)
+        except (ValueError, TypeError, OSError) as exc:
+            raise ConfigError(f"{source}: attack '{name}': {exc}") from exc
+        if pipeline is not None:
+            spec = replace(spec, pipeline=pipeline)
         base_over = dict(section.get("base") or {})
         sweep = dict(section.get("sweep") or {})
 
@@ -109,6 +116,7 @@ def load_config_doc(doc: dict, only: Optional[Sequence[str]] = None,
                 )
             try:
                 validate_dataset_name(expanded.dataset_name)
+                validate_pipeline_run(expanded, spec, pipeline)
             except ValueError as exc:
                 raise ConfigError(f"{source}: attack '{name}': {exc}") from exc
             pairs.append((expanded, spec))

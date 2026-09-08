@@ -1,0 +1,786 @@
+{
+  "config": {
+    "experiment_name": "loss_federated_llm_adaptation_v1",
+    "paper": "Yeom et al. 2018 Privacy Risk in Machine Learning",
+    "paper_summary_path": "../papers/summary/01_loss.md",
+    "source_repo": null,
+    "model_id": "sshleifer/tiny-gpt2",
+    "dataset_name": "synthetic_private_client_text",
+    "seed": 7,
+    "num_clients": 2,
+    "clients_per_round": 2,
+    "federated_rounds": 1,
+    "local_epochs": 1,
+    "local_batch_size": 4,
+    "max_length": 32,
+    "client_lr": 5e-05,
+    "target_client_id": 0,
+    "attack_trials": 2,
+    "threshold_quantile": 0.1,
+    "calibration_nonmember_count": 2,
+    "firestore_collection": "ami_federated_llm_results",
+    "firebase_project_id": null,
+    "local_artifact_dir": "artifacts/adapted_loss",
+    "fl_framework": "flower",
+    "sim_num_gpus": 0.0,
+    "keep_artifacts": false
+  },
+  "methodology": {
+    "paper_attack": "Yeom et al.'s LOSS membership inference predicts membership when the target model assigns a candidate example unusually low loss; the advantage is linked to the training-vs-held-out generalization gap.",
+    "llm_adaptation": "Federated clients locally fine-tune an open-source causal LM with the Flower (flwr) FedAvg strategy via run_simulation. Positive and negative worlds differ by whether the target client includes the target sequence. The server/adversary scores the final FL model's average per-token NLL on the target sequence and thresholds the loss using calibration non-members.",
+    "attacker_observation": "Final FL global model probabilities/logits sufficient to compute per-token NLL.",
+    "metric_definition": "Adv = 0.5 * TPR + 0.5 * TNR; lower loss predicts membership.",
+    "deviation_from_source": "The original paper evaluates classical supervised models. This notebook preserves the LOSS decision rule but moves the training process to FedAvg-based causal-LM fine-tuning."
+  },
+  "metrics": {
+    "tpr": 1.0,
+    "tnr": 1.0,
+    "adv": 1.0,
+    "accuracy": 1.0,
+    "roc_auc_loss_inverted": 0.0,
+    "num_trials": 2,
+    "member_mean_loss": 11.156420707702637,
+    "nonmember_mean_loss": 10.992753028869629
+  },
+  "attack_trials": [
+    {
+      "trial_id": 0,
+      "truth_member": true,
+      "score_name": "average_per_token_negative_log_likelihood",
+      "score": 11.156420707702637,
+      "threshold": 11.450806140899658,
+      "pred_member": true,
+      "target_client_id": 0,
+      "replacement_text": null
+    },
+    {
+      "trial_id": 1,
+      "truth_member": false,
+      "score_name": "average_per_token_negative_log_likelihood",
+      "score": 10.992753028869629,
+      "threshold": 10.84266300201416,
+      "pred_member": false,
+      "target_client_id": 0,
+      "replacement_text": "Held-out canary 1: loss threshold violet sigma 7201 was never used for client training."
+    }
+  ],
+  "federated_history": [
+    {
+      "trial_id": 0,
+      "truth_member": true,
+      "history": [
+        {
+          "round": 0,
+          "selected_clients": [
+            0,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "trial_id": 1,
+      "truth_member": false,
+      "history": [
+        {
+          "round": 0,
+          "selected_clients": [
+            1,
+            0
+          ]
+        }
+      ]
+    }
+  ],
+  "artifacts": {
+    "artifact_dir": "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/outputs/queues/20260908-005828-ca79071e2f1c/artifacts/0001-pipeline_v1_43e21907ee3eb699d61f635c",
+    "trial_artifacts": [
+      {
+        "federated_model_path": "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/outputs/queues/20260908-005828-ca79071e2f1c/artifacts/0001-pipeline_v1_43e21907ee3eb699d61f635c/trial_000_member/federated_model"
+      },
+      {
+        "federated_model_path": "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/outputs/queues/20260908-005828-ca79071e2f1c/artifacts/0001-pipeline_v1_43e21907ee3eb699d61f635c/trial_001_nonmember/federated_model"
+      }
+    ]
+  },
+  "run_id": "pipeline_v1_43e21907ee3eb699d61f635c",
+  "status": "complete",
+  "updated_at_unix": 1788844000,
+  "attack_name": "loss",
+  "pipeline": {
+    "defense": {
+      "mechanism": "dp_fedavg",
+      "clip_norm": 1.0,
+      "noise_multiplier": 1.0,
+      "delta": 1e-05
+    },
+    "rag": {
+      "study_file": "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/configs/pipeline_demo_study.json",
+      "study_sha256": "2f25f891ac6307105e13820d5788930bc85fecf73f2a64ec579e912ebcc7f3a1",
+      "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+      "top_k": 2,
+      "max_context_tokens": 128,
+      "max_new_tokens": 8,
+      "significance": 0.05
+    }
+  },
+  "pipeline_evaluations": [
+    {
+      "trial_id": 0,
+      "training_privacy": {
+        "rho": 2.0,
+        "epsilon": 11.597051824376162,
+        "delta": 1e-05,
+        "steps": 1,
+        "accountant": "gaussian_zcdp_no_amplification",
+        "adjacency": "fixed_cardinality_replace_one",
+        "mechanism": "dp_fedavg",
+        "privacy_unit": "client_partition",
+        "trusted_server": true,
+        "protected_release": "noised_global_models",
+        "client_steps": {}
+      },
+      "audit_outputs_private": true,
+      "rag_conditions": {
+        "public_ordinary": {
+          "membership_target": "retrieval_document",
+          "attack": "anderson2024_black_box",
+          "metrics": {
+            "tp": 0,
+            "tn": 2,
+            "fp": 0,
+            "fn": 2,
+            "tpr": 0.0,
+            "tnr": 1.0,
+            "adv": 0.5,
+            "accuracy": 0.5,
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "num_trials": 4,
+            "roc_auc": 0.5
+          },
+          "membership_trials": [
+            {
+              "candidate_index": 0,
+              "truth_member": true,
+              "training_member": false,
+              "score": 0.0,
+              "pred_member": false,
+              "answer_recognized": false
+            },
+            {
+              "candidate_index": 1,
+              "truth_member": true,
+              "training_member": false,
+              "score": 0.0,
+              "pred_member": false,
+              "answer_recognized": false
+            },
+            {
+              "candidate_index": 2,
+              "truth_member": false,
+              "training_member": false,
+              "score": 0.0,
+              "pred_member": false,
+              "answer_recognized": false
+            },
+            {
+              "candidate_index": 3,
+              "truth_member": false,
+              "training_member": false,
+              "score": 0.0,
+              "pred_member": false,
+              "answer_recognized": false
+            }
+          ],
+          "utility": {
+            "exact_match": 0.0,
+            "token_f1": 0.0,
+            "answer_nll": 11.412727355957031
+          },
+          "utility_trials": [
+            {
+              "query_index": 0,
+              "exact_match": 0.0,
+              "token_f1": 0.0,
+              "answer_nll": 10.930700302124023
+            },
+            {
+              "query_index": 1,
+              "exact_match": 0.0,
+              "token_f1": 0.0,
+              "answer_nll": 11.894754409790039
+            }
+          ],
+          "hidden_document_queries": 0,
+          "seconds": 0.14588020800147206
+        },
+        "public_mirabel": {
+          "membership_target": "retrieval_document",
+          "attack": "anderson2024_black_box",
+          "metrics": {
+            "tp": 0,
+            "tn": 2,
+            "fp": 0,
+            "fn": 2,
+            "tpr": 0.0,
+            "tnr": 1.0,
+            "adv": 0.5,
+            "accuracy": 0.5,
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "num_trials": 4,
+            "roc_auc": 0.5
+          },
+          "membership_trials": [
+            {
+              "candidate_index": 0,
+              "truth_member": true,
+              "training_member": false,
+              "score": 0.0,
+              "pred_member": false,
+              "answer_recognized": false
+            },
+            {
+              "candidate_index": 1,
+              "truth_member": true,
+              "training_member": false,
+              "score": 0.0,
+              "pred_member": false,
+              "answer_recognized": false
+            },
+            {
+              "candidate_index": 2,
+              "truth_member": false,
+              "training_member": false,
+              "score": 0.0,
+              "pred_member": false,
+              "answer_recognized": false
+            },
+            {
+              "candidate_index": 3,
+              "truth_member": false,
+              "training_member": false,
+              "score": 0.0,
+              "pred_member": false,
+              "answer_recognized": false
+            }
+          ],
+          "utility": {
+            "exact_match": 0.0,
+            "token_f1": 0.0,
+            "answer_nll": 11.412728309631348
+          },
+          "utility_trials": [
+            {
+              "query_index": 0,
+              "exact_match": 0.0,
+              "token_f1": 0.0,
+              "answer_nll": 10.930702209472656
+            },
+            {
+              "query_index": 1,
+              "exact_match": 0.0,
+              "token_f1": 0.0,
+              "answer_nll": 11.894754409790039
+            }
+          ],
+          "hidden_document_queries": 5,
+          "seconds": 0.09280870799557306
+        },
+        "private_ordinary": {
+          "membership_target": "retrieval_document",
+          "attack": "anderson2024_black_box",
+          "metrics": {
+            "tp": 0,
+            "tn": 2,
+            "fp": 0,
+            "fn": 2,
+            "tpr": 0.0,
+            "tnr": 1.0,
+            "adv": 0.5,
+            "accuracy": 0.5,
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "num_trials": 4,
+            "roc_auc": 0.5
+          },
+          "membership_trials": [
+            {
+              "candidate_index": 0,
+              "truth_member": false,
+              "training_member": false,
+              "score": 0.0,
+              "pred_member": false,
+              "answer_recognized": false
+            },
+            {
+              "candidate_index": 1,
+              "truth_member": false,
+              "training_member": false,
+              "score": 0.0,
+              "pred_member": false,
+              "answer_recognized": false
+            },
+            {
+              "candidate_index": 2,
+              "truth_member": true,
+              "training_member": false,
+              "score": 0.0,
+              "pred_member": false,
+              "answer_recognized": false
+            },
+            {
+              "candidate_index": 3,
+              "truth_member": true,
+              "training_member": false,
+              "score": 0.0,
+              "pred_member": false,
+              "answer_recognized": false
+            }
+          ],
+          "utility": {
+            "exact_match": 0.0,
+            "token_f1": 0.0,
+            "answer_nll": 11.43516492843628
+          },
+          "utility_trials": [
+            {
+              "query_index": 0,
+              "exact_match": 0.0,
+              "token_f1": 0.0,
+              "answer_nll": 11.640766143798828
+            },
+            {
+              "query_index": 1,
+              "exact_match": 0.0,
+              "token_f1": 0.0,
+              "answer_nll": 11.22956371307373
+            }
+          ],
+          "hidden_document_queries": 0,
+          "seconds": 0.10480158400605433
+        },
+        "private_mirabel": {
+          "membership_target": "retrieval_document",
+          "attack": "anderson2024_black_box",
+          "metrics": {
+            "tp": 0,
+            "tn": 2,
+            "fp": 0,
+            "fn": 2,
+            "tpr": 0.0,
+            "tnr": 1.0,
+            "adv": 0.5,
+            "accuracy": 0.5,
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "num_trials": 4,
+            "roc_auc": 0.5
+          },
+          "membership_trials": [
+            {
+              "candidate_index": 0,
+              "truth_member": false,
+              "training_member": false,
+              "score": 0.0,
+              "pred_member": false,
+              "answer_recognized": false
+            },
+            {
+              "candidate_index": 1,
+              "truth_member": false,
+              "training_member": false,
+              "score": 0.0,
+              "pred_member": false,
+              "answer_recognized": false
+            },
+            {
+              "candidate_index": 2,
+              "truth_member": true,
+              "training_member": false,
+              "score": 0.0,
+              "pred_member": false,
+              "answer_recognized": false
+            },
+            {
+              "candidate_index": 3,
+              "truth_member": true,
+              "training_member": false,
+              "score": 0.0,
+              "pred_member": false,
+              "answer_recognized": false
+            }
+          ],
+          "utility": {
+            "exact_match": 0.0,
+            "token_f1": 0.0,
+            "answer_nll": 11.43516492843628
+          },
+          "utility_trials": [
+            {
+              "query_index": 0,
+              "exact_match": 0.0,
+              "token_f1": 0.0,
+              "answer_nll": 11.640766143798828
+            },
+            {
+              "query_index": 1,
+              "exact_match": 0.0,
+              "token_f1": 0.0,
+              "answer_nll": 11.22956371307373
+            }
+          ],
+          "hidden_document_queries": 2,
+          "seconds": 0.10656874999403954
+        }
+      },
+      "no_retrieval_utility": {
+        "exact_match": 0.0,
+        "token_f1": 0.0,
+        "answer_nll": 11.334656238555908
+      }
+    },
+    {
+      "trial_id": 1,
+      "training_privacy": {
+        "rho": 2.0,
+        "epsilon": 11.597051824376162,
+        "delta": 1e-05,
+        "steps": 1,
+        "accountant": "gaussian_zcdp_no_amplification",
+        "adjacency": "fixed_cardinality_replace_one",
+        "mechanism": "dp_fedavg",
+        "privacy_unit": "client_partition",
+        "trusted_server": true,
+        "protected_release": "noised_global_models",
+        "client_steps": {}
+      },
+      "audit_outputs_private": true,
+      "rag_conditions": {
+        "public_ordinary": {
+          "membership_target": "retrieval_document",
+          "attack": "anderson2024_black_box",
+          "metrics": {
+            "tp": 0,
+            "tn": 2,
+            "fp": 0,
+            "fn": 2,
+            "tpr": 0.0,
+            "tnr": 1.0,
+            "adv": 0.5,
+            "accuracy": 0.5,
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "num_trials": 4,
+            "roc_auc": 0.5
+          },
+          "membership_trials": [
+            {
+              "candidate_index": 0,
+              "truth_member": true,
+              "training_member": false,
+              "score": 0.0,
+              "pred_member": false,
+              "answer_recognized": false
+            },
+            {
+              "candidate_index": 1,
+              "truth_member": true,
+              "training_member": false,
+              "score": 0.0,
+              "pred_member": false,
+              "answer_recognized": false
+            },
+            {
+              "candidate_index": 2,
+              "truth_member": false,
+              "training_member": false,
+              "score": 0.0,
+              "pred_member": false,
+              "answer_recognized": false
+            },
+            {
+              "candidate_index": 3,
+              "truth_member": false,
+              "training_member": false,
+              "score": 0.0,
+              "pred_member": false,
+              "answer_recognized": false
+            }
+          ],
+          "utility": {
+            "exact_match": 0.0,
+            "token_f1": 0.0,
+            "answer_nll": 10.431145191192627
+          },
+          "utility_trials": [
+            {
+              "query_index": 0,
+              "exact_match": 0.0,
+              "token_f1": 0.0,
+              "answer_nll": 11.024369239807129
+            },
+            {
+              "query_index": 1,
+              "exact_match": 0.0,
+              "token_f1": 0.0,
+              "answer_nll": 9.837921142578125
+            }
+          ],
+          "hidden_document_queries": 0,
+          "seconds": 0.9267506249889266
+        },
+        "public_mirabel": {
+          "membership_target": "retrieval_document",
+          "attack": "anderson2024_black_box",
+          "metrics": {
+            "tp": 0,
+            "tn": 2,
+            "fp": 0,
+            "fn": 2,
+            "tpr": 0.0,
+            "tnr": 1.0,
+            "adv": 0.5,
+            "accuracy": 0.5,
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "num_trials": 4,
+            "roc_auc": 0.5
+          },
+          "membership_trials": [
+            {
+              "candidate_index": 0,
+              "truth_member": true,
+              "training_member": false,
+              "score": 0.0,
+              "pred_member": false,
+              "answer_recognized": false
+            },
+            {
+              "candidate_index": 1,
+              "truth_member": true,
+              "training_member": false,
+              "score": 0.0,
+              "pred_member": false,
+              "answer_recognized": false
+            },
+            {
+              "candidate_index": 2,
+              "truth_member": false,
+              "training_member": false,
+              "score": 0.0,
+              "pred_member": false,
+              "answer_recognized": false
+            },
+            {
+              "candidate_index": 3,
+              "truth_member": false,
+              "training_member": false,
+              "score": 0.0,
+              "pred_member": false,
+              "answer_recognized": false
+            }
+          ],
+          "utility": {
+            "exact_match": 0.0,
+            "token_f1": 0.0,
+            "answer_nll": 10.431145191192627
+          },
+          "utility_trials": [
+            {
+              "query_index": 0,
+              "exact_match": 0.0,
+              "token_f1": 0.0,
+              "answer_nll": 11.024369239807129
+            },
+            {
+              "query_index": 1,
+              "exact_match": 0.0,
+              "token_f1": 0.0,
+              "answer_nll": 9.837921142578125
+            }
+          ],
+          "hidden_document_queries": 5,
+          "seconds": 0.49701220900169574
+        },
+        "private_ordinary": {
+          "membership_target": "retrieval_document",
+          "attack": "anderson2024_black_box",
+          "metrics": {
+            "tp": 0,
+            "tn": 2,
+            "fp": 0,
+            "fn": 2,
+            "tpr": 0.0,
+            "tnr": 1.0,
+            "adv": 0.5,
+            "accuracy": 0.5,
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "num_trials": 4,
+            "roc_auc": 0.5
+          },
+          "membership_trials": [
+            {
+              "candidate_index": 0,
+              "truth_member": false,
+              "training_member": false,
+              "score": 0.0,
+              "pred_member": false,
+              "answer_recognized": false
+            },
+            {
+              "candidate_index": 1,
+              "truth_member": false,
+              "training_member": false,
+              "score": 0.0,
+              "pred_member": false,
+              "answer_recognized": false
+            },
+            {
+              "candidate_index": 2,
+              "truth_member": true,
+              "training_member": false,
+              "score": 0.0,
+              "pred_member": false,
+              "answer_recognized": false
+            },
+            {
+              "candidate_index": 3,
+              "truth_member": true,
+              "training_member": false,
+              "score": 0.0,
+              "pred_member": false,
+              "answer_recognized": false
+            }
+          ],
+          "utility": {
+            "exact_match": 0.0,
+            "token_f1": 0.0,
+            "answer_nll": 11.549241542816162
+          },
+          "utility_trials": [
+            {
+              "query_index": 0,
+              "exact_match": 0.0,
+              "token_f1": 0.0,
+              "answer_nll": 11.024369239807129
+            },
+            {
+              "query_index": 1,
+              "exact_match": 0.0,
+              "token_f1": 0.0,
+              "answer_nll": 12.074113845825195
+            }
+          ],
+          "hidden_document_queries": 0,
+          "seconds": 0.22488679201342165
+        },
+        "private_mirabel": {
+          "membership_target": "retrieval_document",
+          "attack": "anderson2024_black_box",
+          "metrics": {
+            "tp": 0,
+            "tn": 2,
+            "fp": 0,
+            "fn": 2,
+            "tpr": 0.0,
+            "tnr": 1.0,
+            "adv": 0.5,
+            "accuracy": 0.5,
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "num_trials": 4,
+            "roc_auc": 0.5
+          },
+          "membership_trials": [
+            {
+              "candidate_index": 0,
+              "truth_member": false,
+              "training_member": false,
+              "score": 0.0,
+              "pred_member": false,
+              "answer_recognized": false
+            },
+            {
+              "candidate_index": 1,
+              "truth_member": false,
+              "training_member": false,
+              "score": 0.0,
+              "pred_member": false,
+              "answer_recognized": false
+            },
+            {
+              "candidate_index": 2,
+              "truth_member": true,
+              "training_member": false,
+              "score": 0.0,
+              "pred_member": false,
+              "answer_recognized": false
+            },
+            {
+              "candidate_index": 3,
+              "truth_member": true,
+              "training_member": false,
+              "score": 0.0,
+              "pred_member": false,
+              "answer_recognized": false
+            }
+          ],
+          "utility": {
+            "exact_match": 0.0,
+            "token_f1": 0.0,
+            "answer_nll": 11.549241542816162
+          },
+          "utility_trials": [
+            {
+              "query_index": 0,
+              "exact_match": 0.0,
+              "token_f1": 0.0,
+              "answer_nll": 11.024369239807129
+            },
+            {
+              "query_index": 1,
+              "exact_match": 0.0,
+              "token_f1": 0.0,
+              "answer_nll": 12.074113845825195
+            }
+          ],
+          "hidden_document_queries": 2,
+          "seconds": 0.1909020419989247
+        }
+      },
+      "no_retrieval_utility": {
+        "exact_match": 0.0,
+        "token_f1": 0.0,
+        "answer_nll": 11.549242496490479
+      }
+    }
+  ],
+  "training_membership_metrics": {
+    "roc_auc": 0.0,
+    "tpr_at_fpr_0_01": 0.0,
+    "nonmember_count": 1,
+    "member_count": 1,
+    "low_fpr_resolution": 1.0
+  },
+  "training_privacy_composed": {
+    "rho": 4.0,
+    "epsilon": 17.572280848830225,
+    "delta": 1e-05,
+    "steps": 2,
+    "accountant": "gaussian_zcdp_no_amplification",
+    "adjacency": "fixed_cardinality_replace_one",
+    "scope": "Training releases in this experiment only; audit scores, probe training, private retrieval outputs and repeated experiments are not covered."
+  },
+  "firestore_saved": false
+}

@@ -53,9 +53,13 @@ def experiment_key(config: AttackConfig, spec: Optional[Any] = None) -> str:
     The spec=None fallback is the modern 16-char formula, correct only for the
     nine modern attacks. Always pass spec when you have it.
     """
-    if spec is not None and getattr(spec, "key_fn", None) is not None:
-        return spec.key_fn(config)
-    return key_sha16(config)
+    legacy = spec.key_fn(config) if spec is not None and getattr(spec, "key_fn", None) is not None else key_sha16(config)
+    pipeline = getattr(spec, "pipeline", None)
+    if pipeline is None:
+        return legacy
+    digest = sha256(stable_json({"version": 1, "attack_key": legacy,
+                                "pipeline": pipeline.identity()}).encode()).hexdigest()[:24]
+    return f"pipeline_v1_{digest}"
 
 
 def expand_sweep(base_config, sweep: Dict[str, Sequence]) -> Iterator:

@@ -22,3 +22,4 @@ class AttackSpec:
     supports_toy: bool = True
     custom_trials: Optional[Callable] = None   # (config, artifact_dir) -> list[trial dict]
     build_payload: Optional[Callable] = None   # (config, trials, artifact_dir) -> dict
+    pipeline: Optional[object] = None

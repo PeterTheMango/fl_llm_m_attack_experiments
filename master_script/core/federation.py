@@ -140,7 +140,7 @@ def run_toy_federated_finetune(config: AttackConfig, truth_member: bool):
     return global_model, history
 
 
-def run_hf_federated_finetune(config: AttackConfig, truth_member: bool):
+def run_hf_federated_finetune(config: AttackConfig, truth_member: bool, pipeline=None):
     """Genuine federated fine-tuning of an open-source causal LM with Flower (flwr).
 
     Each client is a NumPyClient that locally fine-tunes the model on its
@@ -168,6 +168,7 @@ def run_hf_federated_finetune(config: AttackConfig, truth_member: bool):
     world = build_membership_world(config, truth_member=truth_member)
     partitions = world.partitions
     num_clients = len(partitions)
+    defense = pipeline.defense if pipeline is not None else None
 
     def get_parameters(model):
         return [value.detach().cpu().numpy() for value in model.state_dict().values()]
@@ -191,10 +192,20 @@ def run_hf_federated_finetune(config: AttackConfig, truth_member: bool):
             self.texts = texts
 
         def fit(self, parameters, fit_config):
+            if defense is not None:
+                torch.manual_seed(config.seed + 1009 * self.partition_id + int(fit_config["server_round"]))
             model, tokenizer = load_model_and_tokenizer()
             set_parameters(model, parameters)
             model.to(client_dev)
             model.train()
+            if defense is not None and defense.mechanism == "dp_sgd":
+                from .defenses import private_train
+                steps = private_train(model, tokenizer, self.texts, config, defense)
+                updated = get_parameters(model)
+                del model
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                return updated, 1, {"partition_id": self.partition_id, "dp_steps": steps}
             encoded = tokenizer(
                 self.texts,
                 padding=True,
@@ -227,6 +238,7 @@ def run_hf_federated_finetune(config: AttackConfig, truth_member: bool):
     clients_per_round = min(config.clients_per_round, num_clients)
     fraction_fit = clients_per_round / num_clients
     capture = {"parameters": None, "history": []}
+    privacy = {}
 
     class SaveModelFedAvg(FedAvg):
         def aggregate_fit(self, server_round, results, failures):
@@ -243,12 +255,19 @@ def run_hf_federated_finetune(config: AttackConfig, truth_member: bool):
         return FlowerClient(partition_id, partitions[partition_id]).to_client()
 
     def server_fn(context: Context):
-        strategy = SaveModelFedAvg(
+        strategy_type = SaveModelFedAvg
+        if pipeline is not None and pipeline.defense.mechanism != "none":
+            from .defenses import strategy_class
+            strategy_type = strategy_class(SaveModelFedAvg, pipeline.defense,
+                                           parameters_to_ndarrays(initial_parameters), privacy)
+        strategy = strategy_type(
             fraction_fit=fraction_fit,
             fraction_evaluate=0.0,
             min_fit_clients=clients_per_round,
             min_available_clients=num_clients,
             initial_parameters=initial_parameters,
+            **({"on_fit_config_fn": lambda round_id: {"server_round": round_id}}
+               if pipeline is not None else {}),
         )
         return ServerAppComponents(strategy=strategy, config=ServerConfig(num_rounds=config.federated_rounds))
 
@@ -270,6 +289,8 @@ def run_hf_federated_finetune(config: AttackConfig, truth_member: bool):
         "device": eval_dev,
         "target_record": world.target_record,
         "dataset_name": world.dataset_name,
+        **({"privacy": privacy, "training_records": [text for part in partitions for text in part]}
+           if pipeline is not None else {}),
     }, capture["history"]
 
 

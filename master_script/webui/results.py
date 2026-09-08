@@ -61,12 +61,17 @@ def prior_error(run: dict) -> Optional[str]:
 
 def _row(run: dict) -> dict:
     metrics = run.get("metrics") or {}
+    cfg = _grid_config(run.get("config") or {})
+    pipeline = run.get("pipeline")
+    if pipeline:
+        cfg["defense_mechanism"] = pipeline["defense"]["mechanism"]
+        cfg["training_epsilon"] = (run.get("training_privacy_composed") or {}).get("epsilon")
     return {
         "run_id": run.get("run_id", "?"),
         "attack": attack_name(run),
         "status": run.get("status", "?"),
         "updated_at_unix": run.get("updated_at_unix"),
-        "config": _grid_config(run.get("config") or {}),
+        "config": cfg,
         "metrics": {
             "adv": metrics.get("adv"),
             "tpr": metrics.get("tpr"),
@@ -81,8 +86,8 @@ def results_payload(state) -> dict:
     """Every run the dashboard knows about; the client filters, sorts and plots."""
     runs = [_row(r) for r in state.runs.values()]
     models = sorted({r["config"].get("model_id") for r in runs if r["config"].get("model_id")})
-    mechs = sorted({str(r["config"].get("ldp_mechanism")) for r in runs
-                    if r["config"].get("ldp_mechanism") is not None})
+    mechs = sorted({str(r["config"].get("defense_mechanism", r["config"].get("ldp_mechanism"))) for r in runs
+                    if r["config"].get("defense_mechanism", r["config"].get("ldp_mechanism")) is not None})
     return {
         "runs": runs,
         "attacks": catalog.catalog(),
@@ -194,6 +199,11 @@ def detail_payload(state, run_id: str) -> Optional[dict]:
         "artifacts": _artifacts(run),
         "error": current_error(run),
         "prior_error": prior_error(run),
+        "pipeline": run.get("pipeline"),
+        "pipeline_evaluations": run.get("pipeline_evaluations", []),
+        "training_membership_metrics": run.get("training_membership_metrics"),
+        "training_privacy_composed": run.get("training_privacy_composed"),
+        "persistence_error": run.get("persistence_error"),
     }
 
 

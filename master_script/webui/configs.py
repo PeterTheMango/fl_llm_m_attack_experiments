@@ -81,9 +81,9 @@ def validate(text: str) -> dict:
         return {"ok": False, "message": f"Config is larger than {_MAX_BYTES // 1000} KB."}
 
     try:
-        pairs = load_config_doc(yaml.safe_load(text) or {})
+        pairs = load_config_doc(yaml.safe_load(text) or {}, source=str(CONFIGS_DIR / "__editor__.yaml"))
     except ConfigError as exc:
-        return {"ok": False, "message": str(exc)}
+        return {"ok": False, "message": str(exc).replace(str(CONFIGS_DIR / "__editor__.yaml"), "<config>")}
     except Exception as exc:  # malformed YAML surfaces as a parser error
         return {"ok": False, "message": f"{type(exc).__name__}: {exc}"}
 

@@ -1,0 +1,129 @@
+\begin{thebibliography}{15}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[Carlini et~al.(2021)Carlini, Tram{\`e}r, Wallace, Jagielski,
+  Herbert-Voss, Lee, Roberts, Brown, Song, Erlingsson, Oprea, and
+  Raffel]{carlini2021extracting}
+Nicholas Carlini, Florian Tram{\`e}r, Eric Wallace, Matthew Jagielski, Ariel
+  Herbert-Voss, Katherine Lee, Adam Roberts, Tom Brown, Dawn Song, {\'U}lfar
+  Erlingsson, Alina Oprea, and Colin Raffel.
+\newblock Extracting training data from large language models.
+\newblock In \emph{30th USENIX Security Symposium}, pages 2633--2650, 2021.
+
+\bibitem[Chen et~al.(2026)Chen, Du, Zhang, Kundu, Fleming, Ribeiro, and
+  Li]{chen2026window}
+Yuetian Chen, Yuntao Du, Kaiyuan Zhang, Ashish Kundu, Charles Fleming, Bruno
+  Ribeiro, and Ninghui Li.
+\newblock Window-based membership inference attacks against fine-tuned large
+  language models, 2026.
+\newblock Version 2, 5 March 2026.
+
+\bibitem[Cheng et~al.(2025)Cheng, Zhang, Zhang, Zhang, Wang, and
+  Mao]{cheng2025toward}
+Yujun Cheng, Weiting Zhang, Zhewei Zhang, Chuan Zhang, Shengjin Wang, and
+  Shiwen Mao.
+\newblock Toward federated large language models: Motivations, methods, and
+  future directions.
+\newblock \emph{IEEE Communications Surveys \& Tutorials}, 27\penalty0
+  (4):\penalty0 2733--2764, 2025.
+\newblock \doi{10.1109/COMST.2024.3503680}.
+
+\bibitem[Fu et~al.(2024)Fu, Wang, Gao, Liu, Li, and Jiang]{fu2024membership}
+Wenjie Fu, Huandong Wang, Chen Gao, Guanghua Liu, Yong Li, and Tao Jiang.
+\newblock Membership inference attacks against fine-tuned large language models
+  via self-prompt calibration.
+\newblock In \emph{Advances in Neural Information Processing Systems},
+  volume~37, 2024.
+
+\bibitem[Kaneko et~al.(2024)Kaneko, Ma, Wata, and Okazaki]{kaneko2024sampling}
+Masahiro Kaneko, Youmi Ma, Yuki Wata, and Naoaki Okazaki.
+\newblock Sampling-based pseudo-likelihood for membership inference attacks,
+  2024.
+
+\bibitem[Mattern et~al.(2023)Mattern, Mireshghallah, Jin, Sch{\"o}lkopf,
+  Sachan, and Berg-Kirkpatrick]{mattern2023membership}
+Justus Mattern, Fatemehsadat Mireshghallah, Zhijing Jin, Bernhard
+  Sch{\"o}lkopf, Mrinmaya Sachan, and Taylor Berg-Kirkpatrick.
+\newblock Membership inference attacks against language models via
+  neighbourhood comparison.
+\newblock In \emph{Findings of the Association for Computational Linguistics:
+  ACL 2023}, pages 11330--11343, 2023.
+\newblock \doi{10.18653/v1/2023.findings-acl.719}.
+
+\bibitem[Nguyen et~al.(2025)Nguyen, Vu, Nguyen, and
+  Thai]{nguyen2025theoretically}
+Quan Nguyen, Minh~N. Vu, Truc Nguyen, and My~T. Thai.
+\newblock Theoretically unmasking inference attacks against {LDP}-protected
+  clients in federated vision models.
+\newblock In \emph{Proceedings of the 42nd International Conference on Machine
+  Learning}, volume 267 of \emph{Proceedings of Machine Learning Research},
+  2025.
+
+\bibitem[Nguyen et~al.(2023)Nguyen, Lai, Tran, Phan, and
+  Thai]{nguyen2023active}
+Truc Nguyen, Phung Lai, Khang Tran, NhatHai Phan, and My~T. Thai.
+\newblock Active membership inference attack under local differential privacy
+  in federated learning.
+\newblock In \emph{Proceedings of the 26th International Conference on
+  Artificial Intelligence and Statistics}, volume 206 of \emph{Proceedings of
+  Machine Learning Research}, pages 5714--5730, 2023.
+
+\bibitem[Shi et~al.(2024)Shi, Ajith, Xia, Huang, Liu, Blevins, Chen, and
+  Zettlemoyer]{shi2024detecting}
+Weijia Shi, Anirudh Ajith, Mengzhou Xia, Yangsibo Huang, Daogao Liu, Terra
+  Blevins, Danqi Chen, and Luke Zettlemoyer.
+\newblock Detecting pretraining data from large language models.
+\newblock In \emph{International Conference on Learning Representations}, 2024.
+
+\bibitem[Wu et~al.(2026)Wu, Tian, Li, Sun, Tam, Zhou, Liao, Xiong, Guo, Li, and
+  Xu]{wu2026survey}
+Yebo Wu, Chunlin Tian, Jingguang Li, He~Sun, Kahou Tam, Zhanting Zhou, Haicheng
+  Liao, Jing Xiong, Zhijiang Guo, Li~Li, and Chengzhong Xu.
+\newblock A survey on federated fine-tuning of large language models.
+\newblock \emph{Transactions on Machine Learning Research}, 2026.
+
+\bibitem[Xie et~al.(2024)Xie, Wang, Huang, Zhang, Ge, Pei, Gong, and
+  Dhingra]{xie2024recall}
+Roy Xie, Junlin Wang, Ruomin Huang, Minxing Zhang, Rong Ge, Jian Pei,
+  Neil~Zhenqiang Gong, and Bhuwan Dhingra.
+\newblock {ReCaLL}: Membership inference via relative conditional
+  log-likelihoods.
+\newblock In \emph{Proceedings of the 2024 Conference on Empirical Methods in
+  Natural Language Processing}, pages 8671--8689, 2024.
+\newblock \doi{10.18653/v1/2024.emnlp-main.493}.
+
+\bibitem[Yan et~al.(2025)Yan, Su, Deng, and Schober]{yan2025federated}
+Na~Yan, Yang Su, Yansha Deng, and Robert Schober.
+\newblock Federated fine-tuning of {LLM}s: Framework comparison and research
+  directions, 2025.
+
+\bibitem[Yao et~al.(2026)Yao, Zhang, Wu, Huang, Xia, Yu, Zhang, Kim, Rossi, Li,
+  Yao, McAuley, Chen, and Joe-Wong]{yao2026federated}
+Yuhang Yao, Jianyi Zhang, Junda Wu, Chengkai Huang, Yu~Xia, Tong Yu, Ruiyi
+  Zhang, Sungchul Kim, Ryan Rossi, Ang Li, Lina Yao, Julian McAuley, Yiran
+  Chen, and Carlee Joe-Wong.
+\newblock Federated large language models: Current progress and future
+  directions, 2026.
+
+\bibitem[Yeom et~al.(2018)Yeom, Giacomelli, Fredrikson, and
+  Jha]{yeom2018privacy}
+Samuel Yeom, Irene Giacomelli, Matt Fredrikson, and Somesh Jha.
+\newblock Privacy risk in machine learning: Analyzing the connection to
+  overfitting.
+\newblock In \emph{2018 IEEE 31st Computer Security Foundations Symposium},
+  pages 268--282, 2018.
+\newblock \doi{10.1109/CSF.2018.00027}.
+
+\bibitem[Zhang et~al.(2025)Zhang, Sun, Yeats, Ouyang, Kuo, Zhang, Yang, and
+  Li]{zhang2025minkpp}
+Jingyang Zhang, Jingwei Sun, Eric Yeats, Yang Ouyang, Martin Kuo, Jianyi Zhang,
+  Hao~Frank Yang, and Hai Li.
+\newblock {Min-K\%++}: Improved baseline for detecting pre-training data from
+  large language models.
+\newblock In \emph{International Conference on Learning Representations}, 2025.
+
+\end{thebibliography}

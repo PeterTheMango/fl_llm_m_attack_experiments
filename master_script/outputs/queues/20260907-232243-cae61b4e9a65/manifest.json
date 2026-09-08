@@ -1,0 +1,41 @@
+{
+  "batch_id": "20260907-232243-cae61b4e9a65",
+  "status": "complete",
+  "started_unix": 1788837763.6061041,
+  "entries": [
+    {
+      "index": 0,
+      "source": "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/configs/pipeline_zlib_dp.yaml",
+      "source_sha256": "f577418c9755dc58db60d641480097b3486232fc93a60279edcd497b08b5bd25",
+      "run_id": "pipeline_v1_072611547ba24031b8837a92",
+      "attack": "zlib",
+      "status": "complete",
+      "started_unix": 1788837763.607048,
+      "ended_unix": 1788837881.8593001,
+      "result_file": "0000-pipeline_v1_072611547ba24031b8837a92.json"
+    },
+    {
+      "index": 1,
+      "source": "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/configs/pipeline_min_k_dp.yaml",
+      "source_sha256": "54afc51ab75e0cb2cf85361b55448e66b3be883601aed6951cb0d92c712a7418",
+      "run_id": "pipeline_v1_65f6a1dba98035ef0f4b972a",
+      "attack": "min_k",
+      "status": "complete",
+      "started_unix": 1788837881.8601239,
+      "ended_unix": 1788837948.544957,
+      "result_file": "0001-pipeline_v1_65f6a1dba98035ef0f4b972a.json"
+    },
+    {
+      "index": 2,
+      "source": "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/configs/pipeline_min_kpp_dp.yaml",
+      "source_sha256": "439a87205d9512ed2d3a8aec79847c98eb9960affb0ff0c6f8667f464300484d",
+      "run_id": "pipeline_v1_51d0239eec7fb0d6d9c1b82c",
+      "attack": "min_k_plus_plus",
+      "status": "complete",
+      "started_unix": 1788837948.546335,
+      "ended_unix": 1788838007.2735,
+      "result_file": "0002-pipeline_v1_51d0239eec7fb0d6d9c1b82c.json"
+    }
+  ],
+  "ended_unix": 1788838007.274573
+}

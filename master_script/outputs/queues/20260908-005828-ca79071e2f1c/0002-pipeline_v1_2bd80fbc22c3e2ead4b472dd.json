@@ -1,0 +1,47 @@
+{
+  "run_id": "pipeline_v1_2bd80fbc22c3e2ead4b472dd",
+  "status": "failed",
+  "updated_at_unix": 1788844079,
+  "attack_name": "zlib",
+  "config": {
+    "attack_name": "zlib",
+    "paper_source": "Carlini et al. 2021 (arXiv:2012.07805) zlib-entropy ratio MIA",
+    "model_id": "sshleifer/tiny-gpt2",
+    "dataset_name": "synthetic_client_text",
+    "num_clients": 2,
+    "clients_per_round": 2,
+    "federated_rounds": 1,
+    "local_epochs": 1,
+    "local_batch_size": 4,
+    "client_lr": 5e-05,
+    "target_client_id": 0,
+    "attack_trials": 2,
+    "threshold": -0.0058,
+    "max_length": 32,
+    "seed": 7,
+    "firestore_collection": "ami_federated_llm_results",
+    "artifact_root": "artifacts/zlib_adaptation",
+    "fl_framework": "flower",
+    "sim_num_gpus": 0.0,
+    "keep_artifacts": false,
+    "use_hf_models": true
+  },
+  "error": "RuntimeError: An error was encountered. Ending simulation.",
+  "pipeline": {
+    "defense": {
+      "mechanism": "none",
+      "clip_norm": 1.0,
+      "noise_multiplier": 1.0,
+      "delta": 1e-05
+    },
+    "rag": {
+      "study_file": "/Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/configs/pipeline_demo_study.json",
+      "study_sha256": "2f25f891ac6307105e13820d5788930bc85fecf73f2a64ec579e912ebcc7f3a1",
+      "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+      "top_k": 2,
+      "max_context_tokens": 128,
+      "max_new_tokens": 8,
+      "significance": 0.05
+    }
+  }
+}

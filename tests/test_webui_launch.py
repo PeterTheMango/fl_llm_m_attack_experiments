@@ -154,6 +154,17 @@ def test_worker_stop_terminates_the_owned_process(monkeypatch):
     assert worker.status["stopped"] is True
 
 
+def test_worker_does_not_mark_batch_interrupted_while_process_remains_alive(monkeypatch):
+    from master_script.core import queue as batches
+    worker = SweepWorker(context=_Context())
+    assert worker.start([("a", "b")], use_firestore=False)
+    worker.batch_dir = "/unused"
+    monkeypatch.setattr(worker, "_terminate_process", lambda process: None)
+    monkeypatch.setattr(batches, "interrupt_batch", lambda path: pytest.fail("worker still alive"))
+    assert worker.stop() is False
+    assert worker.status["running"] is True
+
+
 def test_real_sweep_pairs_are_spawn_pickleable():
     """The stoppable worker uses multiprocessing spawn, not a fork-only trick."""
     from master_script.core.yaml_config import load_config_file

@@ -41,7 +41,7 @@ const S = {
   // null on a field means "whatever is saved in the .env" — the browser is
   // never sent a saved token, so an untouched field has nothing to send back.
   tunnelForm: { provider: null, apiKey: null, code: null, port: null },
-  launchForm: { mode: 'manual', configFile: null, attacks: [], useFirestore: true },
+  launchForm: { mode: 'manual', configFile: null, queueFiles: [], attacks: [], useFirestore: true },
   // Manual mode. A card is { name, values, sweeps, advanced }; `values` holds
   // only what the user typed, so an untouched field never reaches the payload
   // and a saved config stays as small as hand-written YAML. `dirty` greys the
@@ -107,6 +107,10 @@ function meta(attack) {
   return attacks[attack] || { label: String(attack || '?').toUpperCase(), color: '#5f6b78', title: '', methodology: {} };
 }
 function mechEps(cfg) {
+  if (cfg.defense_mechanism !== undefined) {
+    const eps = cfg.training_epsilon;
+    return cfg.defense_mechanism + (eps === null || eps === undefined ? '' : ` ε${Number(eps).toFixed(2)}`);
+  }
   const mech = cfg.ldp_mechanism, eps = cfg.epsilon;
   if (mech === undefined && eps === undefined) return '—';
   if (!mech || mech === 'none' || eps === null || eps === undefined) return 'none';
@@ -542,7 +546,7 @@ function filteredRuns() {
     if (f.attacks && f.attacks[r.attack] === false) return false;
     if (f.status !== 'all' && r.status !== f.status) return false;
     if (f.model !== 'all' && r.config.model_id !== f.model) return false;
-    if (f.mech !== 'all' && String(r.config.ldp_mechanism === undefined ? 'none' : r.config.ldp_mechanism) !== f.mech) return false;
+    if (f.mech !== 'all' && String(r.config.defense_mechanism ?? r.config.ldp_mechanism ?? 'none') !== f.mech) return false;
     if (q && !r.run_id.toLowerCase().includes(q)) return false;
     return true;
   });
@@ -623,7 +627,7 @@ function resultsView() {
            <div style="flex:1;height:5px;border-radius:3px;background:var(--gd,#222a34);overflow:hidden"><div style="height:100%;width:${clamp((adv - 0.45) / 0.55 * 100, 0, 100)}%;background:${advColor(adv)}"></div></div>
            <span style="font-family:${MONO};font-size:11.5px;color:${advColor(adv)};font-weight:600;width:34px;text-align:right">${fmt3(adv)}</span>
          </div>`;
-    const noDp = !cfg.ldp_mechanism || cfg.ldp_mechanism === 'none' || cfg.epsilon === null || cfg.epsilon === undefined;
+    const noDp = cfg.defense_mechanism !== undefined ? cfg.defense_mechanism === 'none' : (!cfg.ldp_mechanism || cfg.ldp_mechanism === 'none' || cfg.epsilon === null || cfg.epsilon === undefined);
     return `<div class="row-hover" data-act="open" data-arg="${esc(r.run_id)}" style="display:grid;grid-template-columns:${GRID};gap:0 10px;padding:14px 16px;border-bottom:1px solid var(--gd,#222a34);cursor:pointer;align-items:center;font-size:12px;line-height:1.4">
       <div><span style="font-size:9.5px;font-weight:600;font-family:${MONO};padding:1px 6px;border-radius:4px;color:#0d1014;background:${m.color}">${esc(m.label)}</span></div>
       <div style="font-family:${MONO};color:var(--fd,#9aa6b2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.run_id)}</div>
@@ -710,6 +714,19 @@ function resultsView() {
 }
 
 // ---------- detail view ----------
+function pipelinePanel(d) {
+  if (!d.pipeline) return '';
+  const privacy = d.training_privacy_composed;
+  const rows = (d.pipeline_evaluations || []).flatMap((e) => Object.entries(e.rag_conditions || {}).map(([name, c]) =>
+    `<tr><td>${esc(e.trial_id)}</td><td>${esc(name.replaceAll('_', ' '))}</td><td>${fmt3(c.metrics?.roc_auc)}</td><td>${fmt3(c.utility?.exact_match)}</td><td>${fmt3(c.utility?.token_f1)}</td><td>${fmt3(c.utility?.answer_nll)}</td><td>${esc(c.hidden_document_queries)}</td></tr>`)).join('');
+  return `<section aria-label="Defense and retrieval evaluation" style="background:var(--pn,#15191f);border:1px solid var(--bd,#252c36);border-radius:12px;padding:16px;margin-bottom:14px">
+    <h2 style="font-size:13px;margin:0 0 10px">Defense and retrieval evaluation</h2>
+    <p style="font-size:12px;color:var(--fd,#9aa6b2)">Training defense: <b>${esc(d.pipeline.defense.mechanism)}</b>. Training-membership AUC: ${fmt3(d.training_membership_metrics?.roc_auc)}.${privacy ? ` Composed training bound: ε ${fmt3(privacy.epsilon)}, δ ${esc(privacy.delta)}.` : ''}</p>
+    ${privacy ? `<p style="font-size:11px;color:var(--fm,#5f6b78)">${esc(privacy.scope)}</p>` : ''}
+    ${rows ? `<div style="overflow:auto"><table style="width:100%;font-size:11px;text-align:left;border-spacing:10px"><thead><tr><th>Model trial</th><th>Retrieval condition</th><th>Datastore AUC</th><th>Answer EM</th><th>Answer F1</th><th>Answer NLL</th><th>Queries filtered</th></tr></thead><tbody>${rows}</tbody></table></div><p style="font-size:11px;color:var(--fm,#5f6b78)">Datastore membership is evaluated separately from training membership. Mirabel is an empirical defense. Small smoke samples do not establish privacy or utility.</p>` : ''}
+  </section>`;
+}
+
 function detailView() {
   const back = `<div data-act="back" style="display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--fd,#9aa6b2);cursor:pointer;margin-bottom:14px">← back to results</div>`;
   if (S.detailError) {
@@ -784,6 +801,7 @@ function detailView() {
     </div>` : ''}
 
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">${metrics}</div>
+    ${pipelinePanel(d)}
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
       <div style="background:var(--pn,#15191f);border:1px solid var(--bd,#252c36);border-radius:12px;padding:16px">
@@ -1152,6 +1170,8 @@ function launchView() {
       <div style="padding:18px 20px;border-bottom:1px solid var(--bd,#252c36)">
         <div style="font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--fd,#9aa6b2);margin-bottom:12px">Run this config</div>
         <select data-inp="configFile" style="${SEL};font-size:12px;padding:9px 12px;width:280px">${configs || '<option>no configs found</option>'}</select>
+        <button type="button" data-act="queue-add" style="${SEL};padding:9px 12px;margin-left:8px;cursor:pointer">Add to queue</button>
+        ${f.queueFiles.length ? `<ol aria-label="Config execution order" style="padding-left:24px;margin-top:16px">${f.queueFiles.map((name, i) => `<li style="margin:8px 0;font-family:${MONO};font-size:12px">${esc(name)} <button type="button" data-act="queue-remove" data-arg="${i}" aria-label="Remove ${esc(name)} from queue" style="${SEL};cursor:pointer;margin-left:8px">Remove</button></li>`).join('')}</ol><p style="font-size:12px;color:var(--fd,#9aa6b2)">Files run in this order, one experiment at a time. Failures are recorded and later runs continue. Full results are saved locally.</p>` : ''}
         ${S.editor.dirty ? `<div style="margin-top:10px;font-size:11px;color:var(--wn,#e3b341)">The editor has unsaved changes. A sweep runs the file on disk — save first to run what you're looking at.</div>` : ''}
       </div>
       <div style="padding:18px 20px">
@@ -1183,9 +1203,9 @@ function launchView() {
         <div style="flex:1"></div>
         ${w.running
           ? stopSweepControls(w, false)
-          : `<div data-act="${manualMode ? 'manual-start' : 'launch-start'}" data-hover style="font-size:12px;font-weight:600;cursor:pointer;padding:9px 18px;border-radius:9px;background:var(--ac,#36c08f);color:#0d1014;border:1px solid var(--ac,#36c08f)">Start sweep</div>`}
+          : `<div data-act="${manualMode ? 'manual-start' : 'launch-start'}" data-hover style="font-size:12px;font-weight:600;cursor:pointer;padding:9px 18px;border-radius:9px;background:var(--ac,#36c08f);color:#0d1014;border:1px solid var(--ac,#36c08f)">${!manualMode && f.queueFiles.length ? 'Start queue' : 'Start sweep'}</div>`}
       </div>
-      <div style="padding:13px 20px;background:var(--p2,#1b212a);border-top:1px solid var(--bd,#252c36);font-size:11.5px;font-family:${MONO}">${status}</div>
+      <div style="padding:13px 20px;background:var(--p2,#1b212a);border-top:1px solid var(--bd,#252c36);font-size:11.5px;font-family:${MONO}">${status}${w.batch_dir ? `<div style="margin-top:8px;overflow-wrap:anywhere">Results: ${esc(w.batch_dir)}</div>` : ''}</div>
     </div>
   </div>`;
 }
@@ -1774,10 +1794,18 @@ async function onAction(act, arg) {
       }
       break;
     }
+    case 'queue-add':
+      if (S.launchForm.configFile) S.launchForm.queueFiles.push(S.launchForm.configFile);
+      break;
+    case 'queue-remove':
+      S.launchForm.queueFiles.splice(Number(arg), 1);
+      break;
     case 'launch-start': {
       const f = S.launchForm;
-      const res = await postJSON('/api/launch', {
-        config_file: f.configFile, attacks: f.attacks.length ? f.attacks : null, use_firestore: f.useFirestore,
+      const queued = f.queueFiles.length > 0;
+      const res = await postJSON(queued ? '/api/launch/queue' : '/api/launch', {
+        ...(queued ? {config_files: f.queueFiles} : {config_file: f.configFile}),
+        attacks: f.attacks.length ? f.attacks : null, use_firestore: f.useFirestore,
       });
       S.banner = res.message;
       S.launch = await getJSON('/api/launch');
