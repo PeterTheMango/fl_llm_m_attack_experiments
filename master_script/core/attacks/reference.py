@@ -1,7 +1,8 @@
 """Reference/comparison-model MIA. Ported from reference_adaptations.ipynb.
 
-Config fields are byte-frozen: see tests/test_hash_equivalence.py.
+Corrected methods use versioned cache identities; see docs/theory_corrections.md.
 """
+import math
 from dataclasses import dataclass
 
 from ..config import AttackConfig
@@ -13,8 +14,9 @@ from ..spec import AttackSpec
 @dataclass(frozen=True)
 class ReferenceConfig(AttackConfig):
     attack_name: str = "reference"
-    paper_source: str = "Carlini et al. 2021 reference/comparison-model MIA; LiRA-style LM calibration"
+    paper_source: str = "Carlini et al. 2021 section 6.1 log-perplexity ratio"
     model_id: str = "sshleifer/tiny-gpt2"
+    reference_model_id: str | None = None
     dataset_name: str = "synthetic_client_text"
     num_clients: int = 4
     clients_per_round: int = 4
@@ -24,7 +26,7 @@ class ReferenceConfig(AttackConfig):
     client_lr: float = 5e-5
     target_client_id: int = 0
     attack_trials: int = 4
-    threshold: float = 0.25
+    threshold: float = -0.75
     max_length: int = 64
     seed: int = 7
     firestore_collection: str = "ami_federated_llm_results"
@@ -51,7 +53,10 @@ METHODOLOGY = {
 }
 
 def calibrated_reference_score(target_nll: float, reference_nll: float) -> float:
-    return reference_nll - target_nll
+    """Negative log-perplexity ratio; larger values rank as more member-like."""
+    if not math.isfinite(target_nll) or not math.isfinite(reference_nll) or reference_nll <= 0:
+        raise ValueError("Reference ratio requires finite losses and positive reference NLL")
+    return -target_nll / reference_nll
 
 
 def score_candidate_toy(target_model, reference_model, text: str) -> float:
@@ -71,6 +76,10 @@ def score_candidate_hf(target_bundle, reference_bundle, text: str, max_length: i
             outputs = model(**encoded, labels=encoded["input_ids"])
         return float(outputs.loss.detach().cpu())
 
+    from ..scoring import effective_record
+    text = effective_record(target_bundle["tokenizer"], text, max_length)
+    if len(reference_bundle["tokenizer"](text)["input_ids"]) > max_length:
+        raise ValueError("Reference token budget would truncate the effective candidate")
     return calibrated_reference_score(mean_nll(target_bundle), mean_nll(reference_bundle))
 
 

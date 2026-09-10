@@ -1,0 +1,999 @@
+                                         R E C ALL: Membership Inference via Relative Conditional Log-Likelihoods
+
+
+                                                  Roy Xie        Junlin Wang           Ruomin Huang        Minxing Zhang          Rong Ge
+                                                                Jian Pei       Neil Zhenqiang Gong         Bhuwan Dhingra
+                                                                                         Duke University
+                                                                                royxie.com/recall-project-page
+
+
+                                                               Abstract
+                                             The rapid scaling of large language models
+
+
+
+
+arXiv:2406.15968v2 [cs.CL] 23 May 2025
+                                             (LLMs) has raised concerns about the trans-
+                                             parency and fair use of the data used in their
+                                             pretraining. Detecting such content is challeng-
+                                             ing due to the scale of the data and limited
+                                             exposure of each instance during training. We
+                                             propose R E C ALL, (Relative Conditional Log-
+                                             Likelihood), a novel membership inference at-
+                                             tack (MIA) to detect LLMs’ pretraining data
+                                             by leveraging their conditional language mod-
+                                             eling capabilities. R E C ALL examines the rela-     Figure 1: Log-Likelihood comparison between mem-
+                                             tive change in conditional log-likelihoods when      bers (M) and non-members (NM). Members experience
+                                             prefixing target data points with non-member         a higher likelihood reduction than non-members when
+                                             context. Our empirical findings show that con-       conditioned with non-member context.
+                                             ditioning member data on non-member pre-
+                                             fixes induces a larger decrease in log-likelihood
+                                             compared to non-member data. We conduct              pretraining datasets exacerbates these concerns, as
+                                             comprehensive experiments and show that R E -        many developers are reluctant to disclose full de-
+                                             C ALL achieves state-of-the-art performance on       tails due to proprietary reasons or the sheer volume
+                                             WikiMIA dataset, even with random and syn-           of data involved.
+                                             thetic prefixes, and can be further improved us-
+                                             ing an ensemble approach. Moreover, we con-
+                                                                                                     To address these concerns, many works have
+                                             duct an in-depth analysis of LLMs’ behavior          proposed to detect pretraining data in LLMs (Shi
+                                             with different membership contexts, providing        et al., 2024; Zhang et al., 2024; Duan et al., 2024),
+                                             insights into how LLMs leverage membership           which involve using Membership Inference Attacks
+                                             information for effective inference at both the      (MIAs) to infer whether a given data point was part
+                                             sequence and token level.                            of the training set. The basic MIA leverages a
+                                                                                                  simple fact that member data are trained and mem-
+                                         1   Introduction                                         orized by the model, which leaves footprints in
+                                         The amount of pretraining data used to train large       the model, resulting in higher log-likelihood (LL)
+                                         language models (LLMs) has quickly expanded              than non-member data (Yeom et al., 2018). How-
+                                         in recent years, comprising of trillions of tokens       ever, the massive scale of pretraining data means
+                                         sourced from a vast array of sources (Raffel et al.,     that LLMs are typically trained for only a single
+                                         2020; Brown et al., 2020). While such diversity          epoch, making this problem particularly challeng-
+                                         and volume allow for a comprehensive language            ing (Duan et al., 2024; Shi et al., 2024), as each
+                                         understanding, it also raises the concerns of includ-    instance is only exposed once to the model, lead-
+                                         ing sensitive or unintended content such as copy-        ing to limited memorization (Kandpal et al., 2022;
+                                         righted materials (Meeus et al., 2023; Duarte et al.,    Leino and Fredrikson, 2020).
+                                         2024), personally identifiable information (Tang            In this work, we propose R E C ALL (Relative
+                                         et al., 2023), or test data from benchmarks (Oren        Conditional Log Likelihood), an efficient MIA de-
+                                         et al., 2023; Deng et al., 2024). Additionally, the      tects LLMs pretraining data. R E C ALL leverages
+                                         lack of transparency regarding the composition of        the conditional language modeling capabilities of
+LLMs by examining the relative change in condi-                  2   Related Work
+tional LLs when prefixing data with non-member
+context. Our key empirical finding, as illustrated               Membership Inference Attacks Membership In-
+in Figure 1,1 is that conditioning member data on                ference Attacks (MIAs) aim to determine whether
+non-member prefix induces a larger decrease in                   a given data sample was part of a model’s training
+LL compared to conditioning non-member data                      set. It was initially proposed by Shokri et al. (2017)
+on other non-members. This observation forms                     and has significant implication in tasks such as mea-
+the basis of R E C ALL. We leverage a few non-                   suring memorization and privacy risk (Carlini et al.,
+members from the target domain to construct the                  2022b; Mireshghallah et al., 2022; Steinke et al.,
+non-member prefix. While this might seem like a                  2024), serving as basis of advance attacks (Carlini
+limitation, in practice, it is not a hard constraint.            et al., 2021; Nasr et al., 2023), and detection on test-
+For most real-world applications, we can easily ob-              set contamination (Oren et al., 2023), copyrighted
+tain non-member data points by selecting recent                  content (Meeus et al., 2023; Duarte et al., 2024) and
+data that postdates the model’s training data or by              knowledge cutoff (Cheng et al., 2024) for LLMs.
+creating new, synthetic data points (Shi et al., 2024;           Research in MIA has been explored in natural lan-
+Cheng et al., 2024; Duarte et al., 2024).                        guage domain for both finetuning (Watson et al.,
+   One interpretation of this empirical finding                  2021; Mireshghallah et al., 2022; Fu et al., 2023;
+comes from prior work on in-context learning                     Mattern et al., 2023) and pretraining settings (Shi
+(ICL), which suggests that it has an effect simi-                et al., 2024; Duan et al., 2024; Zhang et al., 2024).
+lar to fine-tuning (Akyürek et al., 2022). By filling            Current LLMs typically train on the massive data
+the context with non-members, we are essentially                 for only a single epoch, which makes MIA more
+changing the predictive distribution of the language             challenging compared to the multi-epoch finetun-
+model. This change has a larger detrimental ef-                  ing setting (Carlini et al., 2022b; Shi et al., 2024).
+fect on members, which are already memorized by                  In-context Learning as Attack Vectors
+the model, compared to non-members, which the                    Transformer-based (Vaswani et al., 2017) LLMs,
+model is unfamiliar with regardless of the context.              pretrained on vast amounts of data, have demon-
+We further discuss this in §5.3.                                 strated a striking ability known as in-context
+   We evaluate R E C ALL on two existing bench-                  learning (ICL) (Brown et al., 2020). Specifically,
+marks, WikiMIA (Shi et al., 2024) and MIMIR                      after pretraining, these models can learn and
+(Duan et al., 2024). WikiMIA provides differ-                    complete new tasks during inference without
+ent data length for fine-grained evaluation, while               updating their parameters. In ICL, the model takes
+MIMIR presents a more challenging setting with                   in a short sequence of supervised examples (prefix)
+minimal distribution shifts between members and                  from the task and then generates a prediction for
+non-members. Our comprehensive experiments                       a query example. Recently, ICL has been used
+demonstrate that R E C ALL achieves state-of-the-                as attack vectors for LLMs, such as jailbreaks
+art performance on WikiMIA, outperforming exist-                 (Wei et al., 2023b; Anil et al., 2024), sensitive
+ing MIA methods by a large margin, and obtains                   information extraction (Tang et al., 2023), and
+competitive results on MIMIR (§4.2). We show                     backdoor attacks (Kandpal et al., 2023). In this
+that using random and synthetic prefixes achieves                work, we leverage a similar notion from ICL in an
+comparable performance to using real and optimal                 unsupervised manner to conduct MIA by prefixing
+non-member data (§5.1). We propose an ensemble                   the target data points with non-member context.
+approach to further enhance the performance of R E -             To the best of our knowledge, this is the first study
+C ALL and mitigate the limitations imposed by the                to undertake such a task.
+fixed context window size of LLMs (§5.2). Lastly,
+we conduct an in-depth empirical investigation on                3   R E C ALL: Relative Conditional
+how LLMs behave with different membership con-                       Log-Likelihood
+texts at both the sequence and token level, provid-
+ing insights into how LLMs leverage membership                   Problem Definition Given that M is an autore-
+information for effective inference (§5.3).                      gressive language model that outputs a probability
+    1
+                                                                 distribution over the next token given a prefix, let
+      Plot result is from 5-shot setting using the Pythia-6.9B
+model on the WikiMIA-32 dataset. Additional visualizations       D be a dataset used to train M . The goal of a mem-
+are presented in Appendix A.                                     bership inference attack is to determine, for a target
+data point x, whether x ∈ D or x ∈/ D. A member-
+ship score S(x; M ) is calculated and thresholded
+to classify whether x is a member or non-member
+of the training dataset D.
+Proposed Method The key idea behind our pro-
+posed method is measuring the behavior of M
+when conditioning the target data point with a
+non-member context (prefix). The R E C ALL score,
+which is the ratio of the conditional LL to the un-
+conditional LL, is used to quantify this change. To
+begin, we select a prefix P , which is a sequence of       Figure 2: Distribution of R E C ALL scores for members
+                                                           and non-members. Values close to 1 indicate changes
+non-member data points pi concatenated together:
+                                                           are minimal. Overall, members tend to have higher
+                                                           R E C ALL scores compared to non-members. More visu-
+              P = p1 ⊕ p2 ⊕ ... ⊕ pn .              (1)    alizations can be found in Appendix F.
+The non-member data points are known to be non-            rely on access to the pretraining data distribution
+members of the model M . Non-member data can               or a reference model, which are assumptions made
+typically be obtained for LLMs based on knowl-             by previous membership inference attacks (Carlini
+edge cutoff time, or by using user-generated or            et al., 2022a; Watson et al., 2021).
+machine-generated synthetic data (Shi et al., 2024;
+                                                           Prefix Selection The number of non-member
+Cheng et al., 2024; Duarte et al., 2024), and we
+                                                           data points n used in P (referred to as “shots”)
+discuss the process of selecting prefixes in detail in
+                                                           is the only hyperparameter in our method. The op-
+§5. For a given dataset D, the prefix P is fixed. For
+                                                           timal number of n may vary for different models
+each target data point x, we calculate two LLs from
+                                                           since models have varying context window lengths
+M : (1) the unconditional LL of x itself, LL(x),
+                                                           (Jin et al., 2024). Additionally, varying lengths of
+and (2) the LL of x conditioned on the prefix P , de-
+                                                           the target data points in D can also affect the n be-
+noted as LL(x|P ).2 The R E C ALL score for target
+                                                           ing used (§5.2). Generally, longer data points lead
+data point x is then calculated as:
+                                                           to better MIA performance, as they contain more
+                               LL(x|P )                    information that can be memorized by the target
+             R E C ALL(x) =             .           (2)    model (Shi et al., 2024). We will demonstrate in
+                                LL(x)
+                                                           §5.1 that it is possible to use a random or synthetic
+By providing P to the model, we introduce addi-            prefix generated by LLMs to achieve high perfor-
+tional unseen context and new knowledge without            mance. In §5.2, we will show that only one shot is
+explicitly fine-tuning or updating the model param-        needed for R E C ALL to outperform baselines.
+eters (Liu et al., 2023; Brown et al., 2020). For
+member data points, denoted as xm , which have             4     Experiments and Results
+already been learned and memorized by the model,
+                                                           In this section we conduct comprehensive experi-
+the introduction of unseen text may perturb the
+                                                           ments to demonstrate the effectiveness of R E C ALL.
+model’s existing confidence to a larger scale com-
+pared to non-member data points, denoted as xnm .          4.1    Experimental Setup
+Consequently, as illustrated in Figure 2,3 we expect
+                                                           Benchmarks We focus on WikiMIA (Shi et al.,
+member data points to have higher R E C ALL scores
+                                                           2024) and MIMIR (Duan et al., 2024) bench-
+than non-member data points:
+                                                           marks. WikiMIA consists of text from Wikipedia,
+   E [R E C ALL(xm )] > E [R E C ALL(xnm )] .       (3)    with member and non-member samples determined
+                                                           based on model’s knowledge cutoff time. The
+We provide a detailed discussion on the relationship       dataset is grouped into splits based on sentence
+between LL and R E C ALL scores in Appendix B.2.           length (32, 64, 128) to enable fine-grained eval-
+As an inference-time algorithm, R E C ALL does not         uation. MIMIR is derived from the Pile dataset
+   2                                                       (Gao et al., 2020) and covers various domains. To
+     Note that LLs are negative values. More information
+about LL can be found in Appendix B.1.                     create a challenging setting for membership infer-
+   3
+     Plot result is from the same setting as Figure 1.     ence, MIMIR employs n-gram filtering to select
+member and non-member samples from the same             comparison. More implementation details can be
+dataset, maximizing their similarity (Duan et al.,      found in the Appendix E.
+2024). While this deviates from the standard MIA
+setting, we report results from both 13-gram and        4.2   Main Results
+7-gram MIMIR versions for a rigorous evaluation.
+                                                        WikiMIA Results Table 1 shows that R E -
+Baselines We compare R E C ALL against 6 state-         C ALL achieves state-of-the-art performance on the
+of-the-art baselines: Loss (Yeom et al., 2018) sim-     WikiMIA benchmark. Our method consistently
+plely uses input loss as the membership score; Ref-     outperforms all existing baseline methods in all set-
+erence (Carlini et al., 2022a) calibrates input loss    tings by a large margin. On average, R E C ALL sur-
+using a reference model; Zlib (Carlini et al., 2021)    passes the runner-up Min-K%++ by 14.8%, 15.4%,
+compresses input loss using Zlib entropy; Neigh-        14.8% in terms of AUC scores for input lengths of
+bor (Mattern et al., 2023) compares input loss to       32, 64, 128, respectively. Moreover, R E C ALL’s
+the average loss of similar tokens; Min-K% (Shi         superior performance is consistent across differ-
+et al., 2024) averages top-k% minimum token prob-       ent model architectures. The improvement is par-
+abilities from the input; and Min-K%++ (Zhang           ticularly significant for shorter inputs and smaller
+et al., 2024) extends Min-K% with normalization         models, which are known to be more challenging
+factors. More details can be found in Appendix C.       for MIAs (Shi et al., 2024), which demonstrates
+                                                        the effectiveness of R E C ALL in capturing mem-
+Models For WikiMIA, we experiment with a di-            bership signals even in a challenging setting. We
+verse set of transformer-based LLMs, including the      also report the TPR@1%FPR results in Appendix I,
+Pythia 6.9B (Biderman et al., 2023), GPT-NeoX           which again shows the significant improvements
+20B (Black et al., 2022), LLaMA 30B (Touvron            and highlights the effectiveness of our approach in
+et al., 2023), and OPT 66B (Zhang et al., 2022).        detecting pretraining data with high precision.
+We also include the Mamba model which uses a
+state space-based architecture (Gu and Dao, 2023).
+                                                        MIMIR Results On the more challenging
+For MIMIR, we focus on the Pythia model family
+                                                        MIMIR benchmark, R E C ALL achieves competitive
+(160M, 1.4B, 2.8B, 6.9B, 12B parameters), consis-
+                                                        performance compared to state-of-the-art methods,
+tent with (Duan et al., 2024; Zhang et al., 2024).
+                                                        as shown in Table 2 (13-gram). It is important to
+Following Shi et al. (2024) and Duan et al. (2024),
+                                                        note that MIMIR presents a much more challeng-
+we use the smallest model version and the best
+                                                        ing scenario as it deviates from the standard mem-
+performing reference model for Reference method.
+                                                        bership inference setting by minimizing the distri-
+Metrics Following the standard evaluation proce-        bution shift between members and non-members
+dure for MIAs (Shi et al., 2024; Duan et al., 2024;     (Maini et al., 2024; Duan et al., 2024). The AUC
+Zhang et al., 2024; Mattern et al., 2023), we use       scores for the 13-gram setting for all MIAs are
+the area under the ROC curve (AUC) as our main          close to random guessing, indicating the difficulty
+evaluation metric, along with the true positive rate    for MIAs when members and non-members are
+at a one percent false positive rate (TPR@1%FPR)        very similar (Duan et al., 2024). Despite this,
+(Carlini et al., 2022a). More details about the eval-   R E C ALL on average outperforms all baselines on
+uation metrics can be found in Appendix D.              160M and 1.4B models. For other models, the Ref-
+                                                        erence method dominates, but it is important to
+Implementation Details As all benchmarks do             note that exhaustively searching for the best refer-
+not provide validation set, and also following          ence model among different candidate models is
+Zhang et al. (2024), we sweep over 1 to 12 for          not only computationally expensive but also may
+the number of shots and report the best result. We      not be feasible in practice (Duan et al., 2024). In
+randomly select 12 data points as prefix candidates     contrast, R E C ALL does not rely on any reference
+from the test set and exclude them from evaluation.     models, yet still provides competitive performance.
+We will show in §5.1 that R E C ALL is robust to ran-   The 7-gram results in Appendix G show better per-
+dom selection. In §5.2, we will demonstrate that        formance than the 13-gram setting, with R E C ALL
+R E C ALL significantly outperforms all baselines       achieving the highest AUC on 1.4B, 2.8B, 6.9B,
+even with just one shot. We also compare the best       and 12B models. We also report the TPR@1%FPR
+possible performance of other methods for a fair        results for both settings in Appendix J.
+      Len.    Method          Mamba-1.4B          Pythia-6.9B          LLaMA-13B            NeoX-20B          LLaMA-30B         OPT-66B         Average
+              Loss                   60.7               63.6               67.6                68.7                69.5              65.4           65.9
+              Ref                    60.9               63.7               67.7                68.9                70.0              65.8           66.2
+              Zlib                   61.6               64.1               67.8                68.9                69.9              65.5           66.3
+      32      Neighbor               64.1               65.8               65.8                70.2                67.6              68.2           66.9
+              Min-K%                 63.2               66.3               68.0                71.8                70.1              67.4           67.8
+              Min-K%++               66.8               70.3               84.8                75.1                84.3              70.3           75.3
+              R E C ALL              90.2               91.6               92.2                90.5                90.7              85.1           90.1
+              Loss                   59.2               61.7               64.4                67.4                66.7              63.1           63.8
+              Ref                    59.5               61.8               64.9                67.7                67.6              63.6           64.2
+              Zlib                   61.4               63.3               65.9                68.7                68.0              64.6           65.3
+      64      Neighbor               60.6               63.2               64.1                67.1                67.1              64.1           64.4
+              Min-K%                 63.2               65.0               66.9                73.5                69.1              67.9           67.6
+              Min-K%++               67.2               71.7               85.6                76.0                84.8              70.2           75.9
+              R E C ALL              91.4               93.0               95.2                93.2                94.9              79.9           91.3
+              Loss                   63.1               65.0               69.1                70.6                72.0              65.3           67.5
+              Ref                    63.0               65.1               69.3                70.8                73.0              65.5           67.8
+              Zlib                   65.5               67.8               71.5                72.6                73.6              67.6           69.8
+      128     Neighbor               64.8               67.5               68.3                71.6                72.2              67.7           68.7
+              Min-K%                 66.8               69.5               71.5                75.0                74.2              70.2           71.2
+              Min-K%++               66.8               69.7               83.9                75.8                82.9              72.1           75.2
+              R E C ALL              91.2               92.6               92.5                91.7                91.2              81.0           90.0
+
+Table 1: AUC results on WikiMIA benchmark. Bolded number shows the best result within each column for the
+given length. R E C ALL achieves significant improvements over all existing baseline methods in all settings.
+
+                       Wikipedia                               Github                                 Pile CC                         PubMed Central
+Method       160M 1.4B     2.8B    6.9B   12B 160M 1.4B         2.8B    6.9B   12B 160M 1.4B           2.8B     6.9B   12B 160M 1.4B         2.8B     6.9B   12B
+Loss         50.2   51.3   51.8    52.8   53.5   65.6   69.5    71.0    72.8   73.8   49.6     50.0    50.1     50.7   51.1   50.0   50.0    50.2     50.9   51.5
+Ref          50.9   54.7   57.6    60.3   61.7   63.9   67.0    65.3    64.3   63.1   48.8     52.3    53.7     54.6   56.4   51.0   52.1    53.6     55.9   58.1
+Zlib         51.1   52.1   52.5    53.6   54.4   67.4   70.8    72.1    73.8   74.7   49.5     50.0    50.2     50.7   51.1   50.1   50.2    50.3     50.9   51.4
+Neighbor     50.7   51.7   52.2    53.2    /     65.3   69.4    70.5    72.1    /     49.6     50.0    50.1     50.8    /     47.9   49.1    49.7     50.1    /
+Min-K%       49.8   51.3   51.5    53.2   54.3   64.4   68.8    70.3    72.2   73.4   50.2     51.0    50.5     51.3   51.4   50.4   49.9    50.5     51.0   52.4
+Min-K%++     49.5   53.4   54.9    57.6   61.2   64.7   69.3    70.2    72.9   73.4   50.0     50.8    50.6     52.6   53.4   50.4   50.7    52.1     54.2   54.8
+R E C ALL    51.3   52.3   52.3    54.0   54.6   64.9   70.0    71.7    74.2   74.8   50.9     51.7    50.2     51.6   51.1   49.9   52.3    50.0     51.4   53.4
+                           ArXiv                        DM Mathematics                           HackerNews                                 Average
+Method       160M 1.4B     2.8B    6.9B   12B 160M 1.4B         2.8B    6.9B   12B 160M 1.4B           2.8B     6.9B   12B 160M 1.4B         2.8B     6.9B   12B
+Loss         51.0   51.5   51.9    52.9   53.4   48.9   48.5    48.4    48.5   48.5   49.4     50.4    51.2     51.9   52.6   52.1   53.0    53.5     54.4   54.9
+Zlib         50.0   50.8   51.2    52.2   52.6   48.2   48.2    48.1    48.1   48.1   49.7     50.2    50.7     51.1   51.6   52.3   53.2    53.6     54.3   54.8
+Ref          50.0   51.6   53.5    56.0   57.8   51.4   51.4    50.7    51.6   51.3   49.5     52.3    55.6     57.9   60.9   52.2   54.5    55.7     57.2   58.5
+Neighbor     50.7   51.4   51.8    52.2    /     49.0   47.0    46.8    46.6    /     50.9     51.7    51.5     51.9    /     52.0   52.9    53.2     53.8    /
+Min-K%       51.7   52.0   53.1    53.7   55.2   50.3   50.0    50.0    49.7   50.2   50.9     51.9    52.4     53.6   54.7   52.5   53.6    54.0     55.0   55.9
+Min-K%++     50.7   51.0   53.9    55.5   58.4   50.9   49.8    51.8    52.0   52.1   50.7     51.2    52.9     54.6   56.8   52.4   53.7    55.3     57.0   58.5
+R E C ALL    52.5   52.8   52.7    54.6   55.9   50.9   52.8    51.3    50.8   50.8   52.4     53.0    53.2     54.2   54.7   53.3   54.6    54.5     55.8   56.5
+
+
+Table 2: AUC results on MIMIR benchmark. R E C ALL achieves competitive performance compared to state-of-the-
+art methods, especially on smaller models (160M and 1.4B), while not relying on any reference models. The best
+results for each dataset and model size are highlighted in bold.
+
+5     Analysis                                                                    Document Frequency (TF-IDF) similarity scores
+                                                                                  (Sparck Jones, 1972): (i) most similar (highest
+In this section, we conduct a series of investigations
+                                                                                  scores), (ii) moderately similar (middle scores),
+to better understand R E C ALL. Following Zhang
+                                                                                  (iii) least similar (lowest scores), and (iv) random
+et al. (2024), we focus on the WikiMIA using the
+                                                                                  selection (random scores). In this setting, each
+Pythia-12B model for our analysis.
+                                                                                  target data point has its own prefix.
+5.1      Prefix Selection                                                            We compare the results with the original fixed-
+Dynamic Prefix with Different Similarities We                                     prefix setting4 in Table 3. The results indicate that
+investigate if using prefixes that are similar to the                             using the most similar prefix yields the best per-
+target data points results in better performance. For                             formance, followed by random selection, moderate
+each data point, we search the entire dataset and cre-                            similarity, and least similar prefix. This suggests
+                                                                                      4
+ate prefixes based on the Term Frequency-Inverse                                          Using one fixed prefix for all target data points.
+      Similarity   Len. 32    Len. 64   Len. 128                  Prefix Domain    Len. 32    Len. 64   Len. 128
+      Random         69.0      71.9       74.2                    GitHub             72.4      69.5       68.8
+      Least          57.2      69.6       61.0                    arXiv              73.4      72.0       72.0
+      Moderate       66.9      71.6       70.2                    Wikipedia          83.3      87.1       86.5
+      Most           74.1      76.1       77.6                    Original           88.2      88.8       87.8
+      Fixed          88.2      88.8       87.8                    Min-K%             67.7      67.9       70.2
+                                                                  Min-K%++           72.4      72.5       72.7
+Table 3: R E C ALL perform better with fixed prefix than
+dynamic prefix. Similar prefix results best performance,   Table 5: AUC scores of R E C ALL when using prefixes
+followed by random selection.                              from different domains obtained based on model knowl-
+                                                           edge cutoff time. Similar domains are preferred.
+that the most effective prefixes are those similar to
+the target data point, with random selection pro-          (least similar) and present the results in Table 5. We
+viding the next best performance. We also observe          observe that when the prefix domain is significantly
+that dynamic prefix selection does not perform as          different from the target data (GitHub), R E C ALL’s
+well as using a fixed prefix, likely because each          effectiveness is reduced. However, the Wikipedia
+data point creates a different threshold when using        prefix achieves performance close to the original
+a dynamic prefix, leading to inconsistencies.              dataset, indicating that R E C ALL is not overfitting
+Randomly Selected Prefix We investigate the                to the peculiarity of the original dataset. This sug-
+impact of randomly selecting non-member prefixes           gests that selecting prefixes from the same or simi-
+on the performance of R E C ALL. We randomly se-           lar domains as the target data is preferred. While
+lect 12 non-member data points from the test set,          the original WikiMIA dataset and the Wikipedia
+divide them into 3 sets, and compare the results           prefix setting both use knowledge cutoff, there
+with the best-performing baselines, Min-K% and             might be differences in the specific passages se-
+Min-K++%, in Table 4. The results show that the            lected. However, the strong performance of the
+performance of R E C ALL across all groups is simi-        Wikipedia prefix demonstrates that R E C ALL can
+lar, with an average difference of 2.5% between the        generalize well to other non-member data points
+top and lowest prefix, while significantly outper-         from the same domain, providing further evidence
+forming the baselines. This finding suggests that          of its effectiveness.
+R E C ALL is robust to random prefix selection, as
+long as the prefixes are indeed non-members. In            GPT-4o Generated Prefix The assumption of ac-
+§5.3, we will show that while their similarity to the      cessing a small number of non-member data points
+target data point is preferred, the effectiveness of       as prefix might not always be feasible as the mem-
+R E C ALL appears to be largely dependent on the           bership of the selected prefix itself could be mixed
+non-member status of the prefixes.                         or unknown in a real-world scenario. Therefore,
+                                                           we explore the possibility using synthetic prefixes
+      Prefix Set    Len. 32   Len. 64   Len. 128           generated by LLMs from a mix of members and
+      Set 1          88.2       88.8       87.8            non-members. We randomly select 6 members and
+      Set 2          90.4       91.4       90.5            nonmembers and generate a synthetic prefix using
+      Set 3          87.7       89.4       89.2            GPT-4o (OpenAI, 2024) based on them.5 We com-
+      Min-K%         67.7       67.9       70.2            pare results to the baselines and using ground-truth
+      Min-K%++       72.4       72.5       72.7            non-member data point as prefix in Table 6. We ob-
+                                                           serve that even with the synthetic prefix from a mix
+Table 4: AUC scores of R E C ALL with randomly se-
+lected prefixes divided into three sets, compared to the   of members and nonmembers, the performance is
+best-performing baselines, Min-K% and Min-K++.             still close to the original setting, where the ground-
+                                                           truth non-members are used. This highlights the
+Varying Domain Prefix We explore the impact                potential of using synthetic prefixes in situations
+of prefix similarity on R E C ALL’s at a domain-level.     where access to ground-truth non-member data is
+The WikiMIA dataset was constructed using knowl-           limited or unavailable, expanding the applicability
+edge cutoff, with Wikipedia articles published after       of R E C ALL to a practical scenario. More synthetic
+the model’s training data used as non-members.             prefixes results can be found in Appendix K.
+We randomly select prefixes from Wikipedia (most
+                                                              5
+similar), arXiv (moderately similar), and GitHub                  Prompt can be found in Appendix H.
+Figure 3: R E C ALL performance up to 28 shots. Red dash line represents the LLMs’ context window limit. R E C ALL
+consistently outperforms baselines across all settings, even with just one shot.
+
+
+      Prefix Setting   Len. 32   Len. 64   Len. 128              Prefix Setting   Len. 32   Len. 64   Len. 128
+      Synthetic         85.4      90.3       86.4                28-shot           92.1      93.4       90.7
+      Original          88.2      88.8       87.8                Ensemble          93.0      94.9       91.5
+      Min-K%            67.7      67.9       70.2                Min-K%            67.7      67.9       70.2
+      Min-K%++          72.4      72.5       72.7                Min-K%++          72.4      72.5       72.7
+
+Table 6: AUC scores of R E C ALL with synthetic prefixes   Table 7: Performance comparison of the ensemble
+generated from GPT-4o, compared to the prefix from         method, 28-shot method, and baselines. By taking the
+original dataset and two best-performing baselines.        average of the R E C ALL scores using ensemble method,
+                                                           we can make a more robust prediction.
+
+5.2    Shots vs. Performance
+                                                           for the performance of R E C ALL. To circumvent
+Impact of Number of Shots and Context Win-                 this problem, we propose an ensemble method. In-
+dow Size In general, increasing the context                stead of using all 28 shots at once, we divide them
+length improves the performance of MIAs, as the            into smaller sets as prefixes and calculate the R E -
+model can leverage more information to distinguish         C ALL score for the target data point under each set.
+between members and non-members (Shi et al.,               We then take the mean of these independent R E -
+2024). However, LLMs have fixed context window             C ALL scores to obtain the final score. The intuition
+sizes that limit the amount of text they can process       behind this approach is that each group provides
+in a single input. Exceeding the context length re-        an independent R E C ALL score on the membership
+sultsing in remaining at the maximum number of             status of the input text, and by averaging them, we
+shots which can fit in the context, so the perfor-         can reduce the variance and obtain a more robust
+mance should plateau after a while. We evaluate            estimate. We compare the performance of the en-
+the performance of R E C ALL with up to 28 shots, in-      semble method with the 28-shot method and the
+tentionally exceeding the context window to probe          baselines in Table 7. The results show that the en-
+the limitation. We compare the results to baselines        semble method provides further improvement over
+in Figure 3 and observe that R E C ALL consistently        the 28-shot method for all settings, demonstrating
+outperforms all baselines by a significant margin,         R E C ALL’s utility in leveraging a large number of
+even with just one shot. As the number of shots            shots while respecting the context window limit.
+increases, R E C ALL’s performance improves across
+all settings. As expected, the performance plateau         5.3    Discussions
+when the length of the input exceeds the context
+window limit, which can be observed in the 64 and          Why Non-member Prefixes? While non-
+128 length settings. This is because the longer the        member data can be easily accessed based on
+data length, the fewer shots are needed to exceed          the data characteristics such as knowledge cutoff
+the context window.                                        time, access to member data is much harder to
+                                                           assume, as LLMs training data are usually not
+Further Improvement with Ensemble Method                   disclosed (Shi et al., 2024). We empirically show
+When dealing with a large number of shots, the             that using member prefix is not only an unrealistic
+context window limit of LLMs can be a bottleneck           assumption but also does not yield the desired
+                                                          Figure 5: Token-level LL changes for members and
+                                                          non-members with different membership prefix. The
+Figure 4: Conditioning both member and non-member         largest changes occur in the beginning tokens. Member
+with member prefix do not yield significant changes in    and non-member data are most different when prefixed
+LL compare to non-member prefix. More visualization       with non-member context.
+can be found in Appendix L.
+                                                          more confident about predicting the next token as
+effect for detecting pretraining data. Following the      it approaches the end of the sequence, given that
+same setting as Figure 1, we prefix the target data       it has already seen the preceding context. (ii) The
+points with both member and non-members and               changes are most dominant when a data point is
+present the results in Figure 4. We observe that          prefixed with context from the same membership
+conditioning both member and non-member data              (e.g., M|M and NM|NM). This means the model
+with a member prefix does not result in significant       has a stronger preference to continue with text from
+changes in LL compared to their unconditional LL.         the same membership status. (iii) The differences
+This suggests that using member data as context           between NM|NM and M|NM are more pronounced
+does not induce the distribution shift necessary          than those between M|M and NM|M, which fur-
+for R E C ALL to effectively distinguish between          ther supports our finding that using non-member
+members and non-members. We hypothesize that              prefixes is effective for R E C ALL to distinguish be-
+prefixing with additional member data does not            tween members and non-members, while member
+significantly alter the model’s predictive distribu-      prefixes do not yield desired performance.
+tion because the model has already memorized
+the member data during pretraining and is familiar
+with its distribution. In contrast, prefixing with        MIA Evaluation Recently, the MIA community
+non-member data introduces a distribution shift           has been discussing the effectiveness of MIA for
+that has a more pronounced effect on the LL               LLMs (Duan et al., 2024; Das et al., 2024). Two
+of member data compared to non-member data.               key challenges complicate MIA evaluations: the
+These findings demonstrate that R E C ALL is indeed       vast scale of pretraining data and the temporal dis-
+leveraging the membership information of the              tribution shift between members and non-members.
+prefix data to make prediction.                           While Das et al. (2024) demonstrates that simple
+                                                          text classifiers trained directly on the dataset can
+Token-level Analysis Previous works, such as              achieve superior performance, the equivalence of
+Shi et al. (2024) and Zhang et al. (2024), have           using model internal logits versus direct text clas-
+leveraged token-level signals for MIAs. Similarly,        sification remains an open question. We conduct
+we investigate R E C ALL at the token level with both     additional experiments on two applicable datasets
+member and non-member prefixes. We examine                used by Das et al. (2024): Temporal Wiki and Tem-
+where the changes are occurring and how member            poral arXiv (Duan et al., 2024). We present results
+and non-member prefixes impact token-level LL.            in Table 8 and observe that R E C ALL surpasses text
+For each token position, we take the average from         classifier performance on both Temporal Wiki and
+all data points and present the LL change in Fig-         Temporal arXiv datasets, while the text classifier
+ure 5 and more in Appendix M. We observe three            shows superior results on WikiMIA. These results
+interesting points: (i) Most changes occur in the         indicate that R E C ALL effectively discriminates be-
+beginning tokens for all settings, especially the first   tween members and non-members, particularly for
+few tokens. This is because the model becomes             datasets structured based on temporal distributions.
+      Dataset          Text Classifier   R E C ALL        the future, we plan to explore methods that require
+      WikiMIA               98.7           95.2           less access to the target model.
+      Temporal Wiki         79.9           81.2
+      Temporal arXiv        75.6           76.0           8   Ethics Statement
+Table 8: AUC score comparison between text classifier     Our primary intention is to advance the detection of
+and R E C ALL for three different datasets.               sensitive content in LLMs, which is important for
+                                                          protecting privacy and intellectual property. How-
+6   Conclusion                                            ever, we acknowledge that, like any tool, it could
+We introduced R E C ALL, a novel MIA for detect-          be misused to extract private information. Pro-
+ing pretraining data in LLMs by leveraging their          tecting user privacy should be a key priority as
+conditional language modeling capabilities. R E -         LLMs become increasingly ubiquitous and pow-
+C ALL captures the relative change in conditional         erful. We call for further research on privacy-
+log-likelihoods when prefixing target data points         preserving LLM development and strategies to pre-
+with non-member context. Through extensive ex-            vent misuse.
+periments on WikiMIA and MIMIR benchmarks,
+we demonstrated R E C ALL’s state-of-the-art perfor-      9   Acknowledgment
+mance, outperforming existing MIA methods on
+                                                          We thank Jack Parker and Jabari Kwesi for helpful
+WikiMIA. We showed that random and synthetic
+                                                          discussions. We also thank anonymous review-
+prefixes achieve comparable performance to real
+                                                          ers for their insightful feedback. This work was
+non-member data, enhancing R E C ALL’s practical-
+                                                          supported in part by the NSF Graduate Research
+ity. R E C ALL consistently outperforms baselines
+                                                          Fellowship and NSF grants No. 2112562, 1937787,
+and can be further improved using an ensemble
+                                                          2131859, 2125977, 2331065.
+method. Our in-depth analysis revealed valuable
+insights into LLMs’ behavior under different mem-
+bership contexts. As future work, we plan to in-          References
+vestigate the theoretical aspects of R E C ALL and
+explore more efficient MIA methods.                       Ekin Akyürek, Dale Schuurmans, Jacob Andreas,
+                                                            Tengyu Ma, and Denny Zhou. 2022. What learning
+7   Limitations                                             algorithm is in-context learning? investigations with
+                                                            linear models. arXiv preprint arXiv:2211.15661.
+While R E C ALL demonstrates strong empirical per-
+                                                          Cem Anil, Esin Durmus, Mrinank Sharma, Joe Benton,
+formance, the theoretical analysis of why it works
+                                                            Sandipan Kundu, Joshua Batson, Nina Rimsky, Meg
+is limited in this work. We provide some hypothe-           Tong, Jesse Mu, Daniel Ford, et al. 2024. Many-shot
+ses based on the connections between ICL and                jailbreaking. Anthropic, April.
+conditional language modeling in LLM, but a more
+rigorous and in-depth theoretical investigation is        Stella Biderman, Hailey Schoelkopf, Quentin Gregory
+                                                            Anthony, Herbie Bradley, Kyle O’Brien, Eric Hal-
+needed to fully understand the underlying mech-              lahan, Mohammad Aflah Khan, Shivanshu Purohit,
+anisms. This is particularly important given that            USVSN Sai Prashanth, Edward Raff, et al. 2023.
+ICL itself is an understudied area, and the research         Pythia: A suite for analyzing large language mod-
+community is still actively exploring how and why            els across training and scaling. In International
+                                                            Conference on Machine Learning, pages 2397–2430.
+it works (Wei et al., 2023a; Liu et al., 2023; Anil          PMLR.
+et al., 2024). A better understanding of ICL could
+provide valuable insights into our method. We be-         Sid Black, Stella Biderman, Eric Hallahan, Quentin
+lieve that further theoretical analysis of R E C ALL        Anthony, Leo Gao, Laurence Golding, Horace He,
+and its interplay with ICL is an important direction        Connor Leahy, Kyle McDonell, Jason Phang, et al.
+                                                            2022. Gpt-neox-20b: An open-source autoregressive
+for future research. Our method assumes gray-box            language model. arXiv preprint arXiv:2204.06745.
+access to the target model, which requires access
+to its output probabilities. However, it is important     Tom Brown, Benjamin Mann, Nick Ryder, Melanie
+to note that this limitation is shared by existing pre-     Subbiah, Jared D Kaplan, Prafulla Dhariwal, Arvind
+                                                            Neelakantan, Pranav Shyam, Girish Sastry, Amanda
+training data detection methods (Shi et al., 2024;          Askell, et al. 2020. Language models are few-shot
+Zhang et al., 2024; Duan et al., 2024; Mattern et al.,      learners. Advances in neural information processing
+2023; Carlini et al., 2022a; Yeom et al., 2018). In         systems, 33:1877–1901.
+Nicholas Carlini, Steve Chien, Milad Nasr, Shuang          Michael M. Grynbaum and Ryan Mac. 2023. The Times
+  Song, Andreas Terzis, and Florian Tramer. 2022a.           Sues Openai and Microsoft Over A.I. Use of Copy-
+  Membership inference attacks from first principles.        righted Work. The New York Times.
+  In 2022 IEEE Symposium on Security and Privacy
+  (SP), pages 1897–1914. IEEE.                             Albert Gu and Tri Dao. 2023. Mamba: Linear-time
+                                                             sequence modeling with selective state spaces. arXiv
+Nicholas Carlini, Daphne Ippolito, Matthew Jagielski,        preprint arXiv:2312.00752.
+  Katherine Lee, Florian Tramer, and Chiyuan Zhang.
+  2022b. Quantifying memorization across neural lan-       Hongye Jin, Xiaotian Han, Jingfeng Yang, Zhimeng
+  guage models. arXiv preprint arXiv:2202.07646.             Jiang, Zirui Liu, Chia-Yuan Chang, Huiyuan Chen,
+                                                             and Xia Hu. 2024. Llm maybe longlm: Self-extend
+Nicholas Carlini, Florian Tramer, Eric Wallace,              llm context window without tuning. arXiv preprint
+  Matthew Jagielski, Ariel Herbert-Voss, Katherine           arXiv:2401.01325.
+  Lee, Adam Roberts, Tom Brown, Dawn Song, Ulfar
+  Erlingsson, et al. 2021. Extracting training data from   Nikhil Kandpal, Matthew Jagielski, Florian Tramèr,
+  large language models. In 30th USENIX Security             and Nicholas Carlini. 2023. Backdoor attacks for
+  Symposium (USENIX Security 21), pages 2633–2650.           in-context learning with language models. arXiv
+                                                             preprint arXiv:2307.14692.
+Jeffrey Cheng, Marc Marone, Orion Weller, Dawn
+   Lawrie, Daniel Khashabi, and Benjamin Van Durme.        Nikhil Kandpal, Eric Wallace, and Colin Raffel. 2022.
+   2024. Dated data: Tracing knowledge cutoffs in large      Deduplicating training data mitigates privacy risks
+   language models. arXiv preprint arXiv:2403.12958.         in language models. In International Conference on
+                                                             Machine Learning, pages 10697–10707. PMLR.
+Debeshee Das, Jie Zhang, and Florian Tramèr. 2024.
+  Blind baselines beat membership inference at-            Klas Leino and Matt Fredrikson. 2020. Stolen mem-
+  tacks for foundation models.     arXiv preprint            ories: Leveraging model memorization for cali-
+  arXiv:2406.16201.                                          brated {White-Box} membership inference. In 29th
+                                                             USENIX security symposium (USENIX Security 20),
+Chunyuan Deng, Yilun Zhao, Xiangru Tang, Mark Ger-           pages 1605–1622.
+  stein, and Arman Cohan. 2024. Investigating data
+  contamination in modern benchmarks for large lan-        Pengfei Liu, Weizhe Yuan, Jinlan Fu, Zhengbao Jiang,
+  guage models. In Proceedings of the 2024 Confer-           Hiroaki Hayashi, and Graham Neubig. 2023. Pre-
+  ence of the North American Chapter of the Associ-          train, prompt, and predict: A systematic survey of
+  ation for Computational Linguistics: Human Lan-            prompting methods in natural language processing.
+  guage Technologies (Volume 1: Long Papers), pages          ACM Computing Surveys, 55(9):1–35.
+  8698–8711, Mexico City, Mexico. Association for
+  Computational Linguistics.                               Pratyush Maini, Hengrui Jia, Nicolas Papernot, and
+                                                             Adam Dziedzic. 2024. Llm dataset inference:
+Michael Duan, Anshuman Suri, Niloofar Mireshghallah,         Did you train on my dataset?      arXiv preprint
+  Sewon Min, Weijia Shi, Luke Zettlemoyer, Yulia             arXiv:2406.06443.
+  Tsvetkov, Yejin Choi, David Evans, and Hannaneh
+  Hajishirzi. 2024. Do membership inference attacks        Justus Mattern, Fatemehsadat Mireshghallah, Zhijing
+  work on large language models? arXiv preprint              Jin, Bernhard Schoelkopf, Mrinmaya Sachan, and
+  arXiv:2402.07841.                                          Taylor Berg-Kirkpatrick. 2023. Membership infer-
+                                                             ence attacks against language models via neighbour-
+André V Duarte, Xuandong Zhao, Arlindo L Oliveira,           hood comparison. In Findings of the Association for
+  and Lei Li. 2024. De-cop: Detecting copyrighted            Computational Linguistics: ACL 2023, pages 11330–
+  content in language models training data. arXiv            11343, Toronto, Canada. Association for Computa-
+  preprint arXiv:2402.09910.                                 tional Linguistics.
+
+Wenjie Fu, Huandong Wang, Chen Gao, Guanghua Liu,          Matthieu Meeus, Shubham Jain, Marek Rei, and Yves-
+ Yong Li, and Tao Jiang. 2023. Practical membership         Alexandre de Montjoye. 2023. Did the neurons
+  inference attacks against fine-tuned large language       read your book? document-level membership in-
+  models via self-prompt calibration. arXiv preprint        ference for large language models. arXiv preprint
+  arXiv:2311.06062.                                         arXiv:2310.15007.
+
+Leo Gao, Stella Biderman, Sid Black, Laurence Gold-        Fatemehsadat Mireshghallah, Kartik Goyal, Archit
+  ing, Travis Hoppe, Charles Foster, Jason Phang, Ho-        Uniyal, Taylor Berg-Kirkpatrick, and Reza Shokri.
+  race He, Anish Thite, Noa Nabeshima, et al. 2020.          2022. Quantifying privacy risks of masked language
+  The pile: An 800gb dataset of diverse text for lan-        models using membership inference attacks. arXiv
+  guage modeling. arXiv preprint arXiv:2101.00027.           preprint arXiv:2203.03929.
+
+Ian Goodfellow, Yoshua Bengio, and Aaron Courville.        Milad Nasr, Nicholas Carlini, Jonathan Hayase,
+   2016. Deep learning. MIT press.                           Matthew Jagielski, A Feder Cooper, Daphne Ippolito,
+  Christopher A Choquette-Choo, Eric Wallace, Flo-         Jerry Wei, Jason Wei, Yi Tay, Dustin Tran, Albert
+  rian Tramèr, and Katherine Lee. 2023. Scalable ex-          Webson, Yifeng Lu, Xinyun Chen, Hanxiao Liu,
+  traction of training data from (production) language        Da Huang, Denny Zhou, et al. 2023a. Larger
+  models. arXiv preprint arXiv:2311.17035.                    language models do in-context learning differently.
+                                                              arXiv preprint arXiv:2303.03846.
+OpenAI. 2024. GPT-4o.          https://openai.com/
+  index/hello-gpt-4o/.                                     Zeming Wei, Yifei Wang, and Yisen Wang. 2023b.
+                                                             Jailbreak and guard aligned language models with
+Yonatan Oren, Nicole Meister, Niladri Chatterji, Faisal      only few in-context demonstrations. arXiv preprint
+  Ladhak, and Tatsunori B Hashimoto. 2023. Proving           arXiv:2310.06387.
+  test set contamination in black box language models.
+  arXiv preprint arXiv:2310.17623.                         Samuel Yeom, Irene Giacomelli, Matt Fredrikson, and
+                                                             Somesh Jha. 2018. Privacy risk in machine learning:
+Colin Raffel, Noam Shazeer, Adam Roberts, Katherine          Analyzing the connection to overfitting. In 2018
+  Lee, Sharan Narang, Michael Matena, Yanqi Zhou,            IEEE 31st computer security foundations symposium
+  Wei Li, and Peter J Liu. 2020. Exploring the lim-          (CSF), pages 268–282. IEEE.
+  its of transfer learning with a unified text-to-text
+  transformer. Journal of machine learning research,       Jingyang Zhang, Jingwei Sun, Eric Yeats, Yang Ouyang,
+  21(140):1–67.                                               Martin Kuo, Jianyi Zhang, Hao Yang, and Hai Li.
+                                                              2024. Min-k%++: Improved baseline for detecting
+Weijia Shi, Anirudh Ajith, Mengzhou Xia, Yangsibo             pre-training data from large language models. arXiv
+ Huang, Daogao Liu, Terra Blevins, Danqi Chen, and            preprint arXiv:2404.02936.
+ Luke Zettlemoyer. 2024. Detecting pretraining data
+ from large language models. In The Twelfth Interna-       Susan Zhang, Stephen Roller, Naman Goyal, Mikel
+ tional Conference on Learning Representations.              Artetxe, Moya Chen, Shuohui Chen, Christopher De-
+                                                             wan, Mona Diab, Xian Li, Xi Victoria Lin, et al. 2022.
+Reza Shokri, Marco Stronati, Congzheng Song, and Vi-         Opt: Open pre-trained transformer language models.
+  taly Shmatikov. 2017. Membership inference attacks         arXiv preprint arXiv:2205.01068.
+  against machine learning models. In 2017 IEEE sym-
+  posium on security and privacy (SP), pages 3–18.
+  IEEE.
+
+Karen Sparck Jones. 1972. A statistical interpretation
+  of term specificity and its application in retrieval.
+  Journal of documentation, 28(1):11–21.
+
+Thomas Steinke, Milad Nasr, and Matthew Jagielski.
+  2024. Privacy auditing with one (1) training run.
+  Advances in Neural Information Processing Systems,
+  36.
+
+Xinyu Tang, Richard Shin, Huseyin A Inan, Andre
+  Manoel, Fatemehsadat Mireshghallah, Zinan Lin,
+  Sivakanth Gopi, Janardhan Kulkarni, and Robert
+  Sim. 2023. Privacy-preserving in-context learning
+  with differentially private few-shot generation. arXiv
+  preprint arXiv:2309.11765.
+
+Hugo Touvron, Thibaut Lavril, Gautier Izacard, Xavier
+  Martinet, Marie-Anne Lachaux, Timothée Lacroix,
+  Baptiste Rozière, Naman Goyal, Eric Hambro,
+  Faisal Azhar, et al. 2023. Llama: Open and effi-
+  cient foundation language models. arXiv preprint
+  arXiv:2302.13971.
+
+Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob
+  Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz
+  Kaiser, and Illia Polosukhin. 2017. Attention is all
+  you need. Advances in neural information processing
+  systems, 30.
+
+Lauren Watson, Chuan Guo, Graham Cormode, and
+  Alex Sablayrolles. 2021. On the importance of dif-
+  ficulty calibration in membership inference attacks.
+  arXiv preprint arXiv:2111.08440.
+A     Conditional and Unconditional LL Visualizations
+
+
+
+
+Figure 6: Log-likelihood comparison with 5-shot non-member prefix for Pythia-6.9B model on WIKIMIA dataset.
+Left Two: shows distribution the conditional and unconditional version of both members and non-members. Right
+Two: shows the LL difference between the conditioned and unconditioned version of the data. Member data is
+experiencing much higher distributional shift than non-member data.
+
+
+
+B     Additional Log-Likelihoods and R E C ALL Scores Details
+B.1    Log-Likelihood
+Log-likelihood (LL) can be used to measure of how likely a given text is trained under a specific language
+model. A higher LL indicates that the model is more confident in predicting the text, suggesting that
+the model might have been trained such data. Conversely, a lower LL implies that the model is less
+familiar with the text. LL is closely related to other metrics such as loss and perplexity, where a higher LL
+corresponds to a lower loss and perplexity. While metrics like perplexity or probability can be used for
+membership inference, we use LL in this work since it is more numerically stable and mitigates underflow
+problems (Goodfellow et al., 2016).
+
+B.2    Relationship between LL and R E C ALL Scores
+We show that conditioning member data on non-member prefixes induces a larger decrease in LL compared
+to non-member data, as suggested by Figure 1. We introduce R E C ALL score as our membership score to
+quantify this change. For a member data point xm , the R E C ALL score is typically greater than 1, as the
+conditional LL is generally lower than the unconditional LL:
+
+                                    LL(xm |P )
+                 R E C ALL(xm ) =              > 1, since LL(xm |P ) < LL(xm ) < 0.                      (4)
+                                     LL(xm )
+   Note that LLs are negative values. For a non-member data point xnm , the R E C ALL score can be either
+greater than, equal to, or less than 1. In some cases, prefixing a non-member data point with a non-member
+prefix might increase the model’s confidence, resulting in a R E C ALL score less than 1. However, the
+core idea of R E C ALL, as illustrated in Figure 2 and Appendix L, is that for member data points, the
+R E C ALL score is consistently higher than non-member data points regardless the LL changes (increase or
+decrease) in non-members (Equation (3)). To better illustrate this, consider a member data point xm with
+LL(xm |P ) = −4 and LL(xm ) = −3. The R E C ALL score for xm is calculated as:
+
+                                                  LL(xm |P )   −4
+                               R E C ALL(xm ) =              =    = 1.3                                  (5)
+                                                   LL(xm )     −3
+  Note that LL(xm |P ) < LL(xm ), indicating a decrease in LL when conditioning on the non-member
+prefix P . Now, consider a non-member data point xnm with LL(xnm |P ) = −3.3 and LL(xnm ) = −3.
+The R E C ALL score for xnm is:
+
+                                                 LL(xnm |P )   −3.3
+                             R E C ALL(xnm ) =               =      = 1.1                                (6)
+                                                  LL(xnm )     −3
+   Comparing the member and non-member data points, we observe that LL(xm |P ) < LL(xnm |P ),
+indicating a larger decrease in LL for the member data point when conditioned on the non-member prefix.
+However, the R E C ALL score for the member data point is higher than that of the non-member data point:
+R E C ALL(xm ) > R E C ALL(xnm ).
+
+C     Additional Baseline Details
+Given target data point x, a MIA aims to determine if x was part of the training dataset D used to train a
+model M by computing a membership score S(x; M ). We provide a detailed description of baseline MIA
+methods used in our experiments. For each method, we explain how the membership score is calculated
+and the intuition behind the approach.
+
+C.1    LOSS
+The LOSS baseline (Yeom et al., 2018) uses the model’s computed loss over the target sample as the
+membership score. The intuition behind this approach is that the model will have lower loss values for
+data points it has seen during training (members) compared to unseen data points (non-members).
+
+                                        S(x; M ) = Loss(x; M )                                          (7)
+
+C.2    Reference-based
+The Reference-based baseline (Carlini et al., 2022a) extends the LOSS attack by calibrating the target
+model’s loss with respect to a reference model trained on similar data but not necessarily the same data
+points. This helps to account for the intrinsic complexity of the target sample and reduces false negatives.
+
+                               S(x; M ) = Loss(x; M ) − Loss(x; Mref )                                  (8)
+
+C.3    Zlib Entropy
+The Zlib Entropy baseline (Carlini et al., 2021) normalizes the target model’s loss using the zlib compres-
+sion size of the input sample. The idea is that the loss of member samples will have lower entropy and
+thus a smaller compression size compared to non-members.
+
+                                                       Loss(x; M )
+                                        S(x; M ) =                                                      (9)
+                                                         zlib(x)
+
+C.4    Neighborhood Attack
+The Neighborhood Attack baseline (Mattern et al., 2023) estimates the curvature of the loss function
+around the target sample by comparing its loss to the average loss of its perturbed neighbors. The intuition
+is that member samples will have a lower loss compared to their neighbors, resulting in a larger difference.
+
+                                                                  n
+                                                               1X
+                             S(x; M ) = Loss(x; M ) −             Loss(x̃i ; M )                       (10)
+                                                               n
+                                                                 i=1
+
+C.5    Min-K%
+The Min-K% baseline (Shi et al., 2024) computes the membership score using the average log-likelihood
+of the k% of tokens with the lowest probabilities. This focuses on the least likely tokens, which are
+expected to have higher probabilities for member samples compared to non-members.
+
+                                       1           X
+                      S(x; M ) =                               − log(p(xi | x1 , ..., xi−1 ))          (11)
+                                   |min-k(x)|
+                                                xi ∈min-k(x)
+C.6    Min-K%++
+The Min-K%++ baseline (Zhang et al., 2024) is an extension of the Min-K% that calibrates the next token
+log-likelihood with two factors: the mean (µx<t ) and standard deviation (σx<t ) of the log-likelihood over
+all candidate tokens in the vocabulary.
+
+                                                        log p(xt |x<t ; M ) − µx<t
+                             Stoken (x<t , xt ; M ) =                              ,                    (12)
+                                                                   σx<t
+                                          1               X
+                        S(x; M ) =                                    ftoken (x<t , xt ; M ).           (13)
+                                      |min-k%|
+                                                  (x<t ,xt )∈min-k%
+
+µx<t and σx<t are the mean and standard deviation of the log-likelihoods over the model’s vocabulary
+distribution given the prefix x<t , respectively. The final membership score is obtained by averaging the
+normalized log-likelihoods of the k% of token sequences with the lowest scores (Equation 13).
+
+D     Additional Metrics Details
+D.1    Area Under the ROC Curve (AUC)
+The area under the ROC curve (AUC) is a widely used metric for evaluating the performance of binary
+classification models, including MIAs. The ROC curve plots the true positive rate (TPR) against the false
+positive rate (FPR) at various decision thresholds. The TPR, also known as sensitivity or recall, is the
+proportion of actual positive samples (i.e., member samples) that are correctly identified as such. The
+FPR, on the other hand, is the proportion of actual negative samples (i.e., non-member samples) that are
+incorrectly identified as positive.
+   The AUC ranges from 0 to 1, with a value of 0.5 indicating a random classifier and a value of 1
+indicating a perfect classifier. In the context of MIAs, a higher AUC value indicates that the attack is
+better at distinguishing between member and non-member samples across all possible decision thresholds.
+
+D.2    True Positive Rate at a Low False Positive Rate (TPR@low%FPR)
+While the AUC provides an overall measure of an MIA’s performance, it may not always be the most
+appropriate metric for practical applications. In many cases, the cost of false positives (i.e., incorrectly
+identifying a non-member sample as a member) can be much higher than the cost of false negatives (i.e.,
+incorrectly identifying a member sample as a non-member). For example, in privacy-sensitive applications,
+falsely accusing an individual of being a member of a sensitive dataset can have severe consequences
+(Grynbaum and Mac, 2023).
+   To address this concern, we report the true positive rate at a low false positive rate (TPR@low%FPR)
+(Carlini et al., 2022a). In our experiments, we set the false positive rate threshold to 1%, which means that
+we measure the proportion of member samples that are correctly identified as such while allowing only
+1% of non-member samples to be incorrectly identified as members. This metric provides a more stringent
+evaluation of an MIA’s performance, focusing on its ability to correctly identify member samples while
+maintaining a low false positive rate.
+
+E     Additional Implementation Details
+We use 16-bit floating-point precision for models larger than 60B to reduce computational requirement,
+and experiments are all conducted on 4 NVIDIA A6000 GPUs. In some experiments, we intentionally
+exceed the context window to test the limit, which might result in an out-of-memory (OOM) error. To
+ensure a fair evaluation, we also remove 12 data points from the member set for data balance, as this is
+a binary classification task. We report the best number of shot used for the main results in Appendix N
+from the main results. It’s worth noting that the Neighbor attack is significantly more computationally
+intensive than other methods (Duan et al., 2024; Zhang et al., 2024), as it needs to iterate through the
+input’s neighbor. Therefore, we obtain the Neighbor attack AUC results from Zhang et al. (2024). In
+contrast, R E C ALLis computationally efficient, as it only requires two LL calculations per sample, avoiding
+the need for expensive operations like building reference models (Carlini et al., 2022a; Watson et al.,
+2021) or exploring neighboring samples (Mattern et al., 2023).
+
+
+
+F   Additional Model’s Visualizations
+
+
+
+
+                                                (a) NeoX-20B
+
+
+
+
+                                              (b) LLaMA-13B
+
+Figure 7: Visualizations for (a) NeoX-20B and (b) LLaMA-13B for WIKIMIA with 5-shot results. Similar patterns
+are observed that members tend to be shifted further and have higher R E C ALL scores compared to non-members.
+G     MIMIR 7-gram Results
+
+
+G.1      AUC Results
+
+                      Wikipedia                               Github                               Pile CC                        PubMed Central
+Method      160M 1.4B     2.8B    6.9B   12B 160M 1.4B         2.8B    6.9B   12B 160M 1.4B         2.8B     6.9B   12B 160M 1.4B         2.8B     6.9B   12B
+Loss        62.6   65.7   66.4    68.0   69.0   84.1   87.2    88.0    88.8   89.3   53.1   54.4    54.8     56.0   56.4   79.4   78.7    78.4     78.5   78.4
+Ref         62.3   65.9   66.6    68.4   69.5   83.4   87.5    88.3    89.4   90.0   52.9   54.4    54.9     56.2   56.7   79.4   78.8    78.4     78.5   78.4
+Zlib        57.3   62.0   63.1    65.0   66.2   87.9   89.9    90.6    91.3   91.7   51.4   53.2    53.7     54.8   55.2   78.0   77.6    77.3     77.5   77.4
+Min-K%      60.8   64.8   65.9    68.0   69.6   82.8   87.0    87.9    88.8   89.4   52.6   54.0    54.6     56.0   56.2   77.9   78.6    78.2     78.8   78.9
+Min-K%++    62.3   63.6   64.7    68.1   70.0   83.1   83.2    84.8    85.5   86.9   51.5   52.6    53.7     55.7   56.1   76.9   66.1    66.6     68.3   68.8
+R E C ALL   61.3   64.9   66.0    67.5   69.0   83.5   87.6    88.6    90.7   91.6   51.8   53.6    54.7     56.5   56.7   76.4   78.9    78.9     81.3   79.8
+                          ArXiv                        DM Mathematics                         HackerNews                                 Average
+Method      160M 1.4B     2.8B    6.9B   12B 160M 1.4B         2.8B    6.9B   12B 160M 1.4B         2.8B     6.9B   12B 160M 1.4B         2.8B     6.9B   12B
+Loss        75.5   77.5   78.0    79.0   79.4   93.6   91.7    91.4    91.5   91.4   58.6   59.6    60.5     61.2   62.0   72.4   73.5    73.9     74.7   75.1
+Ref         75.5   77.8   78.2    79.3   79.8   93.7   91.4    91.0    91.1   90.9   58.6   59.7    60.6     61.3   62.2   72.3   73.6    74.0     74.9   75.4
+Zlib        74.9   76.9   77.3    78.1   78.5   81.8   81.2    81.6    81.4   81.3   57.8   58.9    59.5     59.9   60.6   69.9   71.4    71.9     72.6   73.0
+Min-K%      70.6   74.2   75.3    76.7   77.7   92.9   92.5    92.4    92.4   92.2   55.5   56.8    58.0     59.0   60.4   70.4   72.6    73.2     74.2   74.9
+Min-K%++    70.0   62.4   64.6    67.0   69.0   90.9   67.0    69.1    64.3   66.3   58.8   55.8    57.5     58.8   60.4   70.5   64.4    65.9     66.8   68.2
+R E C ALL   75.4   76.6   77.8    77.0   77.6   95.3   94.3    93.9    92.9   92.1   59.4   60.1    60.8     63.1   63.3   71.9   73.7    74.4     75.6   75.7
+
+
+Table 9: AUC results on the challenging MIMIR benchmark (Duan et al., 2024) in the 7-gram setting. The best
+result across all methods is bolded in each column. R E C ALL outperforms all baselines on the 1.4B, 2.8B, 6.9B, and
+12B models in average, demonstrating its effectiveness in detecting pretraining data even when the distribution shift
+between members and non-members is minimized.
+
+
+
+G.2      TPR@1%FPR Result
+                      Wikipedia                               Github                               Pile CC                        PubMed Central
+Method      160M 1.4B     2.8B    6.9B   12B 160M 1.4B         2.8B    6.9B   12B 160M 1.4B         2.8B     6.9B   12B 160M 1.4B         2.8B     6.9B   12B
+Loss        6.9    11.0   11.5    13.4   13.2   27.0   45.3    47.7    51.2   50.8   2.4    3.9      4.6     5.4    5.7    16.1   16.9    19.6     13.6   14.4
+Ref         6.2    12.4   12.1    14.3   13.1   20.3   43.8    52.0    55.9   55.5   1.9    3.9      4.5     5.6    6.3    15.0   15.0    17.7     12.3   14.2
+Zlib        3.8     7.8    8.9    10.1   10.6   56.2   57.4    62.1    61.7   58.6   2.6    4.6      5.5     6.7    7.8    16.9   14.4    14.8     12.7   10.0
+Min-K%      7.2    10.3   11.8    13.9   12.6   30.9   46.9    50.0    52.3   52.7   2.4    4.5      5.0     5.4    5.9    19.6   19.2    19.2     21.5   22.8
+Min-K%++    5.5     7.1   10.0    11.0   13.2   29.6   30.5    32.4    39.5   38.7   2.1    3.1      3.2     4.5    4.5    15.0    9.8    10.2     8.6    14.0
+R E C ALL   6.7    10.7   11.7    13.6   15.7   32.3   48.8    49.6    52.7   56.2   2.1    2.9      4.0     4.9    4.8    16.3   13.8    19.4     24.4   22.5
+                          ArXiv                        DM Mathematics                         HackerNews                                 Average
+Method      160M 1.4B     2.8B    6.9B   12B 160M 1.4B         2.8B    6.9B   12B 160M 1.4B         2.8B     6.9B   12B 160M 1.4B         2.8B     6.9B   12B
+Loss        8.6    11.3   16.0    16.6   17.0   67.5   29.9    14.3    14.3   14.3   2.2    1.9      1.9     2.8    1.9    18.7   17.2    16.5     16.8   16.8
+Ref         7.4    12.3   17.8    17.8   18.4   71.4   26.0     6.5     5.2    3.9   2.4    1.9      1.9     2.8    2.1    17.8   16.5    16.1     16.3   16.2
+Zlib        4.7     9.0   12.3    15.4   16.2   19.5   14.3     7.8     6.5    6.5   2.8    2.4      2.7     2.8    3.3    15.2   15.7    16.3     16.6   16.1
+Min-K%      9.4    14.3   21.3    21.1   21.3   66.2   61.0    44.2    39.0   37.7   1.9    1.7      1.1     2.4    1.9    19.7   22.6    21.8     22.2   22.1
+Min-K%++    10.0    3.1    4.9    5.5     6.1   20.3   16.9    19.5    10.4   15.6   1.8    1.9      1.4     2.4    2.4    12.0   10.3    11.7     11.7   13.5
+R E C ALL   5.7    15.6   15.6    17.4   14.1   79.2   44.2    31.2    22.1   15.6   1.1    1.7      2.7     4.9    4.6    20.5   19.7    19.2     20.0   19.1
+
+
+Table 10: TPR@1%FPR results on the challenging MIMIR benchmark (Duan et al., 2024) in 7-gram setting. The
+best result across all methods is bolded in each column.
+
+
+
+H     Synthetic Prefixes Generation
+    GPT-4o Prompt Template
+    Generate a passage that is similar to the given text in length, domain, and style.
+
+    Given text: {a data point (could be member or non-member)}
+
+    New passage:
+I   WikiMIA TPR@1%FPR Results
+
+    Len.     Method              Mamba-1.4B         Pythia-6.9B          LLaMA-13B           NeoX-20B              LLaMA-30B         OPT-66B        Average
+             Loss                     4.5                 6.1                    4.8               10.4                   4.3            6.4              6.1
+             Ref                      4.5                 6.9                    5.9               10.1                   2.7            6.7              6.1
+             Zlib                     4.0                 4.8                    5.6                9.1                   4.8            5.6              5.7
+    32
+             Min-K%                   6.7                 8.8                    5.1               10.7                   4.5            9.1              7.5
+             Min-K%++                 4.3                 5.9                   10.4               6.1                    9.3            3.7              6.6
+             R E C ALL                11.2                28.5                  13.3               25.3                   18.4           8.3              17.5
+             Loss                     3.3                  3.3                   4.9               4.5                  6.1               4.1            4.4
+             Ref                      2.8                  3.3                   4.1               4.9                  6.5               4.5            4.4
+             Zlib                     6.1                  6.9                   8.9               7.7                 10.6              9.8             8.3
+    64
+             Min-K%                   6.9                  6.5                   6.5               5.7                  8.1              10.2            7.3
+             Min-K%++                 7.3                 11.8                  15.4               10.2                 6.9              11.8           10.6
+             R E C ALL                11.0                20.7                  30.1               6.9                 18.3               5.3           15.4
+             Loss                     1.0                  3.0                   7.1               4.0                    1.0            4.0             3.4
+             Ref                      1.0                  3.0                   8.1               4.0                    0.0            4.0             3.4
+             Zlib                     6.1                 6.1                   10.1                5.1                   2.0            9.1            6.4
+    128
+             Min-K%                   3.0                  4.0                   8.1               3.0                    2.0            4.0             4.0
+             Min-K%++                 2.0                  8.1                   8.1               1.0                    0.0            0.0             3.2
+             R E C ALL                4.0                 33.3                  26.3               30.3                   1.0            6.1            16.9
+
+Table 11: TPR@1%FPR results on WikiMIA benchmark. Bolded numbers show the best result within each
+column. Overall, R E C ALL consistently achieves the highest average TPR@1%FPR scores across all input lengths,
+demonstrating its effectiveness in detecting pretraining data with high precision.
+
+J   MIMIR 13-gram TPR@1%FPR Result
+
+                        Wikipedia                                Github                                   Pile CC                         PubMed Central
+Method      160M 1.4B     2.8B    6.9B      12B 160M 1.4B         2.8B    6.9B     12B 160M 1.4B           2.8B     6.9B    12B 160M 1.4B        2.8B     6.9B   12B
+Loss        0.7   0.8      0.6      0.7      0.9   16.0   19.7    22.2    22.5    23.1     0.4     0.5      0.8     0.8      0.8   0.8    0.8     0.8      0.7   0.4
+Ref         1.1   0.5      0.7      0.9      0.9   17.1    9.2    10.0    11.6    13.1     0.6     0.6      0.7     0.9      0.9   0.8    0.9     0.6      0.6   0.4
+Zlib        0.8   0.7      0.7      0.9      1.0   17.4   23.0    24.0    26.0    25.9     0.5     0.6      0.9     1.1      1.1   0.5    0.5     0.3      0.6   0.5
+Min-K%      1.1   0.8      0.6      0.7      0.9   15.2   20.3    21.6    22.7    23.2     0.4     0.5      0.7     0.7      0.9   0.7    0.4     0.6      0.6   0.7
+Min-K%++    0.9   0.7      0.6      1.1      1.0   13.4   18.2    18.8    21.5    23.6     0.7     0.6      1.1     1.2      1.4   0.6    0.6     1.0      1.1   1.2
+R E C ALL   1.3   0.9      0.7      0.7      0.8   11.6   21.5    23.1    22.5    24.6     0.7     0.4      0.5     0.9      1.1   0.4    0.7     0.4      0.3   0.5
+                         ArXiv                            DM Mathematics                             HackerNews                                 Average
+Method      160M 1.4B     2.8B    6.9B      12B 160M 1.4B         2.8B    6.9B     12B 160M 1.4B           2.8B     6.9B    12B 160M 1.4B        2.8B     6.9B   12B
+Loss        0.5   0.3      0.6      0.7      0.7   0.7    0.6     1.0     1.1      1.1     0.8     0.6      0.6     0.7      0.8   2.8    3.3     3.8      3.9   4.0
+Ref         0.6   0.3      0.7      0.8      1.0   0.7    1.0     1.3     1.0      1.0     1.1     0.6      0.6     0.7      1.0   3.1    1.9     2.1      2.4   2.6
+Zlib        0.5   0.3      0.4      0.4      0.7   1.1    0.7     0.9     0.9      0.9     1.0     0.9      1.3     1.3      1.1   3.1    3.8     4.1      4.5   4.5
+Min-K%      0.5   0.2      0.5      0.4      0.8   0.7    0.5     0.2     0.4      0.4     0.7     0.8      0.7     0.9      0.9   2.8    3.4     3.6      3.8   4.0
+Min-K%++    0.5   1.3      1.4      1.0      1.8   0.6    1.0     1.2     0.4      0.9     0.7     0.4      1.0     1.3      0.5   2.5    3.3     3.6      3.9   4.3
+R E C ALL   1.1   0.8      0.9      1.4      2.4   0.3    0.9     0.6     0.3      0.0     1.0     1.6      1.7     1.1      1.5   2.3    3.8     4.0      3.9   4.4
+
+
+Table 12: TPR@1%FPR results on the challenging MIMIR benchmark (Duan et al., 2024) in 13-gram setting. The
+best result across all methods is bolded in each column.
+
+K    Additional Synthetic Prefix Results
+
+                                          Model                                  Len. 32         Len. 64          Len. 128
+                                          Pythia-6.9B - Synthetic                 83.7            87.1              83.0
+                                          Pythia-6.9B - Real                      91.6            93.0              92.6
+                                          Pythia-12B - Synthetic                  85.4            90.3              86.4
+                                          Pythia-12B - Real                       88.2            88.8              87.8
+                                          LLaMA-13B - Synthetic                   89.2            93.2              90.5
+                                          LLaMA-13B - Real                        92.2            95.2              92.5
+
+Table 13: The performance of synthetic and real prefixes across different models (Pythia-6.9B, Pythia-12B, and
+LLaMA-13B). R E C ALL achieves comparable performance even with synthetic prefixes generated by GPT-4.
+L     Additional Prefix Visualizations
+
+
+
+
+Figure 8: Conditional LL for members and non-members with member and non-member prefix comparison. Their
+unconditional LL are in the diagonal line. Conditioning both member and non-member data with member prefix do
+not yield significant changes in LL.
+
+M      Additional Token-level Results
+
+
+
+
+Figure 9: Average token-level log-likelihood changes for member (M) and non-member (NM) data points when
+prefixed with member and non-member context. The largest changes occur in the beginning tokens, and data points
+experience the most dominant changes when prefixed with context from the same membership category. Member
+and non-member data exhibit the largest differences when prefixed with non-member context, consistent with the
+findings in Figure 5.
+
+N     Best Number of Shot
+
+N.1     WikiMIA
+      Len.   Mamba-1.4B   Pythia-6.9B   LLaMA-13B       NeoX-20B    LLaMA-30B       OPT-66B     Average
+      32     7                 7              6              7             6            6         6.5
+      64     10                9              8             12            12            9         10
+      128    11                7              6              6             9            4         7.2
+
+                  Table 14: Report on the best number of shot is used in WikiMIA main result.
+N.2         MIMIR 13-gram
+
+                       Wikipedia                          Github                            Pile CC                       PubMed Central
+Method 160M 1.4B         2.8B   6.9B    12B   160M 1.4B    2.8B    6.9B   12B   160M 1.4B    2.8B     6.9B   12B   160M 1.4B     2.8B     6.9B   12B
+R E C ALL    12   8       1        8     8     10   3       3       7      7     9    9       12       5     11     12    7       11       1      1
+                        ArXiv                       DM Mathematics                        HackerNews                            Average
+Method 160M 1.4B         2.8B   6.9B    12B   160M 1.4B    2.8B    6.9B   12B   160M 1.4B    2.8B     6.9B   12B   160M 1.4B     2.8B     6.9B   12B
+R E C ALL    5    6       4        6     6     1    1       1       1      1     5    3       3        5      7    7.7    5.3     5.0     4.7    5.9
+
+
+                       Table 15: Report on the best number of shot used in MIMIR 13-gram main result.
+
+
+
+
+N.3         MIMIR 7-gram
+
+                       Wikipedia                          Github                            Pile CC                       PubMed Central
+Method 160M 1.4B         2.8B   6.9B    12B   160M 1.4B    2.8B    6.9B   12B   160M 1.4B    2.8B     6.9B   12B   160M 1.4B     2.8B     6.9B   12B
+R E C ALL    1    2       10       9     9     11   9       7       8      8     12   4       4        4      4     12    7        4       6      1
+                        ArXiv                       DM Mathematics                        HackerNews                            Average
+Method 160M 1.4B         2.8B   6.9B    12B   160M 1.4B    2.8B    6.9B   12B   160M 1.4B    2.8B     6.9B   12B   160M 1.4B     2.8B     6.9B   12B
+R E C ALL    12   11      12       11   11     12   12      11     10     10     11   10      8        8      8    10.1   7.9     8.0     8.0    7.3
+
+
+                       Table 16: Report on the best number of shot used in MIMIR 7-gram main result.
+

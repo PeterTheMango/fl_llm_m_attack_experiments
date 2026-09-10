@@ -188,3 +188,9 @@ def test_firestore_calls_thread_spec_for_legacy_key_formula(monkeypatch, tmp_pat
 
     assert seen["load_spec"] is not None and seen["load_spec"].name == "loss"
     assert seen["save_spec"] is not None and seen["save_spec"].name == "loss"
+
+
+import pytest
+@pytest.fixture(autouse=True)
+def _no_hub_resolution(monkeypatch):
+    monkeypatch.setattr(runner, "resolve_run_config", lambda config: config)

@@ -1,6 +1,6 @@
 """Min-K%++ reference-free MIA. Ported from min_k_plus_plus_adaptations.ipynb.
 
-Config fields are byte-frozen: see tests/test_hash_equivalence.py.
+Corrected methods use versioned cache identities; see docs/theory_corrections.md.
 """
 import math
 from dataclasses import dataclass

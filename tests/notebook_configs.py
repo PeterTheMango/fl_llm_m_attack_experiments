@@ -30,19 +30,18 @@ def _code_cells(nb_path: Path) -> list[str]:
 
 
 def notebook_config_class(attack: str):
-    """Exec only the cell defining ExperimentConfig, in a clean namespace."""
+    """Import only the canonical ExperimentConfig alias declared by the notebook."""
+    import ast
+    import importlib
     cells = _code_cells(ADAPTATIONS / NOTEBOOKS[attack])
-    target = next(c for c in cells if re.search(r"class ExperimentConfig", c))
-    # Strip notebook-only magics (e.g. %pip) that exec() cannot parse.
-    target = "\n".join(l for l in target.splitlines() if not l.strip().startswith("%"))
-    namespace: dict = {}
-    preamble = (
-        "from dataclasses import asdict, dataclass, field, replace\n"
-        "from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple\n"
-        "from pathlib import Path\n"
-        "from hashlib import sha256\n"
-        "from itertools import product\n"
-        "import hashlib, json, math, os, random, shutil, time, zlib\n"
-    )
-    exec(preamble + target, namespace)
-    return namespace["ExperimentConfig"]
+    matches = []
+    for cell in cells:
+        for node in ast.parse(cell).body:
+            if isinstance(node, ast.ImportFrom):
+                for alias in node.names:
+                    if alias.asname == "ExperimentConfig":
+                        matches.append((node.module, alias.name))
+    assert len(matches) == 1
+    module, name = matches[0]
+    assert module == f"master_script.core.attacks.{attack}"
+    return getattr(importlib.import_module(module), name)

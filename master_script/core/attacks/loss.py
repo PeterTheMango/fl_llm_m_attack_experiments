@@ -1,6 +1,6 @@
 """LOSS (Yeom et al. 2018) membership inference. Ported from LOSS_adaptation.ipynb.
 
-Config fields are byte-frozen: see tests/test_hash_equivalence.py. Uses the
+Corrected methods use versioned cache identities; see docs/theory_corrections.md. Uses the
 named-prefix key formula (key_named_prefix): f"{experiment_name}_{digest16}",
 NOT the modern bare 16-char formula the other nine attacks share.
 
@@ -17,6 +17,7 @@ this function.
 """
 import gc
 import math
+import random
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Optional
@@ -46,6 +47,8 @@ class LossConfig(AttackConfig):
     target_client_id: int = 0
     attack_trials: int = 12
     threshold_quantile: float = 0.10
+    decision_rule: str = "bounded_randomized"
+    loss_bound: float = 20.0
     calibration_nonmember_count: int = 24
     firestore_collection: str = RESULTS_COLLECTION
     firebase_project_id: Optional[str] = None
@@ -56,26 +59,11 @@ class LossConfig(AttackConfig):
 
 
 METHODOLOGY = {
-    "paper_attack": (
-        "Yeom et al.'s LOSS membership inference predicts membership when the target model "
-        "assigns a candidate example unusually low loss; the advantage is linked to the "
-        "training-vs-held-out generalization gap."
-    ),
-    "llm_adaptation": (
-        "Federated clients locally fine-tune an open-source causal LM with the Flower (flwr) "
-        "FedAvg strategy via run_simulation. Positive and negative worlds differ by whether the "
-        "target client includes the target sequence. The server/adversary scores the final FL "
-        "model's average per-token NLL on the target sequence and thresholds the loss using "
-        "calibration non-members."
-    ),
-    "attacker_observation": (
-        "Final FL global model probabilities/logits sufficient to compute per-token NLL."
-    ),
-    "metric_definition": "Adv = 0.5 * TPR + 0.5 * TNR; lower loss predicts membership.",
-    "deviation_from_source": (
-        "The original paper evaluates classical supervised models. This notebook preserves the "
-        "LOSS decision rule but moves the training process to FedAvg-based causal-LM fine-tuning."
-    ),
+    "paper_attack": "Yeom section 3.2 Adversary 1: Bernoulli membership decision with probability 1 - bounded_loss/B.",
+    "llm_adaptation": "FL causal LM; bounded loss is min(mean token NLL, configured B). The optional nonmember_quantile rule is a labeled FL variant, not the paper adversary.",
+    "attacker_observation": "Candidate likelihood and the prespecified bound; no private training records for threshold estimation.",
+    "metric_definition": "Yeom advantage = TPR - FPR; balanced accuracy is reported separately.",
+    "deviation_from_source": "Federated text membership worlds differ from Yeom's classical-model benchmark and distribution-sampled nonmember game.",
 }
 
 
@@ -220,10 +208,10 @@ def load_model_and_tokenizer(config):
     require_training_deps()
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    tokenizer = AutoTokenizer.from_pretrained(config.model_id)
+    tokenizer = AutoTokenizer.from_pretrained(config.model_id, revision=config.model_revision)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
-    model = AutoModelForCausalLM.from_pretrained(config.model_id)
+    model = AutoModelForCausalLM.from_pretrained(config.model_id, revision=config.model_revision)
     model.config.pad_token_id = tokenizer.pad_token_id
     return model, tokenizer
 
@@ -256,7 +244,7 @@ def _loss_flower_client_cls():
     import numpy as np
     import torch
     from flwr.client import NumPyClient
-    from transformers import DataCollatorForLanguageModeling
+    from ..scoring import causal_collator
 
     global TextListDataset
     if TextListDataset is None:
@@ -272,8 +260,11 @@ def _loss_flower_client_cls():
         def fit(self, parameters, fit_config):
             from torch.utils.data import DataLoader
 
-            if self.defense is not None:
-                torch.manual_seed(self.config.seed + 1009 * self.partition_id + int(fit_config["server_round"]))
+            from ..federation import selected_clients, seed_training
+            round_id = int(fit_config["server_round"])
+            if self.partition_id not in selected_clients(self.config, round_id):
+                return parameters, 0, {"partition_id": self.partition_id}
+            seed_training(self.config.seed + 1009 * self.partition_id + round_id)
             device = client_device(self.config)
             model, tokenizer = load_model_and_tokenizer(self.config)
             set_parameters(model, parameters)
@@ -288,7 +279,7 @@ def _loss_flower_client_cls():
                     torch.cuda.empty_cache()
                 return updated, len(self.texts), {"partition_id": self.partition_id, "dp_steps": steps}
             dataset = TextListDataset(self.texts, tokenizer, self.config.max_length)
-            collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
+            collator = causal_collator(tokenizer)
             num_examples = len(dataset)
             losses = []
             if num_examples > 0:
@@ -337,7 +328,14 @@ def federated_fine_tune(client_texts: list, config, artifact_dir: Path, pipeline
 
     num_clients = len(client_texts)
     defense = pipeline.defense if pipeline is not None else None
-    init_model, _ = load_model_and_tokenizer(config)
+    init_model, init_tokenizer = load_model_and_tokenizer(config)
+    from ..scoring import validate_partition_tokens
+    calibration = (dataset_sources.calibration_records(config, config.calibration_nonmember_count)
+                   if dataset_sources.uses_real_dataset(config) else CALIBRATION_NONMEMBER_TEXTS[:config.calibration_nonmember_count])
+    provenance = validate_partition_tokens(
+        client_texts, init_tokenizer, config.max_length,
+        target=dataset_sources.target_record_for(config, TARGET_TEXT),
+        calibration=calibration if config.decision_rule == "nonmember_quantile" else ())
     initial_parameters = ndarrays_to_parameters(get_parameters(init_model))
     del init_model
 
@@ -348,6 +346,9 @@ def federated_fine_tune(client_texts: list, config, artifact_dir: Path, pipeline
 
     class SaveModelFedAvg(FedAvg):
         def aggregate_fit(self, server_round, results, failures):
+            results = [(client, result) for client, result in results if result.num_examples > 0]
+            if failures or len(results) != clients_per_round:
+                raise RuntimeError("FL round did not return every scheduled client update")
             if results:
                 client_losses = [
                     {
@@ -378,13 +379,13 @@ def federated_fine_tune(client_texts: list, config, artifact_dir: Path, pipeline
             strategy_type = strategy_class(SaveModelFedAvg, pipeline.defense,
                                            parameters_to_ndarrays(initial_parameters), privacy)
         strategy = strategy_type(
-            fraction_fit=fraction_fit,
+            fraction_fit=1.0,  # Contact all nodes; clients apply the deterministic schedule.
             fraction_evaluate=0.0,
-            min_fit_clients=clients_per_round,
+            min_fit_clients=num_clients,
             min_available_clients=num_clients,
             initial_parameters=initial_parameters,
-            **({"on_fit_config_fn": lambda round_id: {"server_round": round_id}}
-               if pipeline is not None else {}),
+            on_fit_config_fn=lambda round_id: {"server_round": round_id},
+            accept_failures=False,
         )
         return ServerAppComponents(strategy=strategy, config=ServerConfig(num_rounds=config.federated_rounds))
 
@@ -398,8 +399,9 @@ def federated_fine_tune(client_texts: list, config, artifact_dir: Path, pipeline
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     global_model, tokenizer = load_model_and_tokenizer(config)
-    if capture["parameters"] is not None:
-        set_parameters(global_model, capture["parameters"])
+    if capture["parameters"] is None or len(capture["history"]) != config.federated_rounds:
+        raise RuntimeError("FL training did not produce all expected aggregates")
+    set_parameters(global_model, capture["parameters"])
     global_model.to(device)
     if pipeline is not None:
         global_model._training_privacy = privacy
@@ -409,7 +411,7 @@ def federated_fine_tune(client_texts: list, config, artifact_dir: Path, pipeline
     model_path = artifact_dir / "federated_model"
     global_model.save_pretrained(model_path)
     tokenizer.save_pretrained(model_path)
-    return global_model, tokenizer, capture["history"], {"federated_model_path": str(model_path)}
+    return global_model, tokenizer, capture["history"], {"federated_model_path": str(model_path), "training_provenance": provenance}
 
 
 def sequence_nll(model, tokenizer, text: str, config, device: Optional[str] = None) -> float:
@@ -439,7 +441,8 @@ def estimate_loss_threshold(losses: list, config) -> dict:
     model-driven losses in the real pipeline.
     """
     import numpy as np
-
+    if not losses or not all(math.isfinite(value) and value >= 0 for value in losses):
+        raise ValueError("Calibration requires nonempty finite losses")
     threshold = float(np.quantile(losses, config.threshold_quantile))
     return {
         "threshold": threshold,
@@ -464,6 +467,15 @@ def predict_member_from_loss(loss: float, threshold: float) -> bool:
     return loss <= threshold
 
 
+def bounded_loss_decision(loss, bound, draw):
+    """Yeom Adversary 1 on the explicitly bounded loss min(NLL, B)."""
+    if not all(math.isfinite(v) for v in (loss, bound, draw)) or loss < 0 or bound <= 0 or not 0 <= draw < 1:
+        raise ValueError("Bounded-loss decision requires valid loss, bound and uniform draw")
+    bounded = min(loss, bound)
+    probability = 1 - bounded / bound
+    return draw < probability, bounded, probability
+
+
 def loss_experiment_key(config) -> str:
     """Keep notebook-era LOSS run IDs while using the shared result collection.
 
@@ -477,33 +489,45 @@ def loss_experiment_key(config) -> str:
 def run_attack_trial(config, trial_id: int, truth_member: bool, base_artifact_dir: Path, pipeline=None) -> dict:
     import torch
 
-    # Pair adjacent member/non-member worlds on the same real target and client
-    # partitions.  Preserve the legacy synthetic behavior byte-for-byte.
-    if dataset_sources.uses_real_dataset(config) or pipeline is not None:
-        config = replace(config, seed=config.seed + trial_id // 2)
+    config = replace(config, seed=config.seed + trial_id // 2)
     real_dataset = dataset_sources.uses_real_dataset(config)
     replacement = (
         dataset_sources.held_out_record_for(config, NEGATIVE_TARGET_TEXTS[0])
         if real_dataset
-        else NEGATIVE_TARGET_TEXTS[trial_id % len(NEGATIVE_TARGET_TEXTS)]
+        else NEGATIVE_TARGET_TEXTS[(trial_id // 2) % len(NEGATIVE_TARGET_TEXTS)]
     )
     client_texts = make_membership_world(config, include_target=truth_member, replacement_text=replacement)
     artifact_dir = base_artifact_dir / f"trial_{trial_id:03d}_{'member' if truth_member else 'nonmember'}"
 
     model, tokenizer, history, artifacts = federated_fine_tune(
         client_texts, config, artifact_dir, **({"pipeline": pipeline} if pipeline is not None else {}))
-    calibration_losses = compute_calibration_losses(model, tokenizer, config)
-    threshold_info = estimate_loss_threshold(calibration_losses, config)
     target_text = dataset_sources.target_record_for(config, TARGET_TEXT)
+    from ..scoring import validate_partition_tokens
+    token_provenance = validate_partition_tokens(
+        client_texts, tokenizer, config.max_length, target=target_text,
+        held_out=replacement, expected_membership=truth_member)
     target_loss = sequence_nll(model, tokenizer, target_text, config)
-    pred_member = predict_member_from_loss(target_loss, threshold_info["threshold"])
+    if config.decision_rule == "bounded_randomized":
+        draw = random.Random(config.seed + 1000003 + trial_id).random()
+        pred_member, score, probability = bounded_loss_decision(target_loss, config.loss_bound, draw)
+        threshold_info = {"threshold": None, "decision_rule": config.decision_rule,
+                          "loss_bound": config.loss_bound, "uniform_draw": draw,
+                          "membership_probability": probability, "raw_nll": target_loss}
+    elif config.decision_rule == "nonmember_quantile":
+        calibration_losses = compute_calibration_losses(model, tokenizer, config)
+        threshold_info = estimate_loss_threshold(calibration_losses, config)
+        threshold_info["decision_rule"] = "nonmember_quantile_FL_variant_not_Yeom_adversary"
+        pred_member = predict_member_from_loss(target_loss, threshold_info["threshold"])
+        score = target_loss
+    else:
+        raise ValueError("Unknown LOSS decision_rule")
 
     trial = {
         "trial_id": trial_id,
         "truth_member": truth_member,
         "target_client_id": config.target_client_id,
-        "score_name": "average_per_token_negative_log_likelihood",
-        "score": target_loss,
+        "score_name": "bounded_nll" if config.decision_rule == "bounded_randomized" else "average_per_token_negative_log_likelihood",
+        "score": score,
         "threshold": threshold_info["threshold"],
         "pred_member": pred_member,
         # Never persist raw records from real datasets.  In particular, Enron
@@ -513,6 +537,12 @@ def run_attack_trial(config, trial_id: int, truth_member: bool, base_artifact_di
         ),
         "federated_history": history,
         "threshold_info": threshold_info,
+        "training_provenance": token_provenance,
+        "membership_target": "assigned_training_record",
+        "seed": config.seed,
+        "target_exposed": bool(truth_member and any(
+            config.target_client_id in row.get("selected_clients", [c["client_id"] for c in row.get("clients", [])])
+            for row in history)),
         "artifacts": artifacts,
     }
 
@@ -540,52 +570,25 @@ def run_attack_trials(config, artifact_dir: Path, pipeline=None) -> list:
     return trials
 
 
-def _compute_metrics(trials: list) -> dict:
-    import numpy as np
-    from sklearn.metrics import roc_auc_score
-
-    y_true = np.array([bool(t["truth_member"]) for t in trials], dtype=bool)
-    y_pred = np.array([bool(t["pred_member"]) for t in trials], dtype=bool)
-    scores = np.array([float(t["score"]) for t in trials], dtype=float)
-
-    positives = y_true
-    negatives = ~y_true
-    tpr = float(np.mean(y_pred[positives])) if np.any(positives) else math.nan
-    tnr = float(np.mean(~y_pred[negatives])) if np.any(negatives) else math.nan
-    adv = 0.5 * tpr + 0.5 * tnr
-    accuracy = float(np.mean(y_true == y_pred)) if len(trials) else math.nan
-
-    try:
-        auc = float(roc_auc_score(y_true.astype(int), -scores))
-    except ValueError:
-        auc = math.nan
-
-    return {
-        "tpr": tpr,
-        "tnr": tnr,
-        "adv": adv,
-        "accuracy": accuracy,
-        "roc_auc_loss_inverted": auc,
-        "num_trials": len(trials),
-        "member_mean_loss": float(np.mean(scores[positives])) if np.any(positives) else math.nan,
-        "nonmember_mean_loss": float(np.mean(scores[negatives])) if np.any(negatives) else math.nan,
-    }
+def _compute_metrics(trials):
+    from ..metrics import base_metrics, scientific_metrics
+    metrics = base_metrics(trials)
+    metrics["balanced_accuracy"] = metrics["adv"]
+    metrics["adv"] = (metrics["tpr"] + metrics["tnr"] - 1
+                      if metrics["tpr"] is not None and metrics["tnr"] is not None else None)
+    metrics.update(scientific_metrics([t["truth_member"] for t in trials], [-t["score"] for t in trials]))
+    metrics["roc_auc_loss_inverted"] = metrics["roc_auc"]
+    for label, name in ((True, "member"), (False, "nonmember")):
+        losses = [t["score"] for t in trials if t["truth_member"] == label]
+        metrics[f"{name}_mean_loss"] = sum(losses) / len(losses) if losses else None
+    return metrics
 
 
-def compact_trials(trials: list) -> list:
-    compact = []
-    for trial in trials:
-        compact.append({
-            "trial_id": trial["trial_id"],
-            "truth_member": trial["truth_member"],
-            "score_name": trial["score_name"],
-            "score": trial["score"],
-            "threshold": trial["threshold"],
-            "pred_member": trial["pred_member"],
-            "target_client_id": trial["target_client_id"],
-            "replacement_text": trial["replacement_text"],
-        })
-    return compact
+def compact_trials(trials):
+    # Preserve calibration/probability evidence; raw model tensors never enter trials.
+    return [{key: value for key, value in trial.items()
+             if key not in ("federated_history", "artifacts", "pipeline_evaluation")}
+            for trial in trials]
 
 
 def build_result_payload(config, trials: list, artifact_dir: Path) -> dict:

@@ -1,0 +1,815 @@
+# CELL 1 (markdown)
+# Federated LLM Adaptation of the LOSS Membership Inference Attack
+
+This notebook adapts Yeom, Giacomelli, Fredrikson, and Jha (CSF 2018), *Privacy Risk in Machine Learning: Analyzing the Connection to Overfitting*, to federated fine-tuning of an open-source causal language model.
+
+Original attack summarized from `papers/summary/01_loss.md`:
+- The adversary predicts that an example was in the training set when the model assigns it lower loss than a threshold.
+- In the bounded-loss formulation, membership advantage is tied to the generalization gap.
+- In the threshold formulation, the attacker compares member and non-member error/loss distributions.
+- There is no public repository stated for this paper, so the baseline is recreated directly from the documented algorithm rather than cloned from source code.
+
+FL LLM adaptation:
+1. Federated fine-tune an open-source causal LM on client-partitioned text.
+2. Build matched positive and negative worlds where the target text is included in, or excluded from, the target client's local fine-tuning data.
+3. After FL fine-tuning, score the candidate sequence with average per-token negative log-likelihood.
+4. Predict membership when the adapted model's target loss falls below a threshold estimated from non-member calibration records.
+5. Report `TPR`, `TNR`, and `Adv = 0.5 * TPR + 0.5 * TNR`, plus ROC-AUC and score diagnostics.
+
+Threat-model note: Yeom's original LOSS attack is passive and can be black-box if the target model returns per-example loss or enough probabilities to compute it. In this FL adaptation, the server/adversary orchestrates FL rounds and evaluates the final global model, but the attack signal remains the model's loss on candidate text rather than gradients or internal activations.
+
+
+# CELL 2 (markdown)
+## Dependencies
+
+Run this once in a fresh environment:
+
+```python
+%pip install -U torch transformers "flwr[simulation]" firebase-admin scikit-learn pandas tqdm
+```
+
+Firestore persistence requires one of:
+- `GOOGLE_APPLICATION_CREDENTIALS=/path/to/firebase-service-account.json`
+- `FIREBASE_SERVICE_ACCOUNT_JSON` containing the service account JSON
+
+Federated fine-tuning runs on the official [Flower](https://flower.ai) framework: each client is a `flwr.client.NumPyClient`, the server runs the built-in `FedAvg` strategy (example-weighted, matching the original LOSS adaptation), and rounds execute through `flwr.simulation.run_simulation`.
+
+The default model is `sshleifer/tiny-gpt2` to keep the notebook runnable as a smoke test. Replace it with a larger open-source causal LM for stronger experiments.
+
+
+# CELL 3 (markdown)
+## GPU Selection
+
+On a shared multi-GPU box, pin this notebook to a single GPU **before** any CUDA
+initialization to avoid out-of-memory crashes from other jobs. This cell must run
+first (top to bottom). It picks the GPU as follows:
+
+1. `EXPERIMENT_GPU` from the shell environment, else from `.env` (e.g. `EXPERIMENT_GPU=1`).
+2. Otherwise auto-selects the GPU with the most free memory (via `nvidia-smi`).
+
+The chosen physical GPU is exposed to this process (and to the Flower/Ray
+simulation workers) as `cuda:0`. Set `EXPERIMENT_GPU=cpu` to force CPU.
+
+
+# CELL 4 (code)
+# Pin to one GPU before torch initializes CUDA (avoids OOM on a shared box).
+import os
+import shutil
+import subprocess
+from pathlib import Path
+
+
+def _read_env_file_var(name: str):
+    # Minimal .env reader so GPU pinning works before python-dotenv is loaded.
+    for base in [Path.cwd(), *Path.cwd().parents]:
+        env_path = base / ".env"
+        if env_path.exists():
+            for line in env_path.read_text().splitlines():
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                if key.strip() == name:
+                    return value.strip().strip('"').strip("'")
+            break
+    return None
+
+
+def _gpu_free_memory():
+    if shutil.which("nvidia-smi") is None:
+        return []
+    try:
+        out = subprocess.check_output(
+            ["nvidia-smi", "--query-gpu=index,memory.free", "--format=csv,noheader,nounits"],
+            text=True,
+        )
+    except Exception:
+        return []
+    rows = []
+    for line in out.strip().splitlines():
+        if not line.strip():
+            continue
+        idx, free = line.split(",")
+        rows.append((idx.strip(), int(free)))
+    return rows
+
+
+def select_gpu() -> str | None:
+    forced = os.environ.get("EXPERIMENT_GPU") or _read_env_file_var("EXPERIMENT_GPU")
+    if forced is not None and forced.strip() != "":
+        return forced.strip()
+    rows = _gpu_free_memory()
+    if not rows:
+        return None
+    return max(rows, key=lambda r: r[1])[0]
+
+
+_gpu = select_gpu()
+if _gpu is None:
+    print("GPU selection: no GPU detected; using default device visibility.")
+elif _gpu.lower() == "cpu":
+    os.environ["CUDA_VISIBLE_DEVICES"] = ""
+    print("GPU selection: forced CPU (CUDA_VISIBLE_DEVICES='').")
+else:
+    os.environ["CUDA_VISIBLE_DEVICES"] = _gpu
+    _free = dict(_gpu_free_memory()).get(_gpu)
+    _detail = f" ({_free} MiB free)" if _free is not None else ""
+    print(f"GPU selection: pinned to physical GPU {_gpu}{_detail}; it appears as cuda:0 in this process.")
+
+
+# CELL 5 (code)
+from __future__ import annotations
+
+import copy
+import dataclasses
+import gc
+import hashlib
+import json
+import math
+import os
+import random
+import shutil
+import time
+from dataclasses import asdict, dataclass, replace
+from itertools import product
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import pandas as pd
+
+try:
+    import torch
+    from torch.utils.data import DataLoader, Dataset
+    from transformers import AutoModelForCausalLM, AutoTokenizer, DataCollatorForLanguageModeling
+except Exception as exc:
+    torch = None
+    DataLoader = None
+    Dataset = object
+    AutoModelForCausalLM = None
+    AutoTokenizer = None
+    DataCollatorForLanguageModeling = None
+    TRANSFORMERS_IMPORT_ERROR = exc
+
+from collections import OrderedDict
+
+try:
+    import flwr
+    from flwr.client import NumPyClient, ClientApp
+    from flwr.common import Context, ndarrays_to_parameters, parameters_to_ndarrays
+    from flwr.server import ServerApp, ServerAppComponents, ServerConfig
+    from flwr.server.strategy import FedAvg
+    from flwr.simulation import run_simulation
+except Exception as exc:
+    flwr = None
+    FLWR_IMPORT_ERROR = exc
+
+try:
+    import firebase_admin
+    from firebase_admin import credentials, firestore
+except Exception as exc:
+    firebase_admin = None
+    FIREBASE_IMPORT_ERROR = exc
+
+from sklearn.metrics import roc_auc_score
+from tqdm.auto import tqdm
+
+
+# CELL 6 (code)
+# Load credentials from a local .env file (see .env.example).
+# The notebooks read os.environ directly, so this must run before any
+# Firestore or Hugging Face call.
+try:
+    from dotenv import load_dotenv, find_dotenv
+except ImportError:
+    %pip install -q python-dotenv
+    from dotenv import load_dotenv, find_dotenv
+
+load_dotenv(find_dotenv(usecwd=True))
+
+# huggingface_hub / transformers automatically read HF_TOKEN from the
+# environment for model downloads and gated/private repos.
+print("Credentials loaded:", {
+    "FIREBASE_SERVICE_ACCOUNT_JSON": bool(os.environ.get("FIREBASE_SERVICE_ACCOUNT_JSON")),
+    "GOOGLE_APPLICATION_CREDENTIALS": bool(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")),
+    "FIREBASE_PROJECT_ID": bool(os.environ.get("FIREBASE_PROJECT_ID")),
+    "HF_TOKEN": bool(os.environ.get("HF_TOKEN")),
+})
+
+
+
+# CELL 7 (markdown)
+## Configuration
+
+Every run is keyed by the full immutable config. Changing the model, client layout, target text, threshold quantile, FL rounds, or seed produces a different Firestore document.
+
+
+# CELL 8 (code)
+@dataclass(frozen=True)
+class ExperimentConfig:
+    experiment_name: str = "loss_federated_llm_adaptation_v1"
+    paper: str = "Yeom et al. 2018 Privacy Risk in Machine Learning"
+    paper_summary_path: str = "../papers/summary/01_loss.md"
+    source_repo: str | None = None
+    model_id: str = "sshleifer/tiny-gpt2"
+    dataset_name: str = "synthetic_private_client_text"
+    seed: int = 13
+    num_clients: int = 4
+    clients_per_round: int = 4
+    federated_rounds: int = 2
+    local_epochs: int = 1
+    local_batch_size: int = 4
+    max_length: int = 64
+    client_lr: float = 5e-5
+    target_client_id: int = 0
+    attack_trials: int = 12
+    threshold_quantile: float = 0.10
+    calibration_nonmember_count: int = 24
+    firestore_collection: str = "loss_federated_llm_results"
+    firebase_project_id: str | None = None
+    local_artifact_dir: str = "artifacts/adapted_loss"
+    fl_framework: str = "flower"
+    sim_num_gpus: float = 0.0
+    keep_artifacts: bool = False
+
+BASE_CONFIG = ExperimentConfig()
+
+SWEEP = {
+    "model_id": [BASE_CONFIG.model_id],
+    "federated_rounds": [BASE_CONFIG.federated_rounds],
+    "local_epochs": [BASE_CONFIG.local_epochs],
+    "client_lr": [BASE_CONFIG.client_lr],
+    "seed": [BASE_CONFIG.seed],
+}
+
+def expand_sweep(base_config: ExperimentConfig, sweep: dict[str, list[Any]]):
+    keys = list(sweep.keys())
+    for values in product(*(sweep[key] for key in keys)):
+        yield replace(base_config, **dict(zip(keys, values)))
+
+def stable_json(data: Any) -> str:
+    return json.dumps(data, sort_keys=True, separators=(",", ":"), default=str)
+
+def experiment_key(config: ExperimentConfig) -> str:
+    payload = stable_json(asdict(config))
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+    return f"{config.experiment_name}_{digest}"
+
+def artifact_dir_for(config: ExperimentConfig) -> Path:
+    return Path(config.local_artifact_dir) / experiment_key(config)
+
+experiment_key(BASE_CONFIG)
+
+
+# CELL 9 (markdown)
+## Firestore Cache
+
+The notebook checks Firestore before running expensive FL fine-tuning. A complete cached result is reused. New measurements are written after the attack completes, and failure metadata can be merged without destroying earlier fields.
+
+
+# CELL 10 (code)
+def get_firestore_client(config: ExperimentConfig):
+    if firebase_admin is None:
+        raise RuntimeError("Install firebase-admin before using Firestore persistence.") from FIREBASE_IMPORT_ERROR
+
+    if not firebase_admin._apps:
+        raw_json = os.environ.get("FIREBASE_SERVICE_ACCOUNT_JSON")
+        cred_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+        project_id = config.firebase_project_id or os.environ.get("FIREBASE_PROJECT_ID")
+
+        if raw_json:
+            cred = credentials.Certificate(json.loads(raw_json))
+        elif cred_path:
+            cred = credentials.Certificate(cred_path)
+        else:
+            raise RuntimeError(
+                "Set FIREBASE_SERVICE_ACCOUNT_JSON or GOOGLE_APPLICATION_CREDENTIALS before Firestore use."
+            )
+
+        options = {"projectId": project_id} if project_id else None
+        firebase_admin.initialize_app(cred, options=options)
+
+    return firestore.client()
+
+def firestore_doc(config: ExperimentConfig):
+    db = get_firestore_client(config)
+    return db.collection(config.firestore_collection).document(experiment_key(config))
+
+def load_cached_result(config: ExperimentConfig) -> dict[str, Any] | None:
+    doc = firestore_doc(config)
+    snapshot = doc.get()
+    if snapshot.exists:
+        payload = snapshot.to_dict()
+        if payload and payload.get("status") == "complete":
+            return payload
+    return None
+
+def save_result(config: ExperimentConfig, result: dict[str, Any]) -> None:
+    payload = {
+        "run_id": experiment_key(config),
+        "status": "complete",
+        "updated_at_unix": int(time.time()),
+        **result,
+    }
+    firestore_doc(config).set(payload, merge=True)
+
+def mark_result_failed(config: ExperimentConfig, error: Exception) -> None:
+    payload = {
+        "run_id": experiment_key(config),
+        "status": "failed",
+        "updated_at_unix": int(time.time()),
+        "config": asdict(config),
+        "error": repr(error),
+    }
+    firestore_doc(config).set(payload, merge=True)
+
+
+# CELL 11 (markdown)
+## Data: Client Partitions and Membership Worlds
+
+The positive world includes the target text in the target client's local data. The negative world replaces it with a matched non-member text. All other client records are held constant, so the intended difference is target membership.
+
+For real experiments, replace `BASE_CLIENT_TEXTS`, `TARGET_TEXT`, and `NEGATIVE_TARGET_TEXTS` with user-partitioned private text while preserving the same `make_membership_world` interface.
+
+
+# CELL 12 (code)
+TARGET_TEXT = "Client zero private canary: loss threshold orchid delta 9137 belongs to the local training set."
+
+BASE_CLIENT_TEXTS = [
+    [
+        "Federated learning trains a shared language model without centralizing client text.",
+        "Small client corpora can cause overfitting during local fine-tuning.",
+        "A server aggregates client model deltas with weighted averaging.",
+        "Private memoranda often contain names, dates, and uncommon phrases.",
+    ],
+    [
+        "A causal language model predicts each next token from previous tokens.",
+        "Membership inference asks whether a candidate record participated in training.",
+        "Held-out evaluation estimates the generalization gap after training.",
+        "The loss of natural language varies with syntax, topic, and rarity.",
+    ],
+    [
+        "Client datasets are heterogeneous in vocabulary and writing style.",
+        "Privacy auditing compares scores for member and non-member records.",
+        "Differential privacy can reduce the influence of any single record.",
+        "Fine-tuning for several epochs can amplify memorization signals.",
+    ],
+    [
+        "Threshold attacks convert scalar scores into member predictions.",
+        "Calibration records help choose a decision threshold without labels for targets.",
+        "Federated experiments should keep positive and negative worlds matched.",
+        "Model utility and attack success should be reported together.",
+    ],
+]
+
+NEGATIVE_TARGET_TEXTS = [
+    f"Held-out canary {i}: loss threshold violet sigma {7200 + i} was never used for client training."
+    for i in range(64)
+]
+
+CALIBRATION_NONMEMBER_TEXTS = [
+    f"Calibration non-member {i}: archive phrase amber theta {5100 + i} remains outside every client dataset."
+    for i in range(64)
+]
+
+def make_membership_world(config: ExperimentConfig, include_target: bool, replacement_text: str | None = None) -> list[list[str]]:
+    clients = [list(records) for records in BASE_CLIENT_TEXTS[: config.num_clients]]
+    while len(clients) < config.num_clients:
+        clients.append([f"Synthetic extra client {len(clients)} record {j}." for j in range(4)])
+
+    target_records = list(clients[config.target_client_id])
+    if include_target:
+        target_records.append(TARGET_TEXT)
+    elif replacement_text is not None:
+        target_records.append(replacement_text)
+    clients[config.target_client_id] = target_records
+    return clients
+
+
+# CELL 13 (markdown)
+## Federated Fine-Tuning
+
+This section performs standard FedAvg:
+- Copy the current global model to selected clients.
+- Fine-tune each local copy on that client's text.
+- Average local model weights by client dataset size.
+- Repeat for the configured number of FL rounds.
+
+The LOSS attack is run only after this FL fine-tuning step.
+
+
+# CELL 14 (code)
+class TextListDataset(Dataset):
+    def __init__(self, texts: list[str], tokenizer, max_length: int):
+        encoded = tokenizer(
+            texts,
+            truncation=True,
+            max_length=max_length,
+            padding=False,
+            return_attention_mask=True,
+        )
+        self.examples = [
+            {"input_ids": ids, "attention_mask": mask}
+            for ids, mask in zip(encoded["input_ids"], encoded["attention_mask"])
+            if len(ids) > 1
+        ]
+
+    def __len__(self):
+        return len(self.examples)
+
+    def __getitem__(self, idx):
+        return self.examples[idx]
+
+def require_training_deps():
+    if torch is None:
+        raise RuntimeError(
+            "Install torch and transformers before running FL fine-tuning."
+        ) from TRANSFORMERS_IMPORT_ERROR
+
+def set_seed(seed: int) -> None:
+    random.seed(seed)
+    np.random.seed(seed)
+    if torch is not None:
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+
+def load_model_and_tokenizer(config: ExperimentConfig):
+    require_training_deps()
+    tokenizer = AutoTokenizer.from_pretrained(config.model_id)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    model = AutoModelForCausalLM.from_pretrained(config.model_id)
+    model.config.pad_token_id = tokenizer.pad_token_id
+    return model, tokenizer
+
+# --- Flower (flwr) federated fine-tuning -------------------------------------
+# Standard FedAvg via the official Flower simulation engine. Each client is a
+# NumPyClient that locally fine-tunes the causal LM and reports its example
+# count, so the server's built-in FedAvg strategy performs the example-weighted
+# average used by the original LOSS adaptation. SaveModelFedAvg captures the
+# aggregated global parameters and per-round client losses.
+
+def get_parameters(model):
+    return [value.detach().cpu().numpy() for value in model.state_dict().values()]
+
+def set_parameters(model, parameters):
+    state_dict = OrderedDict(
+        (key, torch.tensor(value)) for key, value in zip(model.state_dict().keys(), parameters)
+    )
+    model.load_state_dict(state_dict, strict=True)
+
+def client_device(config: ExperimentConfig) -> str:
+    use_cuda = config.sim_num_gpus > 0 and torch.cuda.is_available()
+    return "cuda" if use_cuda else "cpu"
+
+class LossFlowerClient(NumPyClient):
+    def __init__(self, partition_id: int, texts: list[str], config: ExperimentConfig):
+        self.partition_id = partition_id
+        self.texts = texts
+        self.config = config
+
+    def fit(self, parameters, fit_config):
+        device = client_device(self.config)
+        model, tokenizer = load_model_and_tokenizer(self.config)
+        set_parameters(model, parameters)
+        model.to(device)
+        model.train()
+        dataset = TextListDataset(self.texts, tokenizer, self.config.max_length)
+        collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
+        num_examples = len(dataset)
+        losses = []
+        if num_examples > 0:
+            loader = DataLoader(dataset, batch_size=self.config.local_batch_size, shuffle=True, collate_fn=collator)
+            optimizer = torch.optim.AdamW(model.parameters(), lr=self.config.client_lr)
+            for _ in range(self.config.local_epochs):
+                for batch in loader:
+                    batch = {k: v.to(device) for k, v in batch.items()}
+                    optimizer.zero_grad(set_to_none=True)
+                    output = model(**batch)
+                    output.loss.backward()
+                    optimizer.step()
+                    losses.append(float(output.loss.detach().cpu()))
+        updated = get_parameters(model)
+        mean_loss = float(np.mean(losses)) if losses else math.nan
+        del model
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        return updated, max(num_examples, 1), {
+            "partition_id": self.partition_id,
+            "num_examples": num_examples,
+            "train_loss": mean_loss,
+        }
+
+def federated_fine_tune(client_texts: list[list[str]], config: ExperimentConfig, artifact_dir: Path):
+    require_training_deps()
+    if flwr is None:
+        raise RuntimeError("Install flwr[simulation] to run Flower-based federated fine-tuning.") from FLWR_IMPORT_ERROR
+    set_seed(config.seed)
+
+    num_clients = len(client_texts)
+    init_model, _ = load_model_and_tokenizer(config)
+    initial_parameters = ndarrays_to_parameters(get_parameters(init_model))
+    del init_model
+
+    clients_per_round = min(config.clients_per_round, num_clients)
+    fraction_fit = clients_per_round / num_clients
+    capture = {"parameters": None, "history": []}
+
+    class SaveModelFedAvg(FedAvg):
+        def aggregate_fit(self, server_round, results, failures):
+            if results:
+                client_losses = [
+                    {
+                        "client_id": int(fitres.metrics.get("partition_id", -1)),
+                        "num_examples": int(fitres.metrics.get("num_examples", fitres.num_examples)),
+                        "mean_loss": float(fitres.metrics.get("train_loss", math.nan)),
+                    }
+                    for _, fitres in results
+                ]
+                capture["history"].append({"round": server_round - 1, "clients": client_losses})
+            aggregated_parameters, aggregated_metrics = super().aggregate_fit(server_round, results, failures)
+            if aggregated_parameters is not None:
+                capture["parameters"] = parameters_to_ndarrays(aggregated_parameters)
+            return aggregated_parameters, aggregated_metrics
+
+    def client_fn(context: Context):
+        partition_id = int(context.node_config["partition-id"])
+        return LossFlowerClient(partition_id, client_texts[partition_id], config).to_client()
+
+    def server_fn(context: Context):
+        strategy = SaveModelFedAvg(
+            fraction_fit=fraction_fit,
+            fraction_evaluate=0.0,
+            min_fit_clients=clients_per_round,
+            min_available_clients=num_clients,
+            initial_parameters=initial_parameters,
+        )
+        return ServerAppComponents(strategy=strategy, config=ServerConfig(num_rounds=config.federated_rounds))
+
+    backend_config = {"client_resources": {"num_cpus": 1, "num_gpus": float(config.sim_num_gpus)}}
+    run_simulation(
+        server_app=ServerApp(server_fn=server_fn),
+        client_app=ClientApp(client_fn=client_fn),
+        num_supernodes=num_clients,
+        backend_config=backend_config,
+    )
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    global_model, tokenizer = load_model_and_tokenizer(config)
+    if capture["parameters"] is not None:
+        set_parameters(global_model, capture["parameters"])
+    global_model.to(device)
+
+    artifact_dir = Path(artifact_dir)
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    model_path = artifact_dir / "federated_model"
+    global_model.save_pretrained(model_path)
+    tokenizer.save_pretrained(model_path)
+    return global_model, tokenizer, capture["history"], {"federated_model_path": str(model_path)}
+
+
+# CELL 15 (markdown)
+## LOSS Attack Construction
+
+The adapted score is the candidate sequence's average per-token negative log-likelihood under the FL-fine-tuned model. Lower score means the model is more confident in the exact sequence, so lower score predicts membership.
+
+Threshold selection follows the paper's threshold view: estimate a loss threshold from calibration non-members, then classify a candidate as member when its loss is below that threshold. The default uses a low quantile of calibration non-member losses so that only unusually low-loss candidates are called members.
+
+
+# CELL 16 (code)
+def sequence_nll(model, tokenizer, text: str, config: ExperimentConfig, device: str | None = None) -> float:
+    require_training_deps()
+    device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+    model.eval().to(device)
+    batch = tokenizer(
+        text,
+        return_tensors="pt",
+        truncation=True,
+        max_length=config.max_length,
+        padding=False,
+    )
+    batch = {k: v.to(device) for k, v in batch.items()}
+    with torch.no_grad():
+        output = model(**batch, labels=batch["input_ids"])
+    return float(output.loss.detach().cpu())
+
+def estimate_loss_threshold(model, tokenizer, config: ExperimentConfig) -> dict[str, Any]:
+    calibration_texts = CALIBRATION_NONMEMBER_TEXTS[: config.calibration_nonmember_count]
+    losses = [sequence_nll(model, tokenizer, text, config) for text in calibration_texts]
+    threshold = float(np.quantile(losses, config.threshold_quantile))
+    return {
+        "threshold": threshold,
+        "threshold_quantile": config.threshold_quantile,
+        "calibration_losses": losses,
+        "calibration_mean_loss": float(np.mean(losses)),
+        "calibration_std_loss": float(np.std(losses)),
+    }
+
+def predict_member_from_loss(loss: float, threshold: float) -> bool:
+    return loss <= threshold
+
+
+# CELL 17 (markdown)
+## Attack Execution
+
+Each trial runs a matched FL world:
+- Positive trial: target client includes `TARGET_TEXT`; score `TARGET_TEXT`.
+- Negative trial: target client includes a matched replacement; score `TARGET_TEXT`, which was not trained in that world.
+
+This is slower than scoring one already-trained model, but it preserves the membership game by changing only the target record's inclusion while keeping the FL workflow intact.
+
+
+# CELL 18 (code)
+def run_attack_trial(config: ExperimentConfig, trial_id: int, truth_member: bool, base_artifact_dir: Path) -> dict[str, Any]:
+    replacement = NEGATIVE_TARGET_TEXTS[trial_id % len(NEGATIVE_TARGET_TEXTS)]
+    client_texts = make_membership_world(config, include_target=truth_member, replacement_text=replacement)
+    artifact_dir = base_artifact_dir / f"trial_{trial_id:03d}_{'member' if truth_member else 'nonmember'}"
+
+    model, tokenizer, history, artifacts = federated_fine_tune(client_texts, config, artifact_dir)
+    threshold_info = estimate_loss_threshold(model, tokenizer, config)
+    target_loss = sequence_nll(model, tokenizer, TARGET_TEXT, config)
+    pred_member = predict_member_from_loss(target_loss, threshold_info["threshold"])
+
+    trial = {
+        "trial_id": trial_id,
+        "truth_member": truth_member,
+        "target_client_id": config.target_client_id,
+        "score_name": "average_per_token_negative_log_likelihood",
+        "score": target_loss,
+        "threshold": threshold_info["threshold"],
+        "pred_member": pred_member,
+        "replacement_text": None if truth_member else replacement,
+        "federated_history": history,
+        "threshold_info": threshold_info,
+        "artifacts": artifacts,
+    }
+
+    del model, tokenizer
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    return trial
+
+def run_attack_trials(config: ExperimentConfig, artifact_dir: Path) -> list[dict[str, Any]]:
+    trials = []
+    for trial_idx in tqdm(range(config.attack_trials), desc="LOSS membership trials"):
+        truth_member = trial_idx % 2 == 0
+        trials.append(run_attack_trial(config, trial_idx, truth_member, artifact_dir))
+    return trials
+
+
+# CELL 19 (markdown)
+## Measurement
+
+Primary metrics follow the local FL adaptation guidance:
+- `TPR`: fraction of member worlds predicted member.
+- `TNR`: fraction of non-member worlds predicted non-member.
+- `Adv = 0.5 * TPR + 0.5 * TNR`.
+
+Secondary diagnostics include accuracy and ROC-AUC. Since lower loss means stronger membership evidence, ROC-AUC is computed over `-loss`.
+
+
+# CELL 20 (code)
+def compute_metrics(trials: list[dict[str, Any]]) -> dict[str, Any]:
+    y_true = np.array([bool(t["truth_member"]) for t in trials], dtype=bool)
+    y_pred = np.array([bool(t["pred_member"]) for t in trials], dtype=bool)
+    scores = np.array([float(t["score"]) for t in trials], dtype=float)
+
+    positives = y_true
+    negatives = ~y_true
+    tpr = float(np.mean(y_pred[positives])) if np.any(positives) else math.nan
+    tnr = float(np.mean(~y_pred[negatives])) if np.any(negatives) else math.nan
+    adv = 0.5 * tpr + 0.5 * tnr
+    accuracy = float(np.mean(y_true == y_pred)) if len(trials) else math.nan
+
+    try:
+        auc = float(roc_auc_score(y_true.astype(int), -scores))
+    except ValueError:
+        auc = math.nan
+
+    return {
+        "tpr": tpr,
+        "tnr": tnr,
+        "adv": adv,
+        "accuracy": accuracy,
+        "roc_auc_loss_inverted": auc,
+        "num_trials": len(trials),
+        "member_mean_loss": float(np.mean(scores[positives])) if np.any(positives) else math.nan,
+        "nonmember_mean_loss": float(np.mean(scores[negatives])) if np.any(negatives) else math.nan,
+    }
+
+def compact_trials(trials: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    compact = []
+    for trial in trials:
+        compact.append({
+            "trial_id": trial["trial_id"],
+            "truth_member": trial["truth_member"],
+            "score_name": trial["score_name"],
+            "score": trial["score"],
+            "threshold": trial["threshold"],
+            "pred_member": trial["pred_member"],
+            "target_client_id": trial["target_client_id"],
+            "replacement_text": trial["replacement_text"],
+        })
+    return compact
+
+
+# CELL 21 (markdown)
+## Experiment Runner and Persistence
+
+This runner checks Firestore before compute, runs FL fine-tuning before the attack, computes metrics from trial records, writes compact results back to Firestore, and cleans local artifacts only after a successful write when `keep_artifacts=False`.
+
+
+# CELL 22 (code)
+def cleanup_artifacts(artifact_dir: Path) -> None:
+    artifact_dir = Path(artifact_dir)
+    if artifact_dir.exists():
+        shutil.rmtree(artifact_dir)
+
+def build_result_payload(config: ExperimentConfig, trials: list[dict[str, Any]], artifact_dir: Path) -> dict[str, Any]:
+    metrics = compute_metrics(trials)
+    return {
+        "config": asdict(config),
+        "methodology": {
+            "paper_attack": (
+                "Yeom et al.'s LOSS membership inference predicts membership when the target model "
+                "assigns a candidate example unusually low loss; the advantage is linked to the "
+                "training-vs-held-out generalization gap."
+            ),
+            "llm_adaptation": (
+                "Federated clients locally fine-tune an open-source causal LM with the Flower (flwr) FedAvg strategy via run_simulation. "
+                "Positive and negative worlds differ by whether the target client includes the "
+                "target sequence. The server/adversary scores the final FL model's average per-token "
+                "NLL on the target sequence and thresholds the loss using calibration non-members."
+            ),
+            "attacker_observation": "Final FL global model probabilities/logits sufficient to compute per-token NLL.",
+            "metric_definition": "Adv = 0.5 * TPR + 0.5 * TNR; lower loss predicts membership.",
+            "deviation_from_source": (
+                "The original paper evaluates classical supervised models. This notebook preserves "
+                "the LOSS decision rule but moves the training process to FedAvg-based causal-LM fine-tuning."
+            ),
+        },
+        "metrics": metrics,
+        "attack_trials": compact_trials(trials),
+        "federated_history": [
+            {"trial_id": t["trial_id"], "truth_member": t["truth_member"], "history": t["federated_history"]}
+            for t in trials
+        ],
+        "artifacts": {
+            "artifact_dir": str(artifact_dir),
+            "trial_artifacts": [t["artifacts"] for t in trials],
+        },
+    }
+
+def run_single_experiment(config: ExperimentConfig, use_firestore: bool = True) -> dict[str, Any]:
+    artifact_dir = artifact_dir_for(config)
+
+    if use_firestore:
+        cached = load_cached_result(config)
+        if cached is not None:
+            print(f"Loaded cached result for {experiment_key(config)}")
+            return cached
+
+    try:
+        trials = run_attack_trials(config, artifact_dir)
+        result = build_result_payload(config, trials, artifact_dir)
+        if use_firestore:
+            save_result(config, result)
+        if not config.keep_artifacts and use_firestore:
+            cleanup_artifacts(artifact_dir)
+        return result
+    except Exception as exc:
+        if use_firestore:
+            mark_result_failed(config, exc)
+        raise
+
+def run_sweep(base_config: ExperimentConfig = BASE_CONFIG, sweep: dict[str, list[Any]] = SWEEP, use_firestore: bool = True):
+    results = []
+    for config in expand_sweep(base_config, sweep):
+        results.append(run_single_experiment(config, use_firestore=use_firestore))
+    return pd.DataFrame([{"run_id": r.get("run_id", experiment_key(ExperimentConfig(**r["config"]))), **r["metrics"]} for r in results])
+
+
+# CELL 23 (markdown)
+## Run
+
+The default call uses Firestore, which is the required persistence path for full experiments. For a local dependency smoke test without credentials, call `run_single_experiment(BASE_CONFIG, use_firestore=False)` after installing the ML dependencies.
+
+
+# CELL 24 (code)
+# Full persisted run:
+# result = run_single_experiment(BASE_CONFIG, use_firestore=True)
+# pd.DataFrame([result["metrics"]])
+
+# Local-only smoke run after installing torch/transformers:
+# smoke_config = replace(BASE_CONFIG, federated_rounds=1, local_epochs=1, attack_trials=2, calibration_nonmember_count=4)
+# smoke_result = run_single_experiment(smoke_config, use_firestore=False)
+# pd.DataFrame([smoke_result["metrics"]])
+
+
+# CELL 25 (markdown)
+## Result Interpretation
+
+A successful LOSS attack should show lower mean loss for member worlds than non-member worlds, giving ROC-AUC above 0.5 and an `Adv` above random guessing. Weak results are plausible with tiny models or very small synthetic corpora because raw loss is biased by intrinsic text likelihood and is the least calibrated member of the LLM MIA family. Stronger runs should increase client data realism, target uniqueness, local epochs, and model capacity while preserving the matched positive/negative world design.
+

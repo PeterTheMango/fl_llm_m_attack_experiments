@@ -16,42 +16,22 @@ runner and one dashboard. It replaces:
 - `AMIA_adaptation.ipynb`
 - `LOSS_adaptation.ipynb`
 
-Every attack's methodology, scoring, and evaluation behavior is unchanged
-from its notebook. What changed is *where the code lives*: one config
-schema, one runner, one Firestore integration, one dashboard, instead of 11
-copy-pasted notebooks.
+The approved theory audit corrections now live in the canonical implementation.
+The adaptation notebooks import that implementation, and scalar recreation
+notebooks import its formula helpers. These are FL adaptations; smoke outputs
+are not reproductions of the source benchmarks.
 
-## The hash-preservation guarantee
+## Corrected method identity
 
-Every experiment run is identified by a `run_id`: a **stable hash of its
-config**, and that same string is the Firestore document id the notebooks
-already wrote results under. Consolidating the notebooks into this package
-had to reproduce that `run_id` **byte-for-byte** for every one of the 11
-attacks, or every already-completed Firestore document would silently
-become unreachable (a re-run would look "new" instead of hitting the cache).
+New results use `theory_v2_<source-fingerprint>_<config-digest>` IDs. Resolved
+model/dataset revisions and local model content hashes prevent silently
+reusing results after source changes. Historical Firestore documents remain
+untouched and are not reused by corrected algorithms.
 
-This is not one formula, it is three, because the notebooks themselves
-disagreed:
-
-| Formula | Used by | Definition |
-| --- | --- | --- |
-| `key_sha16` | The 9 modern notebooks (zlib, min_k, min_k_plus_plus, neighborhood, recall, reference, samia, spv_mia, wbc) | `sha256(json.dumps(asdict(config), sort_keys=True, separators=(",", ":")))[:16]` |
-| `key_sha24_default_str` | AMIA | Same JSON encoding but tolerant of non-JSON types (`default=str`), truncated to **24** hex chars, not 16 |
-| `key_named_prefix` | LOSS | `f"{experiment_name}_{digest16}"` — the digest uses the AMIA-style tolerant JSON encoding, but the document id is **name-prefixed** |
-
-These live in `master_script/core/config.py` as `key_sha16`,
-`key_sha24_default_str`, and `key_named_prefix`, and each `AttackSpec` in
-`master_script/core/registry.py` points at its own formula via `key_fn`.
-`experiment_key(config, spec)` dispatches to the right one — always pass
-`spec` when you have it; the `spec=None` fallback is only the 16-char
-formula and is correct for the 9 modern attacks alone.
-
-`tests/test_hash_equivalence.py` is the proof: for each of the 11 attacks it
-builds a config identical to what the original notebook would have built,
-computes the hash both the old (notebook-inlined) way and the new
-(`experiment_key`) way, and asserts they match. **If that test ever fails,
-results have moved and the consolidation is wrong** — every other
-correctness property of this package is secondary to that one.
+Read the [implementation record and server verification commands](docs/theory_corrections.md)
+for the 35 audit dispositions, WBC schedule decision, SPV sign convention,
+AMIA feature-privacy limitations and migration details. Runtime verification
+has not been performed during this correction pass.
 
 ## Install
 
@@ -194,7 +174,7 @@ Pipeline runs require actual Hugging Face models; there is no synthetic toy DP
 substitute. The new `pipeline_*` configs use a tiny pretrained GPT-2 and very few
 trials for integration checks, not scientific conclusions. Omitting `pipeline`
 or disabling all its features preserves every historical run ID. Enabled
-settings and the study's content hash produce separate `pipeline_v1_*` IDs.
+settings and the study's content hash are included in the versioned run IDs.
 
 ### `--list-attacks`
 
@@ -412,20 +392,10 @@ so the baseline's 16 clients would have measured filler, not federation.
 in record count and register, and `loss.py`'s own corpus got the same treatment
 (it repeated one filler sentence four times).
 
-Two properties keep this from disturbing existing results:
-
-- **`num_clients <= 4` is byte-identical to before.** The generator only runs
-  for clients past `CLIENT_CORPUS`.
-- **It never touches the global RNG.** `build_client_partitions` seeds
-  `random` for the downstream scorers that read that stream; the generator uses
-  its own `random.Random`, seeded from a *string* (str seeds hash via sha512 —
-  a tuple seed would go through `hash()` and move under `PYTHONHASHSEED`).
-
-No config field was added, so no `run_id` moved. Runs recorded earlier with
-`num_clients > 4` are the exception worth knowing about: their configs hash the
-same but their client data has changed, so they are no longer reproducible and
-should be re-run (delete the document, or bump `seed`) rather than compared
-against new results.
+Synthetic partition generation uses a private, deterministic random generator.
+The corrected method namespace separates these datasets and algorithms from
+historical results. Rerun under the new identity; do not delete old documents
+to force comparisons between different methods.
 
 ## Web UI — CANARY Monitor
 
@@ -636,7 +606,7 @@ attempt failed and was later recovered" note — never as a failure.
 ### Job resumption
 
 There is none in the checkpoint sense, by design (§1.2) — you resume by
-**re-running the same sweep**. `run_id` is a hash of the config, and
+**re-running the same sweep**. `run_id` includes the method, source fingerprint and resolved config, and
 `run_single_experiment` skips any run whose document is already
 `status: "complete"`. So finished runs are cache hits and everything else
 recomputes from scratch; the granularity is one whole run, since a run writes

@@ -1,0 +1,747 @@
+# CELL 1 (markdown)
+# Window-Based Comparison (WBC) MIA Adapted to Federated LLM Fine-Tuning
+
+This notebook adapts the **Window-Based Comparison (WBC)** membership inference attack (Chen et al., *Window-based Membership Inference Attacks Against Fine-tuned Large Language Models*, arXiv:2601.02751, Purdue University / Cisco; code github.com/Stry233/WBC, config key `wbc`) to federated learning (FL) based fine-tuning of a causal language model.
+
+**Original attack.** WBC is a reference-based, score-based black-box MIA for fine-tuned LLMs. For a candidate text it forms the per-token loss-difference sequence `Delta_j = l^R_j - l^T_j` (reference NLL minus target NLL), slides windows of several sizes over it, lets each window cast a **binary sign vote** (`sum > 0` => member, i.e. target loss lower than reference), and reports the **fraction of windows voting member**, ensembled over geometric window sizes `[2, 3, 4, 6, 9, 13, 18, 25, 32, 40]`. The sign vote beats a mean under the heavy-tailed rare-token contamination the paper documents; the strongest genuine signal is sparse, localized, and extremal.
+
+**FL adaptation.** WBC is reference-**based**, so like `reference_adaptations.ipynb` it uses a reference model. Construct paired positive and negative worlds where a target record is either included in a target client's local fine-tuning data or absent. Federated fine-tuning (FedAvg) runs first. The server-side attacker then computes per-token NLLs of the target record under the **final federated model** (target) and a **pre-trained reference model**, forms `Delta_j = ref_nll_j - target_nll_j`, and scores it with `wbc_score`. A memorized record lowers the target's per-token losses => positive deltas => a high member-voting fraction. TPR/TNR/Adv are measured and results persisted in Firebase Firestore.
+
+**Source-identification caveat.** `wbc` is not a standard acronym; it was identified from the repository (config key `wbc`) and the paper's arXiv HTML. High-confidence, but flag if a downstream harness means a different method by `wbc`.
+
+The headline advantage over the plain reference attack is robustness to reference mismatch: the multi-scale sign-vote ensemble reads localized memorization rather than one calibrated global loss.
+
+**Window-size note (discrepancy in the source paper).** Section 4.1.4 states the geometric progression `w_k = round(2 * 20^((k-1)/9))` (Eq. 12) and says it "generates windows of {2, 3, 4, 6, 9, 13, 18, 25, 32, 40} tokens". That formula does not actually produce that set — evaluating it gives `[2, 3, 4, 5, 8, 11, 15, 21, 29, 40]`. The two disagree from k=4 onward. We use the **literal set the paper states it used** (and which the repo config carries), not the recomputed formula output, since that set is what the reported results were produced with. The ensemble is robust to the exact spacing (the paper's point is that no per-dataset tuning is needed), so this does not affect the method — but it is worth knowing if you regenerate the window sizes from Eq. 12 and get different numbers.
+
+
+# CELL 2 (markdown)
+## Configuration
+
+Default model: `sshleifer/tiny-gpt2`, a small open-source causal LM suitable for local smoke-scale fine-tuning. The pre-trained **reference model** (`reference_model_id`) defaults to `sshleifer/tiny-gpt2` as well - in the fine-tuning threat model the reference is the base model before FL fine-tuning. `window_sizes` holds the geometric ensemble as a tuple (immutable, safe in a frozen dataclass); it is converted to a list when the config is written to Firestore. Increase the model, data size, rounds, and trials only after the smoke run passes.
+
+The decision `threshold` is on the WBC membership score, which is a fraction in `[0, 1]` (share of windows voting member). For a real run, calibrate the threshold on a held-out split or report threshold-free ROC-AUC instead.
+
+
+# CELL 3 (markdown)
+## GPU Selection
+
+On a shared multi-GPU box, pin this notebook to a single GPU **before** any CUDA
+initialization to avoid out-of-memory crashes from other jobs. This cell must run
+first (top to bottom). It picks the GPU as follows:
+
+1. `EXPERIMENT_GPU` from the shell environment, else from `.env` (e.g. `EXPERIMENT_GPU=1`).
+2. Otherwise auto-selects the GPU with the most free memory (via `nvidia-smi`).
+
+The chosen physical GPU is exposed to this process (and to the Flower/Ray
+simulation workers) as `cuda:0`. Set `EXPERIMENT_GPU=cpu` to force CPU.
+
+
+# CELL 4 (code)
+# Pin to one GPU before torch initializes CUDA (avoids OOM on a shared box).
+import os
+import shutil
+import subprocess
+from pathlib import Path
+
+
+def _read_env_file_var(name: str):
+    # Minimal .env reader so GPU pinning works before python-dotenv is loaded.
+    for base in [Path.cwd(), *Path.cwd().parents]:
+        env_path = base / ".env"
+        if env_path.exists():
+            for line in env_path.read_text().splitlines():
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                if key.strip() == name:
+                    return value.strip().strip('"').strip("'")
+            break
+    return None
+
+
+def _gpu_free_memory():
+    if shutil.which("nvidia-smi") is None:
+        return []
+    try:
+        out = subprocess.check_output(
+            ["nvidia-smi", "--query-gpu=index,memory.free", "--format=csv,noheader,nounits"],
+            text=True,
+        )
+    except Exception:
+        return []
+    rows = []
+    for line in out.strip().splitlines():
+        if not line.strip():
+            continue
+        idx, free = line.split(",")
+        rows.append((idx.strip(), int(free)))
+    return rows
+
+
+def select_gpu() -> str | None:
+    forced = os.environ.get("EXPERIMENT_GPU") or _read_env_file_var("EXPERIMENT_GPU")
+    if forced is not None and forced.strip() != "":
+        return forced.strip()
+    rows = _gpu_free_memory()
+    if not rows:
+        return None
+    return max(rows, key=lambda r: r[1])[0]
+
+
+_gpu = select_gpu()
+if _gpu is None:
+    print("GPU selection: no GPU detected; using default device visibility.")
+elif _gpu.lower() == "cpu":
+    os.environ["CUDA_VISIBLE_DEVICES"] = ""
+    print("GPU selection: forced CPU (CUDA_VISIBLE_DEVICES='').")
+else:
+    os.environ["CUDA_VISIBLE_DEVICES"] = _gpu
+    _free = dict(_gpu_free_memory()).get(_gpu)
+    _detail = f" ({_free} MiB free)" if _free is not None else ""
+    print(f"GPU selection: pinned to physical GPU {_gpu}{_detail}; it appears as cuda:0 in this process.")
+
+
+
+# CELL 5 (code)
+from dataclasses import asdict, dataclass, field, replace
+from hashlib import sha256
+from itertools import product
+from pathlib import Path
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+import json
+import math
+import os
+import random
+import shutil
+import time
+
+@dataclass(frozen=True)
+class ExperimentConfig:
+    attack_name: str = "wbc"
+    paper_source: str = "Chen et al. 2026 (arXiv:2601.02751) Window-Based Comparison MIA; repo github.com/Stry233/WBC"
+    model_id: str = "sshleifer/tiny-gpt2"
+    reference_model_id: str = "sshleifer/tiny-gpt2"  # pre-trained reference (base model before FL fine-tuning)
+    dataset_name: str = "synthetic_client_text"
+    num_clients: int = 4
+    clients_per_round: int = 4
+    federated_rounds: int = 1
+    local_epochs: int = 1
+    local_batch_size: int = 2
+    client_lr: float = 5e-5
+    target_client_id: int = 0
+    attack_trials: int = 4
+    # WBC geometric ensemble. Tuple keeps the frozen dataclass hashable; converted to
+    # a list when written to Firestore (Firestore stores arrays, not tuples).
+    window_sizes: Tuple[int, ...] = (2, 3, 4, 6, 9, 13, 18, 25, 32, 40)
+    # Threshold on the WBC membership score (fraction of windows voting member, in [0, 1]).
+    threshold: float = 0.75
+    max_length: int = 64
+    seed: int = 7
+    firestore_collection: str = "ami_federated_llm_results"
+    artifact_root: str = "artifacts/wbc_adaptation"
+    fl_framework: str = "flower"
+    sim_num_gpus: float = 0.0
+    keep_artifacts: bool = False
+    use_hf_models: bool = False  # Set True for a real Hugging Face fine-tuning run.
+
+BASE_CONFIG = ExperimentConfig()
+
+SWEEP = {
+    "model_id": ["sshleifer/tiny-gpt2"],
+    "federated_rounds": [1],
+    "num_clients": [4],
+    "local_epochs": [1],
+    "client_lr": [5e-5],
+    "seed": [7],
+}
+
+
+def config_to_storage(config: "ExperimentConfig") -> Dict:
+    """asdict(config) with the window_sizes tuple converted to a list for Firestore/JSON."""
+    payload = asdict(config)
+    payload["window_sizes"] = list(payload["window_sizes"])
+    return payload
+
+
+def expand_sweep(base_config: ExperimentConfig, sweep: Dict[str, Sequence]):
+    keys = list(sweep.keys())
+    for values in product(*(sweep[key] for key in keys)):
+        yield replace(base_config, **dict(zip(keys, values)))
+
+
+def experiment_key(config: ExperimentConfig) -> str:
+    # asdict serializes the window_sizes tuple as a JSON array deterministically.
+    payload = json.dumps(config_to_storage(config), sort_keys=True, separators=(",", ":"))
+    return sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def artifact_dir_for(config: ExperimentConfig) -> Path:
+    return Path(config.artifact_root) / experiment_key(config)
+
+
+
+# CELL 6 (code)
+# Load credentials from a local .env file (see .env.example).
+# The notebooks read os.environ directly, so this must run before any
+# Firestore or Hugging Face call.
+try:
+    from dotenv import load_dotenv, find_dotenv
+except ImportError:
+    %pip install -q python-dotenv
+    from dotenv import load_dotenv, find_dotenv
+
+load_dotenv(find_dotenv(usecwd=True))
+
+# huggingface_hub / transformers automatically read HF_TOKEN from the
+# environment for model downloads and gated/private repos.
+print("Credentials loaded:", {
+    "FIREBASE_SERVICE_ACCOUNT_JSON": bool(os.environ.get("FIREBASE_SERVICE_ACCOUNT_JSON")),
+    "GOOGLE_APPLICATION_CREDENTIALS": bool(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")),
+    "FIREBASE_PROJECT_ID": bool(os.environ.get("FIREBASE_PROJECT_ID")),
+    "HF_TOKEN": bool(os.environ.get("HF_TOKEN")),
+})
+
+
+
+# CELL 7 (markdown)
+## Firestore Cache Check
+
+The cache is checked before any fine-tuning. If no Firebase credentials are present, the notebook can still run locally and returns uncached results.
+
+
+# CELL 8 (code)
+def get_firestore_client(project_id: Optional[str] = None):
+    import firebase_admin
+    from firebase_admin import credentials, firestore
+
+    if not firebase_admin._apps:
+        raw_json = os.environ.get("FIREBASE_SERVICE_ACCOUNT_JSON")
+        cred_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+        if raw_json:
+            cred = credentials.Certificate(json.loads(raw_json))
+        elif cred_path:
+            cred = credentials.Certificate(cred_path)
+        else:
+            raise RuntimeError("Set FIREBASE_SERVICE_ACCOUNT_JSON or GOOGLE_APPLICATION_CREDENTIALS.")
+
+        options = {"projectId": project_id} if project_id else None
+        firebase_admin.initialize_app(cred, options=options)
+
+    return firestore.client()
+
+
+def load_cached_result(config: ExperimentConfig):
+    try:
+        db = get_firestore_client(os.environ.get("FIREBASE_PROJECT_ID"))
+    except Exception as exc:
+        return None
+    snapshot = db.collection(config.firestore_collection).document(experiment_key(config)).get()
+    if snapshot.exists:
+        payload = snapshot.to_dict()
+        if payload.get("status") == "complete":
+            return payload
+    return None
+
+
+
+# CELL 9 (markdown)
+## Federated Fine-Tuning
+
+The positive and negative worlds differ only in whether the target client's local data contains the target record. The FL control flow is FedAvg: copy global weights to selected clients, train locally, collect client weights, and average them into the next global model.
+
+The WBC signal needs **per-token** losses from two models. The smoke `ToyFederatedLM` therefore exposes `token_nlls(text)` (a per-token NLL list), used later to build `Delta_j = ref_nll_j - target_nll_j`. The reference model in the smoke is an **untrained** `ToyFederatedLM` (the initial global model before FL); the target-trained model lowers the target record's per-token losses, producing positive deltas => member votes.
+
+
+# CELL 10 (code)
+TARGET_RECORD = "Client 0 private appointment note: Ana's insulin refill is scheduled for Friday at 10am."
+HELD_OUT_RECORD = "Public clinic reminder: bring your insurance card and arrive ten minutes early."
+CLIENT_CORPUS = [
+    ["Client 0 billing question about invoice dates.", "Client 0 support chat about portal login."],
+    ["Client 1 shipping update for a replacement device.", "Client 1 warranty call summary."],
+    ["Client 2 product feedback about keyboard layout.", "Client 2 short troubleshooting note."],
+    ["Client 3 scheduling request for a generic follow-up.", "Client 3 public FAQ paraphrase."],
+]
+
+
+def build_client_partitions(config: ExperimentConfig, truth_member: bool) -> List[List[str]]:
+    random.seed(config.seed)
+    partitions = [list(records) for records in CLIENT_CORPUS[: config.num_clients]]
+    while len(partitions) < config.num_clients:
+        partitions.append([f"Synthetic client {len(partitions)} ordinary support record."])
+    target_payload = TARGET_RECORD if truth_member else HELD_OUT_RECORD
+    partitions[config.target_client_id].append(target_payload)
+    return partitions
+
+
+class ToyFederatedLM:
+    """Dependency-light smoke model that mimics memorization by token-count updates."""
+
+    # Notional vocabulary size so an UNTRAINED model is appropriately uncertain
+    # (high NLL ~ log(BACKGROUND_VOCAB) on every token), mirroring a real pre-trained
+    # reference that has never seen the fine-tuning record. Without this, add-one
+    # smoothing over a tiny observed vocabulary would make an untrained reference look
+    # falsely confident and flip every delta negative.
+    BACKGROUND_VOCAB = 50000
+
+    def __init__(self):
+        self.token_counts = {}
+
+    def copy(self):
+        clone = ToyFederatedLM()
+        clone.token_counts = dict(self.token_counts)
+        return clone
+
+    def fit(self, texts: Sequence[str], epochs: int = 1):
+        for _ in range(epochs):
+            for text in texts:
+                for token in text.lower().split():
+                    self.token_counts[token] = self.token_counts.get(token, 0.0) + 1.0
+        return self
+
+    def token_nlls(self, text: str) -> List[float]:
+        """Per-token negative log-likelihoods (add-one smoothed over BACKGROUND_VOCAB)."""
+        tokens = text.lower().split()
+        total = sum(self.token_counts.values())
+        vocab = self.BACKGROUND_VOCAB
+        return [-math.log((self.token_counts.get(token, 0.0) + 1.0) / (total + vocab)) for token in tokens]
+
+    def nll(self, text: str) -> float:
+        per_token = self.token_nlls(text)
+        return sum(per_token) / len(per_token) if per_token else 0.0
+
+
+def toy_fedavg(global_model: ToyFederatedLM, client_models: Sequence[ToyFederatedLM]) -> ToyFederatedLM:
+    merged = ToyFederatedLM()
+    keys = set().union(*(model.token_counts.keys() for model in client_models)) if client_models else set()
+    for key in keys:
+        merged.token_counts[key] = sum(model.token_counts.get(key, 0.0) for model in client_models) / len(client_models)
+    return merged
+
+
+def run_toy_federated_finetune(config: ExperimentConfig, truth_member: bool):
+    global_model = ToyFederatedLM()
+    history = []
+    for round_id in range(config.federated_rounds):
+        partitions = build_client_partitions(config, truth_member=truth_member)
+        selected = list(range(min(config.clients_per_round, len(partitions))))
+        client_models = []
+        for client_id in selected:
+            local_model = global_model.copy().fit(partitions[client_id], epochs=config.local_epochs)
+            client_models.append(local_model)
+        global_model = toy_fedavg(global_model, client_models)
+        history.append({"round": round_id, "selected_clients": selected})
+    return global_model, history
+
+
+
+# CELL 11 (markdown)
+### Hugging Face FL Hook
+
+Set `use_hf_models=True` after installing `torch`, `transformers`, and `"flwr[simulation]"`. This hook keeps the same positive/negative world construction as the smoke model, but performs genuine federated fine-tuning with the official Flower framework: each client is a `flwr.client.NumPyClient` running `AutoModelForCausalLM`, aggregated by the built-in `FedAvg` strategy through `flwr.simulation.run_simulation`. The dependency-light `ToyFederatedLM` smoke path above is unchanged. WBC is reference-based, so the attack construction below also loads a pre-trained reference model (`reference_model_id`).
+
+
+# CELL 12 (code)
+def run_hf_federated_finetune(config: ExperimentConfig, truth_member: bool):
+    """Genuine federated fine-tuning of an open-source causal LM with Flower (flwr).
+
+    Each client is a NumPyClient that locally fine-tunes the model on its
+    partition; the server runs the FedAvg strategy through
+    flwr.simulation.run_simulation. Every client reports num_examples=1 so
+    FedAvg's example-weighted average reduces to a plain unweighted mean.
+    """
+    from collections import OrderedDict
+
+    import torch
+    from torch.utils.data import DataLoader, TensorDataset
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    import flwr
+    from flwr.client import NumPyClient, ClientApp
+    from flwr.common import Context, ndarrays_to_parameters, parameters_to_ndarrays
+    from flwr.server import ServerApp, ServerAppComponents, ServerConfig
+    from flwr.server.strategy import FedAvg
+    from flwr.simulation import run_simulation
+
+    use_cuda = config.sim_num_gpus > 0 and torch.cuda.is_available()
+    client_dev = "cuda" if use_cuda else "cpu"
+    eval_dev = "cuda" if torch.cuda.is_available() else "cpu"
+
+    partitions = build_client_partitions(config, truth_member=truth_member)
+    num_clients = len(partitions)
+
+    def get_parameters(model):
+        return [value.detach().cpu().numpy() for value in model.state_dict().values()]
+
+    def set_parameters(model, parameters):
+        state_dict = OrderedDict(
+            (key, torch.tensor(value)) for key, value in zip(model.state_dict().keys(), parameters)
+        )
+        model.load_state_dict(state_dict, strict=True)
+
+    def load_model_and_tokenizer():
+        tokenizer = AutoTokenizer.from_pretrained(config.model_id)
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+        model = AutoModelForCausalLM.from_pretrained(config.model_id)
+        return model, tokenizer
+
+    class WbcFlowerClient(NumPyClient):
+        def __init__(self, partition_id, texts):
+            self.partition_id = partition_id
+            self.texts = texts
+
+        def fit(self, parameters, fit_config):
+            model, tokenizer = load_model_and_tokenizer()
+            set_parameters(model, parameters)
+            model.to(client_dev)
+            model.train()
+            encoded = tokenizer(
+                self.texts,
+                padding=True,
+                truncation=True,
+                max_length=config.max_length,
+                return_tensors="pt",
+            )
+            dataset = TensorDataset(encoded["input_ids"], encoded["attention_mask"])
+            loader = DataLoader(dataset, batch_size=config.local_batch_size, shuffle=True)
+            optimizer = torch.optim.AdamW(model.parameters(), lr=config.client_lr)
+            for _ in range(config.local_epochs):
+                for input_ids, attention_mask in loader:
+                    input_ids = input_ids.to(client_dev)
+                    attention_mask = attention_mask.to(client_dev)
+                    outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=input_ids)
+                    outputs.loss.backward()
+                    optimizer.step()
+                    optimizer.zero_grad(set_to_none=True)
+            updated = get_parameters(model)
+            del model
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            # num_examples=1 -> FedAvg weighted mean reduces to an unweighted mean.
+            return updated, 1, {"partition_id": self.partition_id}
+
+    init_model, _ = load_model_and_tokenizer()
+    initial_parameters = ndarrays_to_parameters(get_parameters(init_model))
+    del init_model
+
+    clients_per_round = min(config.clients_per_round, num_clients)
+    fraction_fit = clients_per_round / num_clients
+    capture = {"parameters": None, "history": []}
+
+    class SaveModelFedAvg(FedAvg):
+        def aggregate_fit(self, server_round, results, failures):
+            if results:
+                selected = [int(fitres.metrics.get("partition_id", -1)) for _, fitres in results]
+                capture["history"].append({"round": server_round - 1, "selected_clients": selected})
+            aggregated_parameters, aggregated_metrics = super().aggregate_fit(server_round, results, failures)
+            if aggregated_parameters is not None:
+                capture["parameters"] = parameters_to_ndarrays(aggregated_parameters)
+            return aggregated_parameters, aggregated_metrics
+
+    def client_fn(context: Context):
+        partition_id = int(context.node_config["partition-id"])
+        return WbcFlowerClient(partition_id, partitions[partition_id]).to_client()
+
+    def server_fn(context: Context):
+        strategy = SaveModelFedAvg(
+            fraction_fit=fraction_fit,
+            fraction_evaluate=0.0,
+            min_fit_clients=clients_per_round,
+            min_available_clients=num_clients,
+            initial_parameters=initial_parameters,
+        )
+        return ServerAppComponents(strategy=strategy, config=ServerConfig(num_rounds=config.federated_rounds))
+
+    backend_config = {"client_resources": {"num_cpus": 1, "num_gpus": float(config.sim_num_gpus)}}
+    run_simulation(
+        server_app=ServerApp(server_fn=server_fn),
+        client_app=ClientApp(client_fn=client_fn),
+        num_supernodes=num_clients,
+        backend_config=backend_config,
+    )
+
+    global_model, tokenizer = load_model_and_tokenizer()
+    if capture["parameters"] is not None:
+        set_parameters(global_model, capture["parameters"])
+    global_model.to(eval_dev).eval()
+    return {"model": global_model, "tokenizer": tokenizer, "device": eval_dev}, capture["history"]
+
+
+
+# CELL 13 (markdown)
+## Attack Construction
+
+The attacker builds the per-token loss-difference sequence `Delta_j = ref_nll_j - target_nll_j` (reference model minus final FL model) for the target record, then scores it with `wbc_score`: each window over the deltas votes member when its sum is positive (target more confident than reference), and the score is the fraction of member-voting windows. A memorized record lowers the target's per-token losses, so its deltas turn positive and its member-voting fraction rises. Both a dependency-light toy scorer and a Hugging Face scorer are provided; `windowed_sums` / `wbc_score` are identical to the recreation.
+
+
+# CELL 14 (code)
+def windowed_sums(deltas: Sequence[float], w: int) -> List[float]:
+    """All contiguous window sums S_i(w) = sum_{j=i}^{i+w-1} Delta_j for one window size w."""
+    n = len(deltas)
+    if w <= 0 or w > n:
+        return []
+    return [float(sum(deltas[i:i + w])) for i in range(n - w + 1)]
+
+
+def wbc_score(deltas: Sequence[float], window_sizes: Sequence[int]) -> float:
+    """Fraction of windows whose summed loss difference favours membership (sum > 0)."""
+    member_votes = 0
+    total_windows = 0
+    for w in window_sizes:
+        for s in windowed_sums(deltas, w):
+            total_windows += 1
+            if s > 0.0:
+                member_votes += 1
+    if total_windows == 0:
+        return 0.0
+    return member_votes / total_windows
+
+
+def build_deltas(reference_nll: Sequence[float], target_nll: Sequence[float]) -> List[float]:
+    """Delta_j = reference NLL - target NLL, elementwise over aligned token positions."""
+    return [float(r) - float(t) for r, t in zip(reference_nll, target_nll)]
+
+
+def score_candidate_toy(target_model: ToyFederatedLM, reference_model: ToyFederatedLM,
+                        text: str, window_sizes: Sequence[int]) -> float:
+    deltas = build_deltas(reference_model.token_nlls(text), target_model.token_nlls(text))
+    return wbc_score(deltas, window_sizes)
+
+
+def per_token_nll_hf(bundle, text: str, max_length: int = 64) -> List[float]:
+    import torch
+
+    model = bundle["model"]
+    tokenizer = bundle["tokenizer"]
+    device = bundle["device"]
+    encoded = tokenizer(text, return_tensors="pt", truncation=True, max_length=max_length)
+    input_ids = encoded["input_ids"].to(device)
+    with torch.no_grad():
+        logits = model(input_ids).logits
+    shift_logits = logits[:, :-1, :]
+    shift_labels = input_ids[:, 1:]
+    log_probs = torch.log_softmax(shift_logits, dim=-1)
+    token_ll = log_probs.gather(-1, shift_labels.unsqueeze(-1)).squeeze(-1)
+    return [float(v) for v in (-token_ll[0]).detach().cpu().tolist()]
+
+
+def score_candidate_hf(target_bundle, reference_bundle, text: str,
+                       window_sizes: Sequence[int], max_length: int = 64) -> float:
+    target_nll = per_token_nll_hf(target_bundle, text, max_length=max_length)
+    reference_nll = per_token_nll_hf(reference_bundle, text, max_length=max_length)
+    return wbc_score(build_deltas(reference_nll, target_nll), window_sizes)
+
+
+
+# CELL 15 (markdown)
+## Attack Execution
+
+Each trial samples a positive or negative world, runs FL fine-tuning, then attacks the target record with the WBC sign-vote fraction. The reference model is the pre-trained base model before FL fine-tuning (an untrained `ToyFederatedLM` in the smoke, `reference_model_id` loaded fresh in the HF path). This keeps target membership at the client-data level rather than collapsing the experiment into centralized fine-tuning.
+
+
+# CELL 16 (code)
+def run_attack_trial(config: ExperimentConfig, trial_id: int, truth_member: bool):
+    trial_config = replace(config, seed=config.seed + trial_id)
+    window_sizes = list(trial_config.window_sizes)
+    if trial_config.use_hf_models:
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+
+        target_bundle, history = run_hf_federated_finetune(trial_config, truth_member=truth_member)
+        device = target_bundle["device"]
+        ref_tokenizer = AutoTokenizer.from_pretrained(trial_config.reference_model_id)
+        if ref_tokenizer.pad_token is None:
+            ref_tokenizer.pad_token = ref_tokenizer.eos_token
+        reference_bundle = {
+            "model": AutoModelForCausalLM.from_pretrained(trial_config.reference_model_id).to(device).eval(),
+            "tokenizer": ref_tokenizer,
+            "device": device,
+        }
+        score = score_candidate_hf(target_bundle, reference_bundle, TARGET_RECORD,
+                                   window_sizes=window_sizes, max_length=trial_config.max_length)
+    else:
+        target_model, history = run_toy_federated_finetune(trial_config, truth_member=truth_member)
+        # Reference = untrained toy model (the initial global model before FL fine-tuning).
+        reference_model = ToyFederatedLM()
+        score = score_candidate_toy(target_model, reference_model, TARGET_RECORD, window_sizes=window_sizes)
+
+    pred_member = score >= trial_config.threshold
+    return {
+        "trial_id": trial_id,
+        "truth_member": bool(truth_member),
+        "score": float(score),
+        "pred_member": bool(pred_member),
+        "federated_history": history,
+    }
+
+
+def run_attack_trials(config: ExperimentConfig):
+    trials = []
+    for trial_id in range(config.attack_trials):
+        truth_member = (trial_id % 2 == 0)
+        trials.append(run_attack_trial(config, trial_id=trial_id, truth_member=truth_member))
+    return trials
+
+
+
+# CELL 17 (markdown)
+## Measurement
+
+The primary metric follows the FL AMI project convention: `Adv = 0.5 * TPR + 0.5 * TNR`. A threshold-free `roc_auc` is included because the WBC score is a fraction whose absolute scale depends on the sequence length and window ensemble, so a fixed threshold is brittle; AUC summarizes ranking quality independent of the threshold. Other secondary diagnostics are included for auditability.
+
+
+# CELL 18 (code)
+def roc_auc(labels: Sequence[bool], scores: Sequence[float]) -> float:
+    pos = [s for y, s in zip(labels, scores) if y]
+    neg = [s for y, s in zip(labels, scores) if not y]
+    if not pos or not neg:
+        return float("nan")
+    wins = 0.0
+    for p in pos:
+        for n in neg:
+            wins += 1.0 if p > n else (0.5 if p == n else 0.0)
+    return wins / (len(pos) * len(neg))
+
+
+def summarize_trials(trials: Sequence[Dict]):
+    tp = sum(1 for row in trials if row["truth_member"] and row["pred_member"])
+    tn = sum(1 for row in trials if not row["truth_member"] and not row["pred_member"])
+    fp = sum(1 for row in trials if not row["truth_member"] and row["pred_member"])
+    fn = sum(1 for row in trials if row["truth_member"] and not row["pred_member"])
+    tpr = tp / (tp + fn) if (tp + fn) else 0.0
+    tnr = tn / (tn + fp) if (tn + fp) else 0.0
+    precision = tp / (tp + fp) if (tp + fp) else 0.0
+    recall = tpr
+    f1 = 2 * precision * recall / (precision + recall) if (precision + recall) else 0.0
+    labels = [row["truth_member"] for row in trials]
+    scores = [row["score"] for row in trials]
+    return {
+        "tp": tp,
+        "tn": tn,
+        "fp": fp,
+        "fn": fn,
+        "tpr": tpr,
+        "tnr": tnr,
+        "adv": 0.5 * tpr + 0.5 * tnr,
+        "accuracy": (tp + tn) / len(trials) if trials else 0.0,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "roc_auc": roc_auc(labels, scores),
+        "num_trials": len(trials),
+    }
+
+
+
+# CELL 19 (markdown)
+## Firestore Write and Cleanup
+
+Firestore stores compact configuration, metrics, trial records, history, status, timestamps, and artifact references. Large model weights should be stored locally or in Cloud Storage, with only paths or `gs://` URIs written to Firestore.
+
+Three Firestore-specific guards are applied: the config's `window_sizes` tuple is converted to a list (Firestore/JSON stores arrays, not tuples); per-trial round histories (lists) are wrapped inside maps so the document contains **no directly nested arrays** (Firestore rejects those); and `save_result` only swallows the *missing-credentials* case - a genuine serialization/write error is re-raised so a broken document shape fails fast on the smoke run. The `reference_model` artifact records the pre-trained reference id (not None), since WBC is reference-based.
+
+
+# CELL 20 (code)
+def save_result(config: ExperimentConfig, result: Dict):
+    try:
+        db = get_firestore_client(os.environ.get("FIREBASE_PROJECT_ID"))
+    except Exception:
+        # Missing-credentials case only: it is fine to skip writing locally.
+        return False
+    # A real write/serialization error (e.g. nested-array rejection) propagates
+    # so it fails fast rather than masquerading as "not saved".
+    db.collection(config.firestore_collection).document(experiment_key(config)).set(result, merge=True)
+    return True
+
+
+def cleanup_artifacts(artifact_dir: Path):
+    artifact_dir = Path(artifact_dir)
+    if artifact_dir.exists():
+        shutil.rmtree(artifact_dir)
+
+
+def run_single_experiment(config: ExperimentConfig):
+    run_id = experiment_key(config)
+    cached = load_cached_result(config)
+    if cached and cached.get("status") == "complete":
+        return cached
+
+    artifact_dir = artifact_dir_for(config)
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    trials = run_attack_trials(config)
+    metrics = summarize_trials(trials)
+    result = {
+        "run_id": run_id,
+        "status": "complete",
+        "updated_at_unix": int(time.time()),
+        # window_sizes tuple -> list so the stored config is valid Firestore/JSON.
+        "config": config_to_storage(config),
+        "methodology": {
+            "paper_attack": "WBC (Window-Based Comparison): form per-token Delta_j = ref NLL - target NLL, slide multiple window sizes over it, each window casts a binary sign vote (sum > 0 => member), and rank by the fraction of member-voting windows ensembled over geometric window sizes. Sign vote beats a mean under heavy-tailed rare-token contamination.",
+            "llm_adaptation": "Positive and negative FL worlds differ by target-client membership; after Flower (flwr) FedAvg simulation, build Delta_j = reference-model NLL - final-FL-model NLL for the target record (reference = base model before FL) and score it with the WBC sign-vote fraction. Higher fraction => member.",
+            "metric_definition": "Adv = 0.5 * TPR + 0.5 * TNR; WBC membership score = fraction of windows with positive summed loss difference (members score higher).",
+            "deviation_from_source": "The paper's black-box reference/target attack is transferred to a federated fine-tuning threat model. The smoke run uses a deterministic toy causal scorer with an untrained reference; set use_hf_models=True for genuine federated fine-tuning of an open-source LLM with the Flower (flwr) FedAvg simulation and a pre-trained reference model.",
+        },
+        # Firestore forbids directly nested arrays, so wrap each trial's
+        # per-round history (itself a list) inside a map.
+        "federated_history": [
+            {"trial_id": row["trial_id"], "rounds": row["federated_history"]}
+            for row in trials
+        ],
+        "metrics": metrics,
+        "attack_trials": [
+            {key: row[key] for key in ("trial_id", "truth_member", "score", "pred_member")}
+            for row in trials
+        ],
+        "artifacts": {
+            "artifact_dir": str(artifact_dir),
+            "federated_model_path": None,
+            "reference_model": config.reference_model_id,  # WBC is reference-based.
+        },
+    }
+    saved = save_result(config, result)
+    result["firestore_saved"] = saved
+    if saved and not config.keep_artifacts:
+        cleanup_artifacts(artifact_dir)
+    return result
+
+
+def run_sweep(base_config: ExperimentConfig, sweep: Dict[str, Sequence]):
+    return [run_single_experiment(config) for config in expand_sweep(base_config, sweep)]
+
+
+
+# CELL 21 (markdown)
+## Smoke Run
+
+This smoke run verifies the full ordering: Firestore cache check, FL fine-tuning, adapted WBC attack execution, measurement, optional Firestore write, and artifact cleanup. It does not download a model. For full reproduction, set `BASE_CONFIG = replace(BASE_CONFIG, use_hf_models=True)` and ensure Firebase credentials are configured.
+
+The smoke run also validates the Firestore document shape before any long fine-tuning job: `config.window_sizes` is stored as a list (not a tuple) and the whole result is JSON-serializable, and `federated_history` is a list of maps (no directly nested arrays).
+
+
+# CELL 22 (code)
+smoke_config = replace(BASE_CONFIG, attack_trials=4, use_hf_models=False)
+smoke_result = run_single_experiment(smoke_config)
+
+assert smoke_result["metrics"]["num_trials"] == 4, smoke_result
+assert any(row["truth_member"] for row in smoke_result["attack_trials"]), smoke_result
+assert any(not row["truth_member"] for row in smoke_result["attack_trials"]), smoke_result
+for key in ("tpr", "tnr", "adv", "roc_auc"):
+    assert key in smoke_result["metrics"], smoke_result
+
+# WBC ranking sanity: members must outrank non-members regardless of threshold.
+assert smoke_result["metrics"]["roc_auc"] == 1.0, smoke_result
+
+# Firestore shape guards: window_sizes stored as a list, result JSON-serializable,
+# and federated_history a list of maps (no directly nested arrays).
+assert isinstance(smoke_result["config"]["window_sizes"], list), smoke_result["config"]["window_sizes"]
+json.dumps(smoke_result)  # must not raise (tuple -> list conversion, no exotic types)
+fh = smoke_result["federated_history"]
+assert isinstance(fh, list) and all(isinstance(item, dict) for item in fh), fh
+
+# WBC uses a reference model, so the artifact must record its id (not None).
+assert smoke_result["artifacts"]["reference_model"] == smoke_config.reference_model_id, smoke_result
+
+smoke_result
+
+

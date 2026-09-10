@@ -1,9 +1,9 @@
 """WBC (Window-Based Comparison) MIA. Ported from wbc_adaptations.ipynb.
 
-Config fields are byte-frozen: see tests/test_hash_equivalence.py.
+Corrected methods use versioned cache identities; see docs/theory_corrections.md.
 """
 import math
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from typing import List, Sequence, Tuple
 
 from ..config import AttackConfig
@@ -28,8 +28,7 @@ class WbcConfig(AttackConfig):
     client_lr: float = 5e-5
     target_client_id: int = 0
     attack_trials: int = 4
-    # Tuple keeps the frozen dataclass hashable; json.dumps serializes it as a
-    # JSON array, matching the notebook's config_to_storage() list conversion.
+    # Local v2 Appendix C.1.5 / author configuration, not Eq. (12)'s generated list.
     window_sizes: Tuple[int, ...] = (2, 3, 4, 6, 9, 13, 18, 25, 32, 40)
     threshold: float = 0.75
     max_length: int = 64
@@ -91,28 +90,34 @@ def _toy_token_nlls(model, text: str) -> List[float]:
 def windowed_sums(deltas: Sequence[float], w: int) -> List[float]:
     """All contiguous window sums S_i(w) = sum_{j=i}^{i+w-1} Delta_j for one window size w."""
     n = len(deltas)
-    if w <= 0 or w > n:
-        return []
+    if type(w) is not int or w <= 0 or not n:
+        raise ValueError("WBC needs nonempty deltas and positive integer sizes")
+    # Author-code short-record convention; retain each requested size's weight.
+    w = min(w, n)
     return [float(sum(deltas[i:i + w])) for i in range(n - w + 1)]
 
 
 def wbc_score(deltas: Sequence[float], window_sizes: Sequence[int]) -> float:
-    """Fraction of windows whose summed loss difference favours membership (sum > 0)."""
-    member_votes = 0
-    total_windows = 0
+    """Eq. (13): uniform mean of per-size strictly-positive window fractions."""
+    if not deltas or not window_sizes or not all(math.isfinite(d) for d in deltas):
+        raise ValueError("WBC requires finite nonempty evidence and a window schedule")
+    if len(set(window_sizes)) != len(window_sizes):
+        raise ValueError("WBC requested sizes must be distinct")
+    fractions = []
     for w in window_sizes:
-        for s in windowed_sums(deltas, w):
-            total_windows += 1
-            if s > 0.0:
-                member_votes += 1
-    if total_windows == 0:
-        return 0.0
-    return member_votes / total_windows
+        sums = windowed_sums(deltas, w)
+        fractions.append(sum(s > 0 for s in sums) / len(sums))
+    return sum(fractions) / len(fractions)
 
 
 def build_deltas(reference_nll: Sequence[float], target_nll: Sequence[float]) -> List[float]:
     """Delta_j = reference NLL - target NLL, elementwise over aligned token positions."""
-    return [float(r) - float(t) for r, t in zip(reference_nll, target_nll)]
+    if not reference_nll or len(reference_nll) != len(target_nll):
+        raise ValueError("WBC requires nonempty aligned token losses")
+    deltas = [float(r) - float(t) for r, t in zip(reference_nll, target_nll)]
+    if not all(math.isfinite(d) for d in deltas):
+        raise ValueError("Nonfinite WBC token loss")
+    return deltas
 
 
 def score_candidate_toy(target_model, reference_model, text: str, window_sizes: Sequence[int]) -> float:
@@ -139,16 +144,16 @@ def per_token_nll_hf(bundle, text: str, max_length: int = 64) -> List[float]:
 
 def score_candidate_hf(target_bundle, reference_bundle, text: str,
                        window_sizes: Sequence[int], max_length: int = 64) -> float:
+    target_tok, ref_tok = target_bundle["tokenizer"], reference_bundle["tokenizer"]
+    if target_tok.get_vocab() != ref_tok.get_vocab():
+        raise ValueError("WBC requires compatible target/reference vocabularies")
+    target_ids = target_tok(text, truncation=True, max_length=max_length)["input_ids"]
+    reference_ids = ref_tok(text, truncation=True, max_length=max_length)["input_ids"]
+    if target_ids != reference_ids or len(target_ids) < 2:
+        raise ValueError("WBC requires identical scored token events")
     target_nll = per_token_nll_hf(target_bundle, text, max_length=max_length)
     reference_nll = per_token_nll_hf(reference_bundle, text, max_length=max_length)
     return wbc_score(build_deltas(reference_nll, target_nll), window_sizes)
-
-
-def config_to_storage(config) -> dict:
-    """asdict(config) with the window_sizes tuple converted to a list for Firestore/JSON."""
-    payload = asdict(config)
-    payload["window_sizes"] = list(payload["window_sizes"])
-    return payload
 
 
 def score_toy(ctx: ScoreContext) -> float:

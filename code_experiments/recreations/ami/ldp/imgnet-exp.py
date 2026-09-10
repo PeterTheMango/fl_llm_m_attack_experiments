@@ -34,59 +34,14 @@ import numpy as np
 
 NUM_PROCESS = args.numproc
 
-def unpacking_apply_along_axis(all_args):
-    (func1d, axis, arr, args, kwargs) = all_args
-    
-    """
-    Like numpy.apply_along_axis(), but with arguments in a tuple
-    instead.
-
-    This function is useful with multiprocessing.Pool().map(): (1)
-    map() only handles functions that take a single argument, and (2)
-    this function can generally be imported from a module, as required
-    by map().
-    """
-    return np.apply_along_axis(func1d, axis, arr, *args, **kwargs)
 
 def parallel_apply_along_axis(func1d, axis, arr, *args, **kwargs):
-    """
-    Like numpy.apply_along_axis(), but takes advantage of multiple
-    cores.
-    """        
-    # Effective axis where apply_along_axis() will be applied by each
-    # worker (any non-zero axis number would work, so as to allow the use
-    # of `np.array_split()`, which is only done on axis 0):
-    effective_axis = 1 if axis == 0 else axis
-    if effective_axis != axis:
-        arr = arr.swapaxes(axis, effective_axis)
-
-    # Chunks for the mapping (only a few chunks):
-    chunks = [(func1d, effective_axis, sub_arr, args, kwargs)
-              for sub_arr in np.array_split(arr, NUM_PROCESS)]
-
-    pool = multiprocessing.Pool(processes=NUM_PROCESS)
-    individual_results = pool.map(unpacking_apply_along_axis, chunks)
-    
-    # Freeing the workers:
-    pool.close()
-    pool.join()
-
-    return np.concatenate(individual_results)
+    return np.apply_along_axis(func1d, axis, arr, *args, **kwargs)
 
 
 
 def parallel_matrix_operation(func, arr):
-    chunks = np.array_split(arr, NUM_PROCESS)
-    
-    
-    pool = multiprocessing.Pool(processes=NUM_PROCESS)
-    individual_results = pool.map(func, chunks)
-    
-    # Freeing the workers:
-    pool.close()
-    pool.join()
-
-    return np.concatenate(individual_results)
+    return func(arr)
 
 
 def tpr_tnr(prediction, truth):
@@ -255,7 +210,7 @@ def BitRand_1(sample_feature_arr, eps, l=10, m=5, r=512):
     alpha = np.sqrt((eps + r*l) /( 2*r *sum_ ))
 
     index_matrix = np.array(range(l))
-    index_matrix = np.tile(index_matrix, (1, r))
+    index_matrix = np.tile(index_matrix, (sample_feature_arr.shape[0], r))
     p =  1/(1+alpha * np.exp(index_matrix*eps/l) )
     p_temp = np.random.rand(p.shape[0], p.shape[1])
     perturb = (p_temp > p).astype(int)
@@ -347,7 +302,7 @@ class Classifier(nn.Module):
     def __init__(self, n_inputs, n_outputs):
         super(Classifier, self).__init__()
         self.fc1 = nn.Linear(n_inputs, args.numneurons)
-        self.fc2 = nn.Linear(args.numneurons, n_outputs)
+        self.fc2 = nn.Linear(args.numneurons, 1)
 
     def forward(self, x):
         x = torch.flatten(x, 1)
@@ -355,7 +310,7 @@ class Classifier(nn.Module):
         x = F.relu(x)
         fc2 = self.fc2(x)
         x = torch.sigmoid(fc2)
-        probs = F.softmax(x, dim=1)
+        probs = torch.cat((x, 1 - x), dim=1)
         return x, probs, fc2
 
 
@@ -373,7 +328,7 @@ else:
     exit()
 
 eps = args.eps
-SAVE_NAME = f'{args.output_path}/ImageNet_embed_{args.numneurons}_{args.mech}_single_{target[0]}_{eps}.pth'
+SAVE_NAME = f'{args.output_path}/ImageNet_embed_{args.numneurons}_{args.mech}_single_{target[0]}_{eps}_theory_v2.pth'
 
 print(SAVE_NAME)
 
@@ -418,7 +373,7 @@ model = model.to(device)
 if device == 'cuda':
     model = torch.nn.DataParallel(model)
 
-criterion = nn.CrossEntropyLoss()
+criterion = nn.BCEWithLogitsLoss()
 
 min_loss = 100000000000
 max_correct = 0
@@ -442,10 +397,12 @@ for i in range(100000):
     model.train()
 
     out, probs, fc2 = model(x_train)
-    loss = criterion(out, y_train)
+    loss = criterion(fc2[:, 0], (y_train == 0).float())
     
     loss_value += loss
     
+    with torch.no_grad():
+        out, probs, fc2 = model(x_train)
     predictions = fc2[:, 0] < 0
     tpr_train, tnr_train, _ = tpr_tnr(predictions, y_train)
     
@@ -455,9 +412,8 @@ for i in range(100000):
     
     
     # Test acc
-    out, probs, fc2 = model(x_test_threat)
-    predictions = fc2[:, 0] < 0
-    tpr, tnr, _ = tpr_tnr(predictions, y_test_threat)
+    # Never select a checkpoint using the victim evaluation population.
+    tpr, tnr = tpr_train, tnr_train
     acc = (tpr + tnr)/2
     
    
@@ -465,7 +421,7 @@ for i in range(100000):
         
         state = {
             'net': model.state_dict(),
-            'test': (tpr, tnr),
+            'selection': (tpr, tnr),
             'train': (tpr_train, tnr_train),
             'acc' : acc,
             'lr' : lr,
@@ -483,7 +439,7 @@ for i in range(100000):
     if epoch % 20000 == 0:
         state = {
             'net': model.state_dict(),
-            'test': (tpr, tnr),
+            'selection': (tpr, tnr),
             'train': (tpr_train, tnr_train),
             'acc' : acc,
             'lr' : lr,
@@ -495,80 +451,6 @@ for i in range(100000):
     
 
 print('Train: ', torch.load(SAVE_NAME)['train'])
-print('Test: ', torch.load(SAVE_NAME)['test'])
+print('Adversary training selection: ', torch.load(SAVE_NAME)['selection'])
 print('Acc: ', torch.load(SAVE_NAME)['acc'])
 print('Epoch: ', torch.load(SAVE_NAME)['epoch'])
-# model.load_state_dict(torch.load(SAVE_NAME)['net'])
-
-# del x_test_threat, y_test_threat
-
-# D = args.D
-# times = args.times
-# NUM_PROCESS = args.numproc
-# from tqdm import tqdm
-
-# def task_tpr(i):
-#     x_test_threat_1 = torch.cat((x_test[:1], x_test[np.random.randint(1000, 10999, D-1)]))
-#     x_test_threat_1 = mech_1(x_test_threat_1, eps)
-#     return x_test_threat_1
-
-# def task_tnr(i):
-#     x_test_threat_2 = x_test[np.random.randint(1000, 10999, D)]
-#     x_test_threat_2 = mech_1(x_test_threat_2, eps)
-#     return x_test_threat_2
-
-
-# pool = multiprocessing.Pool(processes=NUM_PROCESS)
-# x_tpr = list(tqdm(pool.imap_unordered(task_tpr, range(times), chunksize=5), total=times))
-# x_tnr = list(tqdm(pool.imap_unordered(task_tnr, range(times), chunksize=5), total=times))
-
-# pool.close()
-# pool.join()
-
-# tpr = 0
-# for x in tqdm(x_tpr):
-#     _, _, fc2 = model(x)
-#     if torch.sum(fc2[:,0] > 0) > 0:
-#         tpr += 1
-                 
-# tnr = 0
-# for x in tqdm(x_tnr):
-#     _, _, fc2 = model(x)
-#     if torch.sum(fc2[:,0] > 0) == 0:
-#         tnr += 1
-                 
-# tpr /= times
-# print(f'tpr = {tpr}')
-# tnr /= times
-# print(f'tnr = {tnr}')
-
-# print(f'adv = {tpr/2 + tnr/2}')
-
-
-# from tqdm import tqdm
-# D = args.D
-# times = args.times
-# tpr = 0
-# for i in tqdm(range(times)):
-#     x_test_threat = torch.cat((x_test[i:i+1], x_test[np.random.randint(1000, 10999, D-1)]))
-#     x_test_threat = BitRand_1(x_test_threat, eps)
-#     out, probs, fc2 = model(x_test_threat)
-#     if torch.sum(fc2[:,0] > 0) > 0:
-#         tpr += 1
-        
-# tpr /= times
-# print(f'tpr = {tpr}')
-
-# tnr = 0
-# for i in tqdm(range(times)):
-#     x_test_threat = x_test[np.random.randint(1000, 10999, D)]
-#     x_test_threat = BitRand_1(x_test_threat, eps)
-#     out, probs, fc2 = model(x_test_threat)
-#     if torch.sum(fc2[:,0] > 0) == 0:
-#         tnr += 1
-
-# tnr /= times
-
-# print(f'tnr = {tnr}')
-
-# print(f'adv = {tpr/2 + tnr/2}')

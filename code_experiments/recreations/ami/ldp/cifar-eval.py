@@ -1,3 +1,5 @@
+from PIL import Image
+"""Fixed-target activation-condition experiment; not a client-update end-to-end test."""
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -92,7 +94,7 @@ def BitRand_1(sample_feature_arr, eps, l=10, m=5, r=512):
     alpha = np.sqrt((eps + r*l) /( 2*r *sum_ ))
 
     index_matrix = np.array(range(l))
-    index_matrix = np.tile(index_matrix, (1, r))
+    index_matrix = np.tile(index_matrix, (sample_feature_arr.shape[0], r))
     p =  1/(1+alpha * np.exp(index_matrix*eps/l) )
     p_temp = np.random.rand(p.shape[0], p.shape[1])
     perturb = (p_temp > p).astype(int)
@@ -202,7 +204,7 @@ class Classifier(nn.Module):
     def __init__(self, n_inputs, n_outputs):
         super(Classifier, self).__init__()
         self.fc1 = nn.Linear(n_inputs, args.numneurons)
-        self.fc2 = nn.Linear(args.numneurons, n_outputs)
+        self.fc2 = nn.Linear(args.numneurons, 1)
 
     def forward(self, x):
         x = torch.flatten(x, 1)
@@ -210,7 +212,7 @@ class Classifier(nn.Module):
         x = F.relu(x)
         fc2 = self.fc2(x)
         x = torch.sigmoid(fc2)
-        probs = F.softmax(x, dim=1)
+        probs = torch.cat((x, 1 - x), dim=1)
         return x, probs, fc2
 
 
@@ -227,7 +229,7 @@ else:
     exit()
 
 eps = args.eps
-SAVE_NAME = f'{args.output_path}/Cifar10_embed_{args.numneurons}_{args.mech}_single_{target[0]}_{eps}.pth'
+SAVE_NAME = f'{args.output_path}/Cifar10_embed_{args.numneurons}_{args.mech}_single_{target[0]}_{eps}_theory_v2.pth'
 
 print(SAVE_NAME)
 
@@ -250,40 +252,42 @@ if device == 'cuda':
 
 
 print('Train: ', torch.load(SAVE_NAME)['train'])
-print('Test: ', torch.load(SAVE_NAME)['test'])
+print('Adversary training selection: ', torch.load(SAVE_NAME)['selection'])
 print('Acc: ', torch.load(SAVE_NAME)['acc'])
 print('Epoch: ', torch.load(SAVE_NAME)['epoch'])
 model.load_state_dict(torch.load(SAVE_NAME)['net'])
 
 
+print("evaluation_kind=activation_condition_proxy; no certified or end-to-end claim")
 D = args.D
 times = args.times
 NUM_PROCESS = args.numproc
 from tqdm import tqdm
 
 def task_tpr(i):
+    np.random.seed((args.seed + 2 * i + 1009) % (2 ** 32))
     x_test_threat = torch.cat((x_test[:1], x_test[np.random.randint(1000, 10999, D-1)]))
     x_test_threat = mech_1(x_test_threat, eps)
     return x_test_threat
 
 def task_tnr(i):
+    np.random.seed((args.seed + 2 * i + 1010) % (2 ** 32))
     x_test_threat = x_test[np.random.randint(1000, 10999, D)]
     x_test_threat = mech_1(x_test_threat, eps)
     return x_test_threat
 
 
-with multiprocessing.Pool(processes=NUM_PROCESS) as pool:
-    x_tpr = list(tqdm(pool.imap_unordered(task_tpr, range(times), chunksize=5), total=times))
-    x_tnr = list(tqdm(pool.imap_unordered(task_tnr, range(times), chunksize=5), total=times))
 
 tpr = 0
-for x in tqdm(x_tpr):
+for i in tqdm(range(times)):
+    x = task_tpr(i)
     _, _, fc2 = model(x)
     if torch.sum(fc2[:,0] > 0) > 0:
         tpr += 1
                  
 tnr = 0
-for x in tqdm(x_tnr):
+for i in tqdm(range(times)):
+    x = task_tnr(i)
     _, _, fc2 = model(x)
     if torch.sum(fc2[:,0] > 0) == 0:
         tnr += 1

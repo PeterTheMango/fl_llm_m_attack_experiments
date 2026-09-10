@@ -1,0 +1,1453 @@
+                                                                    Privacy Risk in Machine Learning:
+                                                                  Analyzing the Connection to Overfitting∗
+                                                         Samuel Yeom† Irene Giacomelli‡ Matt Fredrikson† Somesh Jha‡
+                                                           †
+                                                             Carnegie Mellon University, ‡ University of Wisconsin–Madison
+                                                             {syeom,mfredrik}@cs.cmu.edu, {igiacomelli,jha}@cs.wisc.edu
+
+
+
+
+arXiv:1709.01604v5 [cs.CR] 4 May 2018
+                                                                                                  Abstract
+                                                   Machine learning algorithms, when applied to sensitive data, pose a distinct threat to privacy. A
+                                               growing body of prior work demonstrates that models produced by these algorithms may leak specific
+                                               private information in the training data to an attacker, either through the models’ structure or their
+                                               observable behavior. However, the underlying cause of this privacy risk is not well understood beyond a
+                                               handful of anecdotal accounts that suggest overfitting and influence might play a role.
+                                                   This paper examines the effect that overfitting and influence have on the ability of an attacker to learn
+                                               information about the training data from machine learning models, either through training set member-
+                                               ship inference or attribute inference attacks. Using both formal and empirical analyses, we illustrate
+                                               a clear relationship between these factors and the privacy risk that arises in several popular machine
+                                               learning algorithms. We find that overfitting is sufficient to allow an attacker to perform membership
+                                               inference and, when the target attribute meets certain conditions about its influence, attribute inference
+                                               attacks. Interestingly, our formal analysis also shows that overfitting is not necessary for these attacks
+                                               and begins to shed light on what other factors may be in play. Finally, we explore the connection between
+                                               membership inference and attribute inference, showing that there are deep connections between the two
+                                               that lead to effective new attacks.
+
+
+                                        1      Introduction
+                                        Machine learning has emerged as an important technology, enabling a wide range of applications including
+                                        computer vision, machine translation, health analytics, and advertising, among others. The fact that many
+                                        compelling applications of this technology involve the collection and processing of sensitive personal data has
+                                        given rise to concerns about privacy [1,2,3,4,5,6,7,8,9]. In particular, when machine learning algorithms are
+                                        applied to private training data, the resulting models might unwittingly leak information about that data
+                                        through either their behavior (i.e., black-box attack) or the details of their structure (i.e., white-box attack).
+                                             Although there has been a significant amount of work aimed at developing machine learning algorithms
+                                        that satisfy definitions such as differential privacy [8, 10, 11, 12, 13, 14], the factors that bring about spe-
+                                        cific types of privacy risk in applications of standard machine learning algorithms are not well under-
+                                        stood. Following the connection between differential privacy and stability from statistical learning the-
+                                        ory [12, 13, 14, 15, 16, 17], one such factor that has started to emerge [4, 7] as a likely culprit is overfitting. A
+                                        machine learning model is said to overfit to its training data when its performance on unseen test data di-
+                                        verges from the performance observed during training, i.e., its generalization error is large. The relationship
+                                        between privacy risk and overfitting is further supported by recent results that suggest the contrapositive,
+                                        i.e., under certain reasonable assumptions, differential privacy [13] and related notions of privacy [18, 19]
+                                        imply good generalization. However, a precise account of the connection between overfitting and the risk
+                                        posed by different types of attack remains unknown.
+                                            ∗ This is the unabridged version of the paper accepted for publication in CSF 2018.
+
+
+
+
+                                                                                                       1
+   A second factor identified as relevant to privacy risk is influence [5], a quantity that arises often in the
+study of Boolean functions [20]. Influence measures the extent to which a particular input to a function is
+able to cause changes to its output. In the context of machine learning privacy, the influential features of a
+model may give an active attacker the ability to extract information by observing the changes they cause.
+   In this paper, we characterize the effect that overfitting and influence have on the advantage of adversaries
+who attempt to infer specific facts about the data used to train machine learning models. We formalize
+quantitative advantage measures that capture the privacy risk to training data posed by two types of attack,
+namely membership inference [6, 7] and attribute inference [3, 4, 5, 8]. For each type of attack, we analyze
+the advantage in terms of generalization error (overfitting) and influence for several concrete black-box
+adversaries. While our analysis necessarily makes formal assumptions about the learning setting, we show
+that our analytic results hold on several real-world datasets by controlling for overfitting through regularization
+and model structure.
+
+Membership inference Training data membership inference attacks aim to determine whether a given
+data point was present in the training data used to build a model. Although this may not at first seem
+to pose a serious privacy risk, the threat is clear in settings such as health analytics where the distinction
+between case and control groups could reveal an individual’s sensitive conditions. This type of attack has
+been extensively studied in the adjacent area of genomics [21,22], and more recently in the context of machine
+learning [6, 7].
+    Our analysis shows a clear dependence of membership advantage on generalization error (Section 3.2),
+and in some cases the relationship is directly proportional (Theorem 2). Our experiments on real data
+confirm that this connection matters in practice (Section 6.2), even for models that do not conform to the
+formal assumptions of our analysis. In one set of experiments, we apply a particularly straightforward attack
+to deep convolutional neural networks (CNNs) using several datasets examined in prior work on membership
+inference. Despite requiring significantly less computation and adversarial background knowledge, our attack
+performs almost as well as a recently published attack [7].
+    Our results illustrate that overfitting is a sufficient condition for membership vulnerability in popular
+machine learning algorithms. However, it is not a necessary condition (Theorem 4). In fact, under certain
+assumptions that are commonly satisfied in practice, we show that a stable training algorithm (i.e., one that
+does not overfit) can be subverted so that the resulting model is nearly as stable but reveals exact membership
+information through its black-box behavior. This attack is suggestive of algorithm substitution attacks from
+cryptography [23] and makes adversarial assumptions similar to those of other recent ML privacy attacks [24].
+We implement this construction to train deep CNNs (Section 6.4) and observe that, regardless of the model’s
+generalization behavior, the attacker can recover membership information while incurring very little penalty
+to predictive accuracy.
+
+Attribute inference In an attribute inference attack, the adversary uses a machine learning model and
+incomplete information about a data point to infer the missing information for that point. For example, in
+work by Fredrikson et al. [4], the adversary is given partial information about an individual’s medical record
+and attempts to infer the individual’s genotype by using a model trained on similar medical records.
+    We formally characterize the advantage of an attribute inference adversary as its ability to infer a target
+feature given an incomplete point from the training data, relative to its ability to do so for points from the
+general population (Section 4). This approach is distinct from the way that attribute advantage has largely
+been characterized in prior work [3, 4, 5], which prioritized empirically measuring advantage relative to a
+simulator who is not given access to the model. We offer an alternative definition of attribute advantage
+(Definition 6) that corresponds to this characterization and argue that it does not isolate the risk that the
+model poses specifically to individuals in the training data.
+    Our formal analysis shows that attribute inference, like membership inference, is indeed sensitive to
+overfitting. However, we find that influence must be factored in as well to understand when overfitting will
+lead to privacy risk (Section 4.1). Interestingly, the risk to individuals in the training data is greatest when
+these two factors are “in balance”. Regardless of how large the generalization error becomes, the attacker’s
+
+
+                                                        2
+ability to learn more about the training data than the general population vanishes as influence increases.
+
+Connection between membership and attribute inference The two types of attack that we examine
+are deeply related. We build reductions between the two by assuming oracle access to either type of adversary.
+Then, we characterize each reduction’s advantage in terms of the oracle’s assumed advantage. Our results
+suggest that attribute inference may be “harder” than membership inference: attribute advantage implies
+membership advantage (Theorem 6), but there is currently no similar result in the opposite direction.
+    Our reductions are not merely of theoretical interest. Rather, they function as practical attacks as well.
+We implemented a reduction for attribute inference and evaluated it on real data (Section 6.3). Our results
+show that when generalization error is high, the reduction adversary can outperform an attribute inference
+attack given in [4] by a significant margin.
+
+Summary This paper explores the relationships between privacy, overfitting, and influence in machine
+learning models. We present new formalizations of membership and attribute inference attacks that enable
+an analysis of the privacy risk that black-box variants of these attacks pose to individuals in the training data.
+We give analytic quantities for the attacker’s performance in terms of generalization error and influence, which
+allow us to conclude that certain configurations imply privacy risk. By introducing a new type of membership
+inference attack in which a stable training algorithm is replaced by a malicious variant, we find that the
+converse does not hold: machine learning models can pose immediate threats to privacy without overfitting.
+Finally, we study the underlying connections between membership and attribute inference attacks, finding
+surprising relationships that give insight into the relative difficulty of the attacks and lead to new attacks
+that work well on real data.
+
+
+2     Background
+Throughout the paper we focus on privacy risks related to machine learning algorithms. We begin by
+introducing basic notation and concepts from learning theory.
+
+2.1    Notation and preliminaries
+Let z = (x, y) ∈ X × Y be a data point, where x represents a set of features or attributes and y a response.
+In a typical machine learning setting, and thus throughout this paper, it is assumed that the features x are
+given as input to the model, and the response y is returned. Let D represent a distribution of data points,
+and let S ∼ Dn be an ordered list of n points, which we will refer to as a dataset, training set, or training data
+interchangeably, sampled i.i.d. from D. We will frequently make use of the following methods of sampling a
+data point z:
+    • z ∼ S: i is picked uniformly at random from [n], and z is set equal to the i-th element of S.
+
+    • z ∼ D: z is chosen according to the distribution D.
+When it is clear from the context, we will refer to these sampling methods as sampling from the dataset and
+sampling from the distribution, respectively.
+    Unless stated otherwise, our results pertain to the standard machine learning setting, wherein a model
+AS is obtained by applying a machine learning algorithm A to a dataset S. Models reside in the set X → Y
+and are assumed to approximately minimize the expected value of a loss function ` over S. If z = (x, y), the
+loss function `(AS , z) measures how much AS (x) differs from y. When the response domain is discrete, it is
+common to use the 0-1 loss function, which satisfies `(AS , z) = 0 if y = AS (x) and `(AS , z) = 1 otherwise.
+When the response is continuous, we use the squared-error loss `(AS , z) = (y − AS (x))2 . Additionally, it
+is common for many types of models to assume that y is normally distributed in some way. For example,
+
+
+
+
+                                                        3
+linear regression assumes that y is normally distributed given x [25]. To analyze these cases, we use the error
+function erf, which is defined in Equation 1.
+                                                           Z x
+                                                        1         2
+                                             erf(x) = √        e−t dt                                        (1)
+                                                         π −x
+                                                                                  √
+Intuitively, if a random variable  is normally distributed and x ≥ 0, then erf(x/ 2) represents the probability
+that  is within x standard deviations of the mean.
+
+2.2     Stability and generalization
+An algorithm is stable if a small change to its input causes limited change in its output. In the context
+of machine learning, the algorithm in question is typically a training algorithm A, and the “small change”
+corresponds to the replacement of a single data point in S. This is made precise in Definition 1.
+Definition 1 (On-Average-Replace-One (ARO) Stability). Given S = (z1 , . . . , zn ) ∼ Dn and an additional
+point z 0 ∼ D, define S (i) = (z1 , . . . , zi−1 , z 0 , zi+1 , . . . , zn ). Let stable : N → R be a monotonically decreasing
+function. Then a training algorithm A is on-average-replace-one-stable (or ARO-stable) on loss function `
+with rate stable (n) if
+                                          E        [`(AS (i) , zi ) − `(AS , zi )] ≤ stable (n),
+                                    S∼D n ,z 0 ∼D
+                                     i∼U (n),A
+
+where A in the expectation refers to the randomness used by the training algorithm.
+    Stability is closely related to the popular notion of differential privacy [26] given in Definition 2.
+Definition 2 (Differential privacy). An algorithm A : Xn → Y satisfies -differential privacy if for all
+S, S 0 ∈ Xn that differ in the value at a single index i ∈ [n] and all Y ⊆ Y, the following holds:
+
+                                            Pr[A(S) ∈ Y ] ≤ e Pr[A(S 0 ) ∈ Y ].
+
+   When a learning algorithm is not stable, the models that it produces might overfit to the training data.
+Overfitting is characterized by large generalization error, which is defined below.
+Definition 3 (Average generalization error). The average generalization error of a machine learning algo-
+rithm A on D is defined as
+
+                                 Rgen (A, n, D, `) =     E [`(AS , z)] −     E [`(AS , z)].
+                                                       S∼D n               S∼D n
+                                                        z∼D                 z∼S
+
+   In other words, AS overfits if its expected loss on samples drawn from D is much greater than its
+expected loss on its training set. For brevity, when n, D, and ` are unambiguous from the context, we will
+write Rgen (A) instead.
+   It is important to note that Definition 3 describes the average generalization error over
+                                                                                          P all training sets, as
+contrasted with another common definition of generalization error Ez∼D [`(AS , z)] − n1 z∈S `(AS , z), which
+holds the training set fixed. The connection between average generalization and stability is formalized by
+Shalev-Shwartz et al. [27], who show that an algorithm’s ability to achieve a given generalization error (as a
+function of n) is equivalent to its ARO-stability rate.
+
+
+3     Membership Inference Attacks
+In a membership inference attack, the adversary attempts to infer whether a specific point was included in
+the dataset used to train a given model. The adversary is given a data point z = (x, y), access to a model
+AS , the size of the model’s training set |S| = n, and the distribution D that the training set was drawn from.
+
+
+                                                               4
+With this information the adversary must decide whether z ∈ S. For the purposes of this discussion, we do
+not distinguish whether the adversary A’s access to AS is “black-box”, i.e., consisting only of input/output
+queries, or “white-box”, i.e., involving the internal structure of the model itself. However, all of the attacks
+presented in this section assume black-box access.
+    Experiment 1 below formalizes membership inference attacks. The experiment first samples a fresh
+dataset from D and then flips a coin b to decide whether to draw the adversary’s challenge point z from the
+training set or the original distribution. A is then given the challenge, along with the additional information
+described above, and must guess the value of b.
+Experiment 1 (Membership experiment ExpM (A, A, n, D)). Let A be an adversary, A be a learning algo-
+rithm, n be a positive integer, and D be a distribution over data points (x, y). The membership experiment
+proceeds as follows:
+
+  1. Sample S ∼ Dn , and let AS = A(S).
+  2. Choose b ← {0, 1} uniformly at random.
+  3. Draw z ∼ S if b = 0, or z ∼ D if b = 1
+
+  4. ExpM (A, A, n, D) is 1 if A(z, AS , n, D) = b and 0 otherwise. A must output either 0 or 1.
+Definition 4 (Membership advantage). The membership advantage of A is defined as
+
+                             AdvM (A, A, n, D) = 2 Pr[ExpM (A, A, n, D) = 1] − 1,
+
+where the probabilities are taken over the coin flips of A, the random choices of S and b, and the random
+data point z ∼ S or z ∼ D.
+   Equivalently, the right-hand side can be expressed as the difference between A’s true and false positive
+rates
+                              AdvM = Pr[A = 0 | b = 0] − Pr[A = 0 | b = 1],                             (2)
+where AdvM is a shortcut for AdvM (A, A, n, D).
+    Using Experiment 1, Definition 4 gives an advantage measure that characterizes how well an adversary
+can distinguish between z ∼ S and z ∼ D after being given the model. This is slightly different from the
+sort of membership inference described in some prior work [6, 7], which distinguishes between z ∼ S and
+z ∼ D \ S. We are interested in measuring the degree to which AS reveals membership to A, and not in
+the degree to which any background knowledge of S or D does. If we sample z from D \ S instead of D,
+the adversary could gain advantage by noting which data points are more likely to have been sampled into
+S ∼ Dn . This does not reflect how leaky the model is, and Definition 4 rules it out.
+    In fact, the only way to gain advantage is through access to the model. In the membership experiment
+ExpM (A, A, n, D), the adversary A must determine the value of b by using z, AS , n, and D. Of these inputs,
+n and D do not depend on b, and we have the following for all z:
+
+              Pr[b = 0 | z] = Pr n [z] Pr[b = 0]/ Pr[z] = Pr [z] Pr[b = 1]/ Pr[z] = Pr[b = 1 | z].
+                              S∼D                          z∼D
+                               z∼S
+
+We note that Definition 4 does not give the adversary credit for predicting that a point drawn from D (i.e.,
+when b = 1), which also happens to be in S, is a member of S. As a result, the maximum advantage that
+an adversary can hope to achieve is 1 − µ(n, D), where µ(n, D) = PrS∼Dn ,z∼D [z ∈ S] is the probability of
+re-sampling an individual from the training set into the general population. In real settings µ(n, D) is likely
+to be exceedingly small, so this is not an issue in practice.
+
+
+
+
+                                                       5
+3.1     Bounds from differential privacy
+Our first result (Theorem 1) bounds the advantage of an adversary who attempts a membership attack on a
+differentially private model [26]. Differential privacy imposes strict limits on the degree to which any point in
+the training data can affect the outcome of a computation, and it is commonly understood that differential
+privacy will limit membership inference attacks. Thus it is not surprising that the advantage is limited by a
+function of .
+Theorem 1. Let A be an -differentially private learning algorithm and A be a membership adversary. Then
+we have:
+                                       AdvM (A, A, n, D) ≤ e − 1.
+Proof. Given S = (z1 , . . . , zn ) ∼ Dn and an additional point z 0 ∼ D, define S (i) = (z1 , . . . , zi−1 , z 0 , zi+1 , . . . , zn ).
+Then, A(z 0 , AS , n, D) and A(zi , AS (i) , n, D) have identical distributions for all i ∈ [n], so we can write:
+                                                               " n                        #
+                                                                 1X
+                               Pr[A = 0 | b = 0] = 1 − E               A(zi , AS , n, D)
+                                                         S∼D n n
+                                                                   i=1
+                                                               " n                          #
+                                                                 1X
+                               Pr[A = 0 | b = 1] = 1 − E               A(zi , AS (i) , n, D)
+                                                         S∼D n n
+                                                                   i=1
+
+The above two equalities, combined with Equation 2, gives:
+                                      " n                                              #
+                            M          1X
+                         Adv = E             A(zi , AS (i) , n, D) − A(zi , AS , n, D)                                           (3)
+                                S∼D n n
+                                         i=1
+
+   Without loss of generality for the case where models reside in an infinite domain, assume that the models
+produced by A come from the set {A1 , . . . , Ak }. Differential privacy guarantees that for all j ∈ [k],
+                                              Pr[AS (i) = Aj ] ≤ e Pr[AS = Aj ].
+Using this inequality, we can rewrite and bound the right-hand side of Equation 3 as
+                        k
+                                " n                                                      #
+                       X           1X                 j              j           j
+                             E           Pr[AS (i) = A ] − Pr[AS = A ] · A(zi , A , n, D)
+                           S∼D n n
+                       j=1           i=1
+                           k                                   n
+                                    "                                             #
+                          X
+                                                        j  1X            j
+                       ≤       E     (e − 1) Pr[AS = A ] ·        A(zi , A , n, D) ,
+                          j=1
+                              S∼D n                         n i=1
+
+which is at most e − 1 since A(z, Aj , n, D) ≤ 1 for any z, Aj , n, and D.
+    Wu et al. [8, Section 3.2] present an algorithm that is differentially private as long as the loss function `
+is λ-strongly convex and ρ-Lipschitz. Moreover, they prove that the performance of the resulting model is
+close to the optimal. Combined with Theorem 1, this provides us with a bound on membership advantage
+when the loss function is strongly convex and Lipschitz.
+
+3.2     Membership attacks and generalization
+In this section, we consider several membership attacks that make few, common assumptions about the
+model AS or the distribution D. Importantly, these assumptions are consistent with many natural learning
+techniques widely used in practice.
+   For each attack, we express the advantage of the attacker as a function of the extent of the overfitting,
+thereby showing that the generalization behavior of the model is a strong predictor for vulnerability to
+membership inference attacks. In Section 6.2, we demonstrate that these relationships often hold in practice
+on real data, even when the assumptions used in our analysis do not hold.
+
+
+                                                                 6
+Bounded loss function We begin with a straightforward attack that makes only one simple assumption:
+the loss function is bounded by some constant B. Then, with probability proportional to the model’s loss
+at the query point z, the adversary predicts that z is not in the training set. The attack is formalized in
+Adversary 1.
+Adversary 1 (Bounded loss function). Suppose `(AS , z) ≤ B for some constant B, all S ∼ Dn , and all z
+sampled from S or D. Then, on input z = (x, y), AS , n, and D, the membership adversary A proceeds as
+follows:
+  1. Query the model to get AS (x).
+  2. Output 1 with probability `(AS , z)/B. Else, output 0.
+    Theorem 2 states that the membership advantage of this approach is proportional to the generalization
+error of A, showing that advantage and generalization error are closely related in many common learning
+settings. In particular, classification settings, where the 0-1 loss function is commonly used, B = 1 yields
+membership advantage equal to the generalization error. Simply put, high generalization error necessarily
+results in privacy loss for classification models.
+Theorem 2. The advantage of Adversary 1 is Rgen (A)/B.
+Proof. The proof is as follows:
+
+                                  AdvM (A, A, n, D)
+                                  = Pr[A = 0 | b = 0] − Pr[A = 0 | b = 1]
+                                  = Pr[A = 1 | b = 1] − Pr[A = 1 | b = 0]
+                                                                         
+                                       `(AS , z)             `(AS , z)
+                                  =E             b=1 −E                b=0
+                                          B                     B
+                                                                         
+                                    1 
+                                  =       E [`(AS , z)] − E n [`(AS , z)]
+                                    B S∼Dn                S∼D
+                                          z∼D               z∼S
+
+                                  = Rgen (A)/B
+
+Gaussian error Whenever the adversary knows the exact error distribution, it can simply compute which
+value of b is more likely given the error of the model on z. This adversary is described formally in Adversary 2.
+While it may seem far-fetched to assume that the adversary knows the exact error distribution, linear
+regression models implicitly assume that the error of the model is normally distributed. In addition, the
+standard errors σS , σD of the model on S and D, respectively, are often published with the model, giving
+the adversary full knowledge of the error distribution. We will describe in Section 3.3 how the adversary can
+proceed if it does not know one or both of these values.
+Adversary 2 (Threshold). Suppose f ( | b = 0) and f ( | b = 1), the conditional probability density
+functions of the error, are known in advance. Then, on input z = (x, y), AS , n, and D, the membership
+adversary A proceeds as follows:
+  1. Query the model to get AS (x).
+  2. Let  = y − AS (x). Output arg maxb∈{0,1} f ( | b).
+    In regression problems that use squared-error loss, the magnitude of the generalization error depends on
+the scale of the response y. For this reason, in the following we use the ratio σD /σS to measure generalization
+error. Theorem 3 characterizes the advantage of this adversary in the case of Gaussian error in terms of
+σD /σS . As one might expect, this advantage is 0 when σS = σD and approaches 1 as σD /σS → ∞. The
+dotted line in Figure 2a shows the graph of the advantage as a function of σD /σS .
+
+
+                                                       7
+Theorem 3. Suppose σS and σD are known in advance such that  ∼ N (0, σS2 ) when b = 0 and  ∼ N (0, σD
+                                                                                                      2
+                                                                                                        )
+when b = 1. Then, the advantage of Membership Adversary 2 is
+                                  s              !       s                  !
+                              σD     ln(σD /σS )              ln(σD /σS )
+                         erf                       − erf                      .
+                              σS (σD /σS )2 − 1              (σD /σS )2 − 1
+
+Proof. We have
+                                                          1      2   2
+                                       f ( | b = 0) = √      e− /2σS
+                                                         2πσS
+                                                          1      2   2
+                                       f ( | b = 1) = √      e− /2σD .
+                                                         2πσD
+Let ±eq be the points at which these two probability density functions are equal. Some algebraic manipu-
+lation shows that                                s
+                                                    2 ln(σD /σS )
+                                        eq = σD                  .                                   (4)
+                                                   (σD /σS )2 − 1
+Moreover, if σS < σD , f ( | b = 0) > f ( | b = 1) if and only if || < eq . Therefore, the membership
+advantage is
+
+                         AdvM (A, A, n, D)
+                          = Pr[A = 0 | b = 0] − Pr[A = 0 | b = 1]
+                          = Pr[|| < eq | b = 0] − Pr[|| < eq | b = 1]
+                                                       
+                                   eq              eq
+                          = erf √          − erf √
+                                    2σS              2σD
+                                     s                 !          s                 !
+                                  σD      ln(σD /σS )                 ln(σD /σS )
+                          = erf                           − erf                       .
+                                  σS (σD /σS )2 − 1                  (σD /σS )2 − 1
+
+3.3    Unknown standard error
+In practice, models are often published with just one value of standard error, so the adversary often does
+not know how σD compares to σS . One solution to this issue is to assume that σS ≈ σD , i.e., that the model
+does not terribly overfit. Then, the threshold is set at || = σS , which is the limit
+                                                                                  √ of the right-hand
+                                                                                                √       side
+of Equation 4 as σD approaches σS . Then, the membership advantage is erf(1/ 2) − erf(σS / 2σD ). This
+expression is graphed in Figure 2b as a function of σD /σS .
+   Alternatively, if the adversary knows which machine learning algorithm was used, it can repeatedly
+sample S ∼ Dn , train the model AS using the sampled S, and measure the error of the model to arrive at
+reasonably close approximations of σS and σD .
+
+3.4    Other sources of membership advantage
+The results in the preceding sections show that overfitting is sufficient for membership advantage. However,
+models can leak information about the training set in other ways, and thus overfitting is not necessary for
+membership advantage. For example, the learning rule can produce models that simply output a lossless
+encoding of the training dataset. This example may seem unconvincing for several reasons: the leakage is
+obvious, and the “encoded” dataset may not function well as a model. In the rest of this section, we present
+a pair of colluding training algorithm and adversary that does not have the above issues but still allows the
+attacker to learn the training set almost perfectly. This is in the framework of an algorithm substitution
+attack (ASA) [23], where the target algorithm, which is implemented by closed-source software, is subverted
+to allow a colluding adversary to violate the privacy of the users of the algorithm. All the while, this
+
+
+                                                       8
+subversion remains impossible to detect. Algorithm 1 and Adversary 3 represent a similar security threat
+for learning rules with bounded loss function. While the attack presented here is not impossible to detect,
+on points drawn from D, the black-box behavior of the subverted model is similar to that of an unsubverted
+model.
+    The main result is given in Theorem 4, which shows that any ARO-stable learning rule A, with a bounded
+loss function operating on a finite domain, can be modified into a vulnerable learning rule Ak , where k ∈ N is
+a parameter. Moreover, subject to our assumption from before that µ(n, D) is very small, the stability rate
+of the vulnerable model Ak is not far from that of A, and for each Ak there exists a membership adversary
+whose advantage is negligibly far (in k) from the maximum advantage possible on D. Simply put, it is often
+possible to find a suitably leaky version of an ARO-stable learning rule whose generalization behavior is close
+to that of the original.
+Theorem 4. Let d = log |X|, m = log |Y|, ` be a loss function bounded by some constant B, A be an ARO-
+stable learning rule with rate stable (n), and suppose that x uniquely determines the point (x, y) in D. Then for
+any integer k > 0, there exists an ARO-stable learning rule Ak with rate at most stable (n)+knB2−d +µ(n, D)
+and adversary A such that:
+                                     AdvM (A, Ak , n, D) = 1 − µ(n, D) − 2−mk
+    The proof of Theorem 4 involves constructing a learning rule Ak that leaks precise membership informa-
+tion when queried in a particular way but is otherwise identical to A. Ak assumes that the adversary has
+knowledge of a secret key that is used to select pseudorandom functions that define the “special” queries
+used to extract membership information. In this way, the normal behavior of the model remains largely
+unchanged, making Ak approximately as stable as A, but the learning algorithm and adversary “collude” to
+leak information through the model. We require the features x to fully determine y to avoid collisions when
+the adversary queries the model, which would result in false positives. In practice, many learning problems
+satisfy this criterion. Algorithm 1 and Adversary 3 illustrate the key ideas in this construction informally.
+Algorithm 1 (Colluding training algorithm AC ). Let FK : X 7→ X and GK : X 7→ Y be keyed pseudorandom
+functions, K1 , . . . , Kk be uniformly chosen keys, and A be a training algorithm. On receiving a training set
+S, AC proceeds as follows:
+                                                                       0
+  1. Supplement S using F, G: for all (xi , yi ) ∈ S and j ∈ [k], let zi,j = (FKj (xi ), GKj (xi )), and set
+      0        0
+     S = S ∪ {zi,j | i ∈ [n], j ∈ [k]}.
+  2. Return AS 0 = A(S 0 ).
+Adversary 3 (Colluding adversary AC ). Let FK : X 7→ X, GK : X 7→ Y and K1 , . . . , Kk be the functions
+and keys used by AC , and AS 0 be the product of training with AC with those keys. On input z = (x, y), the
+adversary AC proceeds as follows:
+  1. For j ∈ [k], let yj0 ← AS 0 (FKj (x)).
+  2. Output 0 if yj0 = GKj (x) for all j ∈ [k]. Else, output 1.
+    Algorithm 1 will not work well in practice for many classes of models, as they may not have the capacity
+to store the membership information needed by the adversary while maintaining the ability to generalize.
+Interestingly, in Section 6.4 we empirically demonstrate that deep convolutional neural networks (CNNs) do
+in fact have this capacity and generalize perfectly well when trained in the manner of AC . As pointed out by
+Zhang et al. [28], because the number of parameters in deep CNNs often significantly exceeds the training
+set size, despite their remarkably good generalization error, deep CNNs may have the capacity to effectively
+“memorize” the dataset. Our results supplement their observations and suggest that this phenomenon may
+have severe implications for privacy.
+    Before we give the formal proof, we note a key difference between Algorithm 1 and the construction used
+in the proof. Whereas the model returned by Algorithm 1 belongs to the same class as those produced by A,
+in the formal proof the training algorithm can return an arbitrary model as long as its black-box behavior
+is suitable.
+
+
+                                                        9
+Proof. The proof constructs a learning algorithm and adversary who share a set of k keys to a pseudorandom
+function. The secrecy of the shared key is unnecessary, as the proof only relies on the uniformity of the keys
+and the pseudorandom functions’ outputs. The primary concern is with using the pseudorandom function
+in a way that preserves the stability of A as much as possible.
+    Without loss of generality, assume that X = {0, 1}d and Y = {0, 1}m . Let FK : {0, 1}d → {0, 1}d and
+GK : {0, 1}d 7→ {0, 1}m be keyed pseudorandom functions, and let K1 , . . . , Kk be uniformly sampled keys.
+On receiving S, the training algorithm AK1 ,...,Kk returns the following model:
+                                     (
+                    K1 ,...,Kk        GKj (x), if ∃(x0 , y) ∈ S s.t. x = FKj (x0 ) for some Kj
+                  AS           (x) =
+                                      AS (x),  otherwise
+
+We now define a membership adversary AK1 ,...,Kk who is hard-wired with keys K1 , . . . , Kk :
+                                              (
+                                               0, if AS (x) = GKj (FKj (x))for all Kj
+                   AK1 ,...,Kk (z, A, n, D) =
+                                               1, otherwise
+
+Recalling our assumption that the value of x uniquely determines the point (x, y), we can derive the advantage
+of AK1 ,...,Kk on the corresponding trainer AK1 ,...,Kk in possession of the same keys:
+
+                               AdvM (AK1 ,...,Kk , AK1 ,...,Kk , n, D)
+                                = Pr[AK1 ,...,Kk = 0 | b = 0] − Pr[AK1 ,...,Kk = 0 | b = 1]
+                                = 1 − µ(n, D) − 2−mk
+
+The 2−mk term comes from the possibility that GKj (FKj (x)) = AS (x) for all j ∈ [k] by pure chance.
+   Now observe that A is ARO-stable with rate stable (n). If z = (x, y), we use CS (z) to denote the
+probability that FKj (x) collides with FKj (xi ) for some (xi , yi ) = zi ∈ S and some key Kj . Note that by a
+simple union bound, we have CS (z) ≤ kn2−d for z 6∈ S. Then algebraic manipulation gives us the following,
+                                  K1 ,...,Kk
+where we write AK S in place of AS           to simplify notation:
+
+   Rgen (AK , n, D, `)
+             " n                                  #
+              1X         K                K
+   = En              `(AS (i) , zi ) − `(AS , zi )
+     S∼D      n i=1
+      z 0 ∼D
+             " n                                                   #         " n                                              #
+              1X                                                                1X
+   = En              (1 − CS (zi )) (`(AS (i) , zi ) − `(AS , zi )) + E n             CS (zi ) (`(AS (i) , zi ) − `(GK , zi ))
+     S∼D      n i=1                                                   S∼D       n i=1
+      z 0 ∼D                                                          z 0 ∼D
+             " n                                  #         " n                                           #
+              1X                                               1X
+   = En              `(AS (i) , zi ) − `(AS , zi ) + E n             CS (zi ) (`(AS , zi ) − `(GK , zi ))
+     S∼D
+        0
+              n i=1                                   S∼D
+                                                        0
+                                                               n i=1
+      z ∼D                                             z ∼D
+             " n                                  #
+              1  X
+   ≤ En              `(AS (i) , zi ) − `(AS , zi ) + knB2−d + µ(n, D)
+     S∼D
+        0
+              n  i=1
+       z ∼D
+   = stable (n) + knB2−d + µ(n, D)
+
+Note that the term µ(n, D) on the last line accounts for the possibility that the z 0 sampled at index i in S (i)
+is already in S, which results in a collision. By the result in [27] that states that the average generalization
+error equals the ARO-stability rate, AK is ARO-stable with rate stable (n) + knB2−d + µ(n, D), completing
+the proof.
+   The formal study of ASAs was introduced by Bellare et al. [23], who considered attacks against symmetric
+encryption. Subsequently, attacks against other cryptographic primitives were studied as well [29, 30, 31].
+
+
+                                                               10
+The recent work of Song et al. [24] considers a similar setting, wherein a malicious machine learning provider
+supplies a closed-source training algorithm to users with private data. When the provider gets access to the
+resulting model, it can exploit the trapdoors introduced in the model to get information about the private
+training dataset. However, to the best of our knowledge, a formal treatment of ASAs against machine
+learning algorithms has not been given yet. We leave this line of research as future work, with Theorem 4
+as a starting point.
+
+
+4     Attribute Inference Attacks
+We now consider attribute inference attacks, where the goal of the adversary is to guess the value of the
+sensitive features of a data point given only some public knowledge about it and the model. To make
+this explicit in our notation, in this section we assume that data points are triples z = (v, t, y), where
+(v, t) = x ∈ X and t is the sensitive features targeted in the attack. A fixed function ϕ with domain X × Y
+describes the information about data points known by the adversary. Let T be the support of t when
+z = (v, t, y) ∼ D. The function π is the projection of X into T (e.g., π(z) = t).
+    Attribute inference is formalized in Experiment 2, which proceeds much like Experiment 1. An important
+difference is that the adversary is only given partial information ϕ(z) about the challenge point z.
+Experiment 2 (Attribute experiment ExpA (A, A, n, D)). Let A be an adversary, n be a positive integer,
+and D be a distribution over data points (x, y). The attribute experiment proceeds as follows:
+    1. Sample S ∼ Dn .
+    2. Choose b ← {0, 1} uniformly at random.
+    3. Draw z ∼ S if b = 0, or z ∼ D if b = 1.
+    4. ExpA (A, A, n, D) is 1 if A(ϕ(z), AS , n, D) = π(z) and 0 otherwise.
+    In the corresponding advantage measure shown in Definition 5, our goal is to measure the amount of
+information about the target π(z) that AS leaks specifically concerning the training data S. Definition 5
+accomplishes this by comparing the performance of the adversary when b = 0 in Experiment 2 with that
+when b = 1.
+Definition 5 (Attribute advantage). The attribute advantage of A is defined as:
+            AdvA (A, A, n, D) = Pr[ExpA (A, A, n, D) = 1 | b = 0] − Pr[ExpA (A, A, n, D) = 1 | b = 1],
+where the probabilities are taken over the coin flips of A, the random choice of S, and the random data point
+z ∼ S or z ∼ D.
+    Notice that
+
+             AdvA =
+                      P
+                         ti ∈T Prz∼D [t = ti ](Pr[A = ti | b = 0, t = ti ] − Pr[A = ti | b = 1, t = ti ]),   (5)
+
+where A and AdvA are shortcuts for A(ϕ(z), AS , n, D) and AdvA (A, A, n, D), respectively.
+   This definition has the side effect of incentivizing the adversary to “game the system” by performing
+poorly when it thinks that b = 1. To remove this incentive, one may consider using a simulator S, which
+does not receive the model as an input, when b = 1. This definition is formalized below:
+Definition 6 (Alternative attribute advantage). Let
+                                  S(ϕ(z), n, D) = arg max Pr [π(z) = ti | ϕ(z)]
+                                                         ti        z∼D
+
+be the Bayes optimal simulator. The attribute advantage of A can alternatively be defined as
+          AdvAS (A, A, n, D) = Pr[A(ϕ(z), AS , n, D) = π(z) | b = 0] − Pr[S(ϕ(z), n, D) = π(z) | b = 1].
+
+
+                                                              11
+    One potential issue with this alternative definition is that higher model accuracy will lead to higher
+attribute advantage regardless of how accurate the model is for the general population. Broadly, there are
+two ways for a model to perform better on the training data: it can overfit to the training data, or it
+can learn a general trend in the distribution D. In this paper, we concern ourselves with the view that
+the adversary’s ability to infer the target π(z) in the latter case is due not to the model but pre-existing
+patterns in D. To allow capturing the difference between overfitting and learning a general trend, we use
+Definition 5 in the following analysis and leave a more complete exploration of Definition 6 as future work.
+While adversaries that “game the system” may seem problematic, the effectiveness of such adversaries is
+indicative of privacy loss because their existence implies the ability to infer membership, as demonstrated
+by Reduction Adversary 5 in Section 5.1.
+
+4.1    Inversion, generalization, and influence
+The case where ϕ simply removes the sensitive attribute t from the data point z = (v, t, y) such that
+ϕ(z) = (v, y) is known in the literature as model inversion [3, 4, 5, 8].
+    In this section, we look at the model inversion attack of Fredrikson et al. [4] under the advantage given
+in Definition 5. We point out that this is a novel analysis, as this advantage is defined to reflect the extent
+to which an attribute inference attack reveals information about individuals in S. While prior work [3, 4]
+has empirically evaluated attribute accuracy over corresponding training and test sets, our goal is to analyze
+the factors that lead to increased privacy risk specifically for members of the training data. To that end, we
+illustrate the relationship between advantage and generalization error as we did in the case of membership
+inference (Section 3.2). We also explore the role of feature influence, which in this case corresponds to the
+degree to which changes to a sensitive feature of x affects the value AS (x). In Section 6.3, we show that the
+formal relationships described here often extend to attacks on real data where formal assumptions may fail
+to hold.
+    The attack described by Fredrikson et al. [4] is intended for linear regression models and is thus subject
+to the Gaussian error assumption discussed in Section 3.2. In general, when the adversary can approximate
+the error distribution reasonably well, e.g., by assuming a Gaussian distribution whose standard deviation
+equals the published standard error value, it can gain advantage by trying all possible values of the sensitive
+attribute. We denote the adversary’s approximation of the error distribution by fA , and we assume that
+the target t = π(z) is drawn from a finite set of possible values t1 , . . . , tm with known frequencies in D. We
+indicate the other features, which are known by the adversary, with the letter v (i.e., z = (x, y), x = (v, t),
+and ϕ(z) = (v, y)). The attack is shown in Adversary 4. For each ti , the adversary counterfactually assumes
+that t = ti and computes what the error of the model would be. It then uses this information to update the
+a priori marginal distribution of t and picks the value ti with the greatest likelihood.
+Adversary 4 (General). Let fA () be the adversary’s guess for the probability density of the error  =
+y − AS (x). On input v, y, AS , n, and D, the adversary proceeds as follows:
+  1. Query the model to get AS (v, ti ) for all i ∈ [m].
+  2. Let (ti ) = y − AS (v, ti ).
+  3. Return the result of arg maxti (Prz∼D [t = ti ] · fA ((ti ))).
+    When analyzing Adversary 4, we are clearly interested in the effect that generalization error will have
+on advantage. Given the results of Section 3.2, we can reasonably expect that large generalization error will
+lead to greater advantage. However, as pointed out by Wu et al. [5], the functional relationship between
+t and AS (v, t) may play a role as well. Working in the context of models as Boolean functions, Wu et al.
+formalized the relevant property as functional influence [20], which is the probability that changing t will
+cause AS (v, t) to change when v is sampled uniformly.
+    The attack considered here applies to linear regression models, and Boolean influence is not suitable for
+use in this setting. However, an analogous notion of influence that characterizes the magnitude of change to
+AS (v, t) is relevant to attribute inference. For linear models, this corresponds to the absolute value of the
+
+
+                                                         12
+normalized coefficient of t. Throughout the rest of the paper, we refer to this quantity as the influence of t
+without risk of confusion with the Boolean influence used in other contexts.
+
+Binary Variable with Uniform Prior The first part of our analysis deals with the simplest case where
+m = 2 with Prz∼D [t = t1 ] = Prz∼D [t = t2 ]. Without loss of generality we assume that AS (v, t1 ) =
+AS (v, t2 ) + τ for some fixed τ ≥ 0, so in this setting τ is a straightforward proxy for influence. Theorem 5
+relates the advantage of Adversary 4 to σS , σD , and τ .
+                                                                                                             2
+Theorem 5. Let t be drawn uniformly from {t1 , t2 } and suppose that y = AS (v, t)√+ , where  ∼ N    √(0, σS )
+                        2                                                  1
+if b = 0 and  ∼ N (0, σD ) if b = 1. Then the advantage of Adversary 4 is 2 (erf(τ /2 2σS ) − erf(τ /2 2σD )).
+Proof. Given the assumptions made in this setting, we can describe the behavior of A as returning the value
+ti that minimizes |(ti )|. If t = t1 , it is easy to check that A guesses correctly if and only if (t1 ) > −τ /2.
+This means that A’s advantage given t = t1 is
+
+                             Pr[A = t1 | t = t1 , b = 0] − Pr[A = t1 | t = t1 , b = 1]
+                             = Pr[(t1 ) > −τ /2 | b = 0] − Pr[(t1 ) > −τ /2 | b = 1]
+                                                                             
+                                 1 1            τ             1 1             τ
+                             =     + erf       √          −     + erf       √                                  (6)
+                                 2 2          2 2σS           2 2         2 2σD
+                                                               
+                               1            τ                τ
+                             =     erf    √        − erf    √
+                               2         2 2σS             2 2σD
+Similar reasoning shows that A’s advantage given t = t2 is exactly the same, so the theorem follows from
+Equation 5.
+
+    Clearly, the advantage will be zero when there is no generalization error (σS = σD ). Consider the other
+extreme case where σS → 0 and σD → ∞. When σS is very small, the adversary will always guess correctly
+because the influence of t overwhelms the effect of the error . On the other hand, when σD is very large,
+changes to t will be nearly imperceptible for “normal” values of τ , and the adversary is reduced to random
+guessing. Therefore, the maximum possible advantage with uniform prior is 1/2. As a model overfits more,
+σS decreases and σD tends to increase. If τ remains fixed, it is easy to see that the advantage increases
+monotonically under these circumstances.
+    Figure 1 shows the effect of changing τ as the ratio σD /σS remains fixed at several different constants.
+When τ = 0, t does not have any effect on the output of the model, so the adversary does not gain anything
+from having access to the model and is reduced to random guessing. When τ is large, the adversary almost
+always guesses correctly regardless of the value of b since the influence of t drowns out the error noise. Thus,
+at both extremes the advantage approaches 0, and the adversary is able to gain advantage only when τ and
+σD /σS are in balance.
+
+General Case Sometimes the uniform prior for t may not be realistic. For example, t may represent
+whether a patient has a rare disease. In this case, we weight the values of fA ((ti )) by the a priori prob-
+ability Prz∼D [t = ti ] before comparing which ti is the most likely. With uniform prior, we could simplify
+arg maxti fA ((ti )) to arg minti |(ti )| regardless of the value of σ used for fA . On the other hand, the value
+of σ matters when we multiply by Pr[t = ti ]. Because the adversary is not given b, it makes an assumption
+similar to that described in Section 3.2 and uses  ∼ N (0, σS2 ).
+    Clearly σS = σD results in zero advantage. The maximum possible advantage is attained when σS → 0
+and σD → ∞. Then, by similar reasoning as before, the adversary will always guess correctly when b = 0
+                                                                                         1
+and is reduced to random guessing when b = 1, resulting in an advantage of 1 − m           .
+    In general, the advantage can be computed using Equation 5. We first figure out when the adversary
+outputs ti . When fA is a Gaussian, this is not computationally intensive as there is at most one decision
+boundary between any two values ti and tj . Then, we convert the decision boundaries into probabilities by
+using the error distributions  ∼ N (0, σS2 ) and N (0, σD  2
+                                                              ), respectively.
+
+
+                                                        13
+                                                                                σD /σS = 5
+                                            0.4                                 σD /σS = 2
+                                                                                σD /σS = 1.2
+
+
+                                Advantage   0.2
+
+
+
+
+                                             0
+                                                  0    2       4            6      8           10
+                                                                    τ /σS
+
+
+Figure 1: The advantage of Adversary 4 as a function of t’s influence τ . Here t is a uniformly distributed
+binary variable.
+
+
+5     Connection between membership and attribute inference
+In this section, we examine the underlying connections between membership and attribute inference attacks.
+Our approach is based on reduction adversaries that have oracle access to one type of attack and attempt
+to perform the other type of attack. We characterize the advantage of each reduction adversary in terms of
+the advantage of its oracle. In Section 6.3, we implement the most sophisticated of the reduction adversaries
+described here and show that on real data it performs remarkably well, often outperforming Attribute
+Adversary 4 by large margins. We note that these reductions are specific to our choice of attribute advantage
+given in Definition 5. Analyzing the connections between membership and attribute inference using the
+alternative Definition 6 is an interesting direction for future work.
+
+5.1     From membership to attribute
+We start with an adversary AM→A that uses an attribute oracle to accomplish membership inference. The
+attack, shown in Adversary 5, is straightforward: given a point z, the adversary queries the attribute oracle
+to obtain a prediction t of the target value π(z). If this prediction is correct, then the adversary concludes
+that z was in the training data.
+Adversary 5 (Membership → attribute). The reduction adversary AM→A has oracle access to attribute
+adversary AA . On input z, AS , n, and D, the reduction adversary proceeds as follows:
+    1. Query the oracle to get t ← AA (ϕ(z), AS , n, D).
+
+    2. Output 0 if π(z) = t. Otherwise, output 1.
+    Theorem 6 shows that the membership advantage of this reduction exactly corresponds to the attribute
+advantage of its oracle. In other words, the ability to effectively infer attributes of individuals in the training
+set implies the ability to infer membership in the training set as well. This suggests that attribute inference
+is at least as difficult as than membership inference.
+Theorem 6. Let AM→A be the adversary described in Adversary 5, which uses AA as an oracle. Then,
+
+                                            AdvM (AM→A , A, n, D) = AdvA (AA , A, n, D).
+
+Proof. The proof follows directly from the definitions of membership and attribute advantages.
+
+              AdvM = Pr[AM→A = 0 | b = 0] − Pr[AM→A = 0 | b = 1]
+                     X
+                   =     Pr[t = ti ](Pr[AM→A = 0 | b = 0, t = ti ] − Pr[AM→A = 0 | b = 1, t = ti ])
+                      ti ∈T
+
+
+
+
+                                                                   14
+                       X
+                   =           Pr[t = ti ](Pr[AA = ti | b = 0, t = ti ] − Pr[AA = ti | b = 1, t = ti ])
+                       ti ∈T
+
+                   = AdvA .
+
+5.2    From attribute to membership
+We now consider reductions in the other direction, wherein the adversary is given ϕ(z) and must reconstruct
+the point z to query the membership oracle. To accomplish this, we assume that the adversary knows a
+deterministic reconstruction function ϕ−1 such that ϕ◦ϕ−1 is the identity function, i.e., for any value of ϕ(z)
+that the adversary may receive, there exists z 0 = ϕ−1 (ϕ(z)) such that ϕ(z) = ϕ(z 0 ). However, because ϕ is
+a lossy function, in general it does not hold that ϕ−1 (ϕ(z)) = z. Our adversary, described in Adversary 6,
+reconstructs the point z 0 , sets the attribute t of that point to value ti chosen uniformly at random, and
+outputs ti if the membership oracle says that the resulting point is in the dataset.
+Adversary 6 (Uniform attribute → membership). Suppose that t1 , . . . , tm are the possible values of the
+target t = π(z). The reduction adversary AUA→M has oracle access to membership adversary AM . On input
+ϕ(z), AS , n, and D, the reduction adversary proceeds as follows:
+  1. Choose ti uniformly at random from {t1 , . . . , tm }.
+
+  2. Let z 0 = ϕ−1 (ϕ(z)), and change the value of the sensitive attribute t such that π(z 0 ) = ti .
+  3. Query AM to obtain b0 ← AM (z 0 , AS , n, D).
+  4. If b0 = 0, output ti . Otherwise, output ⊥.
+
+    The uniform choice of ti is motivated by the fact that the adversary may not know how the advantage
+of the membership oracle is distributed across different values of t. For example, it is possible that AM
+performs very poorly when t = t1 and that all of its advantage comes from the case where t = t2 .
+    In the computation of the advantage, we only consider the case where π(z) = ti because this is the only
+case where the reduction adversary can possibly give the correct answer. In that case, the membership oracle
+is given a challenge point from the distribution D0 = {(x, y) | (x, y) = ϕ−1 (ϕ(z)) except that t = π(z)},
+where z ∼ S if b = 0 and z ∼ D if b = 1. On the other hand, the training set S used to train
+the model AS was drawn from D. Because of this difference, we use modified membership advantage
+AdvM∗ (A, A, n, D, ϕ, ϕ
+                        −1
+                           , π), which measures the performance of the membership adversary when the chal-
+lenge point is drawn from D0 . In the case of a model inversion attack as described in the beginning of
+Section 4.1, we have AdvM (A, A, n, D) = AdvM   ∗ (A, A, n, D, ϕ, ϕ
+                                                                    −1
+                                                                       , π), i.e., the modified membership advan-
+tage equals the unmodified one.
+    Theorem 7 shows that the attribute advantage of AU       A→M is proportional to the modified membership
+advantage of AM , giving a lower bound on the effectiveness of attribute inference attacks that use membership
+oracles. Notably, the adversary does not make use of any associations that may exist between ϕ(z) and t,
+so this reduction is general and works even when no such association exists. While the reduction does not
+completely transfer the membership advantage to attribute advantage, the resulting attribute advantage is
+within a constant factor of the modified membership advantage.
+
+Theorem 7. Let AU
+                A→M be the adversary described in Adversary 6, which uses AM as an oracle. Then,
+
+                                                           1                          −1
+                               AdvA (AU
+                                      A→M , A, n, D) =       AdvM
+                                                                ∗ (AM , A, n, D, ϕ, ϕ    , π).
+                                                           m
+Proof. We first give an informal argument. In order for AU A→M to correctly guess the value of t, it needs to
+                                                       1
+choose the correct ti , which happens with probability m , and then AM (z 0 , AS , n, D) must be 0. Therefore,
+AdvA = m1
+          AdvM∗ .
+
+
+
+
+                                                             15
+   Now we give the formal proof. Let t0 be the value of t that was chosen independently and uniformly at
+                                                                        0              0
+random in Step 1 of Adversary 6. Since AUA→M outputs ti if and only if t = ti and AM (z ) = 0, we have
+
+                                                             1
+                          Pr[AU
+                              A→M = ti | b = 0, t = ti ] =     Pr[AM (z 0 ) = 0 | b = 0, t = ti ],
+                                                             m
+and likewise when b = 1. Therefore, the advantage of the reduction adversary is
+                  X
+          AdvA =      Pr[t = ti ](Pr[AU                                U
+                                      A→M = ti | b = 0, t = ti ] − Pr[AA→M = ti | b = 1, t = ti ])
+                      ti ∈T
+                      1 X
+                  =       Pr[t = ti ](Pr[AM (z 0 ) = 0 | b = 0, t = ti ] − Pr[AM (z 0 ) = 0 | b = 1, t = ti ])
+                      m
+                         ti ∈T
+                   1
+                  = (Pr[AM (z 0 ) = 0 | b = 0] − Pr[AM (z 0 ) = 0 | b = 1])
+                   m
+                   1
+                  = AdvM∗ ,
+                   m
+where the second-to-last step holds due to the fact that b and t are independent.
+    Adversary 6 has the obvious weakness that it can only return correct answers when it guesses the value of
+t correctly. Adversary 7 attempts to improve on this by making multiple queries to AM . Rather than guess
+the value of t, this adversary tries all values of t in order of their marginal probabilities until the membership
+adversary says “yes”.
+Adversary 7 (Multi-query attribute → membership). Suppose that t1 , . . . , tm are the possible values of the
+sensitive attribute t. The reduction adversary AM
+                                                A→M has oracle access to membership adversary AM . On
+input ϕ(z), AS , n, and D, AA→M proceeds as follows:
+    1. Let z 0 = ϕ−1 (ϕ(z)).
+    2. For all i ∈ [m], let zi0 be z 0 with the value of the sensitive attribute t changed to ti .
+    3. Query AM to compute T = {ti | AM (zi0 , AS , n, D) = 0}.
+    4. Output arg maxti ∈T Prz∼D [t = ti ]. If T = ∅, output ⊥.
+    We evaluate this adversary experimentally in Section 6.3.
+
+
+6       Evaluation
+In this section, we evaluate the performance of the adversaries discussed in Sections 3, 4, and 5. We compare
+the performance of these adversaries on real datasets with the analysis from previous sections and show that
+overfitting predicts privacy risk in practice as our analysis suggests. Our experiments use linear regression,
+tree, and deep convolutional neural network (CNN) models.
+
+6.1     Methodology
+6.1.1    Linear and tree models
+We used the Python scikit-learn [32] library to calculate the empirical error Remp and the leave-one-out cross
+validation error Rcv [33]. Because these two measures pertain to the error of the model on points inside
+and outside the training set, respectively, they were used to approximate σS and σD , respectively. Then, we
+made a random 75-25% split of the data into training and test sets. The training set was used to train either
+a Ridge regression or a decision tree model, and then the adversaries were given access to this model. We
+repeated this 100 times with different training-test splits and then averaged the result. Before we explain
+the results, we describe the datasets.
+
+
+                                                           16
+   Eyedata. This is gene expression data from rat eye tissues [34], as presented in the “flare” package of
+the R programming language. The inputs and the outputs are respectively stored in R as a 120 × 200 matrix
+and a 120-dimensional vector of floating-point numbers. We used scikit-learn [32] to scale each attribute to
+zero mean and unit variance.
+    IWPC. This is data collected by the International Warfarin Pharmacogenetics Consortium [35] about
+patients who were prescribed warfarin. After we removed rows with missing values, 4819 patients remained
+in the dataset. The inputs to the model are demographic (age, height, weight, race), medical (use of
+amiodarone, use of enzyme inducer), and genetic (VKORC1, CYP2C9) attributes. Age, height, and weight
+are real-valued and were scaled to zero mean and unit variance. The medical attributes take binary values,
+and the remaining attributes were one-hot encoded. The output is the weekly dose of warfarin in milligrams.
+However, because the distribution of warfarin dose is skewed, IWPC concludes in [35] that solving for the
+square root of the dose results in a more predictive linear model. We followed this recommendation and
+scaled the square root of the dose to zero mean and unit variance.
+   Netflix. We use the dataset from the Netflix Prize contest [36]. This is a sparse dataset that indicates
+when and how a user rated a movie. For the output attribute, we used the rating of Dragon Ball Z: Trunks
+Saga, which had one of the most polarized rating distributions. There are 2416 users who rated this, and
+the ratings were scaled to zero mean and unit variance. The input attributes are binary variables indicating
+whether or not a user rated each of the other 17,769 movies in the dataset.
+
+6.1.2   Deep convolutional neural networks
+We evaluated the membership inference attack on deep CNNs. In addition, we implemented the colluding
+training algorithm (Algorithm 1) to verify its performance in practice. The CNNs were trained in Python
+using the Keras deep-learning library [37] and a standard stochastic gradient descent algorithm [38]. We
+used three datasets that are standard benchmarks in the deep learning literature and were evaluated in prior
+work on inference attacks [7]; they are described in more detail below. For all datasets, pixel values were
+normalized to the range [0, 1], and the label values were encoded as one-hot vectors. To expedite the training
+process across a range of experimental configurations, we used a subset of each dataset. For each dataset,
+we randomly divided the available data into equal-sized training and test sets to facilitate comparison with
+prior work [7] that used this convention.
+    The architecture we use is based on the VGG network [39], which is commonly used in computer vision
+applications. We control for generalization error by varying a size parameter s that defines the number of
+units at each layer of the network. The architecture consists of two 3x3 convolutional layers with s filters
+each, followed by a 2x2 max pooling layer, two 3x3 convolutional layers with 2s filters each, a 2x2 max
+pooling layer, a fully-connected layer with 2s units, and a softmax output layer. All activation functions are
+rectified linear. We chose s = 2i for 0 ≤ i ≤ 7, as we did not observe qualitatively different results for larger
+values of i. All training was done using the Adam optimizer [40] with the default parameters in the Keras
+implementation (λ = 0.001, β1 = 0.5, β2 = 0.99,  = 10−8 , and decay set to 5 × 10−4 ). We used categorical
+cross-entropy loss, which is conventional for models whose topmost activation is softmax [38].
+
+   MNIST. MNIST [41] consists of 70,000 images of handwritten digits formatted as grayscale 28×28-pixel
+images, with class labels indicating the digit depicted in each image. We selected 17,500 points from the full
+dataset at random for our experiments.
+
+    CIFAR-10, CIFAR-100. The CIFAR datasets [42] consist of 60,000 32 × 32-pixel color images, labeled
+as 10 (CIFAR-10) and 100 (CIFAR-100) classes. We selected 15,000 points at random from the full data.
+
+6.2     Membership inference
+The results of the membership inference attacks on linear and tree models are plotted in Figures 2a and
+2b. The theoretical and experimental results appear to agree when the adversary knows both σS and σD
+
+
+                                                       17
+                  1                                                                                      1
+
+                 0.8                                                                                    0.8
+
+
+
+     Advantage                                                                              Advantage
+                 0.6                                                                                    0.6
+
+                 0.4                                              Theoretical                           0.4                                         Theoretical
+                                                                   Eyedata                                                                           Eyedata
+                 0.2                                                IWPC                                0.2                                           IWPC
+                                                                    Netflix                                                                           Netflix
+                  0                                                                                      0
+                       1   2   3   4       5                  6           7     8                             1     2       3       4       5   6        7        8
+                                   Rcv /Remp                                                                                        Rcv /Remp
+
+    (a) Regression and tree models assuming knowledge (b) Regression and tree models assuming knowledge
+    of σS and σD .                                    of σS only.
+                                                     1
+
+                                                    0.8
+
+
+
+                                        Advantage
+                                                    0.6
+
+                                                    0.4                                                           Theoretical
+                                                                                                                    MNIST
+                                                    0.2                                                            CIFAR10
+                                                                                                                  CIFAR100
+                                                     0
+                                                          1           2         3         4                   5         6       7
+                                                                                    Rtest /Rtrain
+
+                                        (c) Deep CNNs assuming knowledge of average train-
+                                        ing loss LS .
+
+Figure 2: Empirical membership advantage of the threshold adversary (Adversary 2) given as a function of
+generalization ratio for regression, tree, and CNN models.
+
+
+
+
+                                                                                        18
+                                 Our work                                      Shokri et al. [7]
+     Attack
+               Makes only one query to the model                Must train hundreds of shadow models
+ complexity
+   Required                                                     Ability to train shadow models, e.g., input
+               Average training loss LS
+  knowledge                                                     distribution and type of model
+               0.505 (MNIST)                                    0.517 (MNIST)
+   Precision   0.694 (CIFAR-10)                                 0.72-0.74 (CIFAR-10)
+               0.874 (CIFAR-100)                                > 0.99 (CIFAR-100)
+      Recall   > 0.99                                           > 0.99
+
+Table 1: Comparison of our membership inference attack with that presented by Shokri et al. While our
+attack has slightly lower precision, it requires far less computational resources and background knowledge.
+
+
+and sets the decision boundary accordingly. However, when the adversary does not know σD , it performs
+much better than what the theory predicts. In fact, an adversary can sometimes do better by just fixing
+the decision boundary at || = σS instead of taking σD into account. This is because the training set error
+distributions are not exactly Gaussian. Figures 5 and 6 in the appendix show that, although the training
+set error distributions roughly match the shape of a Gaussian curve, they have a much higher peak at zero.
+As a result, it is often advantageous to bring the decision boundaries closer to zero.
+    The results of the threshold adversary on CNNs are given in Figure 2c. Although these models perform
+classification, the loss function used for training is categorical cross-entropy, which is non-negative, contin-
+uous, and unbounded. This suggests that the threshold adversary could potentially work in this setting as
+well. Specifically, the predictions made by these models can be compared against LS , the average training
+loss observed during training, which is often reported with published architectures as a point of comparison
+against prior work (see, for example, [43] and [44, Figures 3 and 4]). Figure 2c shows that, while the empirical
+results do not match the theoretical curve as closely as do linear and tree models, they do not diverge as
+much as one might expect given that the error is not Gaussian as assumed by Theorem 3.
+    Now we compare our attack with that by Shokri et al. [7], which generates “shadow models” that are
+intended to mimic the behavior of AS . Because their attack involves using machine learning to train the
+attacker with the shadow models, their attack requires considerable computational power and knowledge of
+the algorithm used to train the model. By contrast, our attacker simply makes one query to the model and
+needs to know only the average training loss. Despite these differences, when the size parameter s is set
+equal to that used by Shokri et al., our attacker has the same recall and only slightly lower precision than
+their attacker. A more detailed comparison is given in Table 1.
+
+6.3    Attribute inference and reduction
+We now present the empirical attribute advantage of the general adversary (Adversary 4). Because this
+adversary uses the model inversion assumptions described at the beginning of Section 4.1, our evaluation is
+also in the setting of model inversion. For these experiments we used the IWPC and Netflix datasets described
+in Section 6.1. For fA (), the adversary’s approximation of the error distribution, we used the Gaussian with
+mean zero and standard deviation Remp . For the IWPC dataset, each of the genomic attributes (VKORC1
+and CYP2C9) is separately used as the target t. In the Netflix dataset, the target attribute was whether a
+user rated a certain movie, and we randomly sampled targets from the set of available movies.
+    The circles in Figure 3 show the result of inverting the VKORC1 and CYP2C9 attributes in the IWPC
+dataset. Although the attribute advantage is not as high as the membership advantage (solid line), the
+attribute adversary exhibits a sizable advantage that increases as the model overfits more and more. On the
+other hand, none of the attacks could effectively infer whether a user watched a certain movie in the Netflix
+dataset. In addition, we were unable to simultaneously control for both σD /σS and τ in the Netflix dataset
+to measure the effect of influence as predicted by Theorem 5.
+    Finally, we evaluate the performance of the multi-query reduction adversary (Adversary 7). As the squares
+
+
+                                                      19
+                   1                                                        1
+                            (a)                                                      (a)
+                  0.8       (b)                                            0.8       (b)
+                            (c)                                                      (c)
+
+
+      Advantage                                                Advantage
+                  0.6       (d)                                            0.6       (d)
+
+                  0.4                                                      0.4
+
+                  0.2                                                      0.2
+
+                   0                                                        0
+                        1   2     3   4       5   6   7   8                      1   2     3      4       5   6   7   8
+                                      Rcv /Remp                                                   Rcv /Remp
+
+                                  (a) t = VKORC1                                               (b) t = CYP2C9
+
+Figure 3: Experimentally determined advantage for various membership and attribute adversaries. The
+plots correspond to: (a) threshold membership adversary (Adversary 2), (b) uniform reduction adversary
+(Adversary 6), (c) general attribute adversary (Adversary 4), and (d) multi-query reduction adversary (Ad-
+versary 7). Both reduction adversaries use the threshold membership adversary as the oracle, and fA () for
+the attribute adversary is the Gaussian with mean zero and standard deviation σS .
+
+
+in Figure 3 show, with the IWPC data, making multiple queries to the membership oracle significantly
+increased the success rate compared to what we would expect from the naive uniform reduction adversary
+(Adversary 6, dotted line). Surprisingly, the reduction is also more effective than running the attribute
+inference attack directly. By contrast, with the Netflix data, the multi-query reduction adversary was often
+slightly worse than the naive uniform adversary although it still outperformed direct attribute inference.
+
+6.4               Collusion in membership inference
+We evaluate AC and AC described in Section 3.4 for CNNs trained as image classifiers. To instantiate FK
+and GK , we use Python’s intrinsic pseudorandom number generator with key K as the seed. We note
+that our proof of Theorem 4 relies only on the uniformity of the pseudorandom numbers and not on their
+unpredictability. Deviations from this assumption will result in a less effective membership inference attack
+but do not invalidate our results. All experiments set the number of keys to k = 3.
+    The results of our experiment are shown in Figures 4a and 4b. The data shows that on all three instances,
+the colluding parties achieve a high membership advantage without significantly affecting model performance.
+The accuracy of the subverted model was only 0.014 (MNIST), 0.047 (CIFAR-10), and 0.031 (CIFAR-100)
+less than that of the unsubverted model. The advantage rapidly increases with the model size around s ≈ 16
+but is relatively constant elsewhere, indicating that model capacity beyond a certain point is a necessary
+factor in the attack.
+    Importantly, the results demonstrate that specific information about nearly all of the training data can
+be intentionally leaked through the behavior of a model that appears to generalize very well. In fact, looking
+at Figure 4b shows that in these instances, there is no discernible relationship between generalization error
+and membership advantage. The three datasets exhibit vastly different generalization behavior, with the
+MNIST models achieving almost no generalization error (< 0.02 for s ≥ 32) and CIFAR-100 showing a large
+performance gap (≥ 0.8 for s ≥ 32). Despite this fact, the membership adversary achieves nearly identical
+performance.
+
+
+7     Related Work
+7.1               Privacy and statistical summaries
+There is extensive prior literature on privacy attacks on statistical summaries. Komarova et al. [45] looked
+into partial disclosure scenarios, where an adversary is given fixed statistical estimates from combined public
+
+
+                                                              20
+                      1                                                                           1
+                            MNIST                                                                       MNIST
+                     0.8   CIFAR10                                                           0.8       CIFAR10
+
+
+                                                                             Acctrain − Acctest
+                           CIFAR100                                                                    CIFAR100
+
+
+         Advantage
+                     0.6                                                                     0.6
+
+                     0.4                                                                     0.4
+
+                     0.2                                                                     0.2
+
+                      00                                                                          00
+                      2    21   22         23     24     25   26   27                             2    21   22         23     24     25   26   27
+                                      s (size parameter)                                                          s (size parameter)
+
+      (a) Advantage as a function of network size for AC (b) Generalization error measured as the difference
+      with k = 3. For s ≥ 16, CIFAR-10 and MNIST between training and test accuracy. On MNIST, the
+      achieve advantage at least 0.9 (precision ≥ 0.9, recall maximum was achieved at s = 8 at 0.05, while for
+      ≥ 0.99), whereas CIFAR-100 achieves advantage 0.98 CIFAR-10 the maximum was 0.52 (s = 16), and 0.82
+      (precision ≥ 0.99, recall ≥ 0.99).                      (s = 16) for CIFAR-100.
+
+Figure 4: Results of colluding training algorithm and membership adversary on CNNs trained on MNIST,
+CIFAR-10, and CIFAR-100. The size parameter was configured to take values s = 2i for i ∈ [0, 7]. Regardless
+of the models’ generalization performance, when the network is sufficiently large, the attack achieves high
+advantage (≥ 0.98) without affecting predictive accuracy.
+
+
+and private sources and attempts to infer the sensitive feature of an individual referenced in those sources.
+A number of previous studies [21, 22, 46, 47, 48, 49] have looked into membership attacks from statistics
+commonly published in genome-wide association studies (GWAS). Calandrino et al. [50] showed that temporal
+changes in recommendations given by collaborative filtering methods can reveal the inputs that caused those
+changes. Linear reconstruction attacks [51,52,53] attempt to infer partial inputs to linear statistics and were
+later extended to non-linear statistics [54]. While the goal of these attacks has commonalities with both
+membership inference and attribute inference, our results apply specifically to machine learning settings
+where generalization error and influence make our results relevant.
+
+7.2     Privacy and machine learning
+More recently, others have begun examining these attacks in the context of machine learning. Ateniese et
+al. [1] showed that the knowledge of the internal structure of Support Vector Machines and Hidden Markov
+Models leaks certain types of information about their training data, such as the language used in a speech
+dataset.
+    Dwork et al. [13] showed that a differentially private algorithm with a suitably chosen parameter gener-
+alizes well with high probability. Subsequent work showed that similar results are true under related notions
+of privacy. In particular, Bassily et al. [18] studied a notion of privacy called total variation stability and
+proved good generalization with respect to a bounded number of adaptively chosen low-sensitivity queries.
+Moreover, for data drawn from Gibbs distributions, Wang et al. [19] showed that on-average KL privacy is
+equivalent to generalization error as defined in this paper. While these results give evidence for the rela-
+tionship between privacy and overfitting, we construct an attacker that directly leverages overfitting to gain
+advantage commensurate with the extent of the overfitting.
+
+7.2.1     Membership inference
+Shokri et al. [7] developed a membership inference attack and applied it to popular machine-learning-as-a-
+service APIs. Their attacks are based on “shadow models” that approximate the behavior of the model under
+attack. The shadow models are used to build another machine learning model called the “attack model”,
+which is trained to distinguish points in the training data from other points based on the output they induce
+on the original model under attack. As we discussed in Section 6.2, our simple threshold adversary comes
+
+
+                                                                        21
+surprisingly close to the accuracy of their attack, especially given the differences in complexity and requisite
+adversarial assumptions between the attacks.
+    Because the attack proposed by Shokri et al. itself relies on machine learning to find a function that
+separates training and non-training points, it is not immediately clear why the attack works, but the au-
+thors hypothesize that it is related to overfitting and the “diversity” of the training data. They graph the
+generalization error against the precision of their attack and find some evidence of a relationship, but they
+also find that the relationship is not perfect and conclude that model structure must also be relevant. The
+results presented in this paper make the connection to overfitting precise in many settings, and the colluding
+training algorithm we give in Section 6.4 demonstrates exactly how model structure can be exploited to
+create a membership inference vulnerability.
+    Li et al. [6] explored membership inference, distinguishing between “positive” and “negative” membership
+privacy. They show how this framework defines a family of related privacy definitions that are parametrized
+on distributions of the adversary’s prior knowledge, and they find that a number of previous definitions can
+be instantiated in this way.
+
+7.2.2    Attribute inference
+Practical model inversion attacks have been studied in the context of linear regression [4,8], decision trees [3],
+and neural networks [3]. Our results apply to these attacks when they are applied to data that matches
+the distributional assumptions made in our analysis. An important distinction between the way inversion
+attacks were considered in prior work and how we treat them here is the notion of advantage. Prior work
+on these attacks defined advantage as the difference between the attacker’s predictive accuracy given the
+model and the best accuracy that could be achieved without the model. Although some prior work [3, 4]
+empirically measured this advantage on both training and test datasets, this definition does not allow a
+formal characterization of how exposed the training data specifically is to privacy risk. In Section 4, we
+define attribute advantage precisely to capture the risk to the training data by measuring the difference in
+the attacker’s accuracy on training and test data: the advantage is zero when the attack is as powerful on
+the general population as on the training data and is maximized when the attack works only on the training
+data.
+    Wu et al. [5] formalized model inversion for a simplified class of models that consist of Boolean functions
+and explored the initial connections between influence and advantage. However, as in other prior work on
+model inversion, the type of advantage that they consider says nothing about what the model specifically
+leaks about its training data. Drawing on their observation that influence is relevant to privacy risk in
+general, we illustrate its effect on the notion of advantage defined in this paper and show how it interacts
+with generalization error.
+
+
+8       Conclusion and Future Directions
+We introduced new formal definitions of advantage for membership and attribute inference attacks. Using
+these definitions, we analyzed attacks under various assumptions on learning algorithms and model proper-
+ties, and we showed that these two attacks are closely related through reductions in both directions. Both
+theoretical and experimental results confirm that models become more vulnerable to both types of attacks
+as they overfit more. Interestingly, our analysis also shows that overfitting is not the only factor that can
+lead to privacy risk: Theorem 4 shows that even stable learning algorithms, which provably do not overfit,
+can leak precise membership information, and the results in Section 4.1 demonstrate that the influence of
+the target attribute on a model’s output plays a key role in attribute inference.
+    Our formalization and analysis open interesting directions for future work. The membership attack
+in Theorem 4 is based on a colluding pair of adversary and learning rule, AC and AC . This could be
+implemented, for example, by a malicious ML algorithm provided by a third-party library or cloud service
+to subvert users’ privacy. Further study of this scenario, which may best be formalized in the framework
+
+
+
+                                                       22
+of algorithm substitution attacks [23], is warranted to determine whether malicious algorithms can produce
+models that are indistinguishable from normal ones and how such attacks can be mitigated.
+    Our results in Section 3.1 give bounds on membership advantage when certain conditions are met. These
+bounds apply to adversaries who may target specific individuals, bringing arbitrary background knowledge of
+their targets to help determine their membership status. Some types of realistic adversaries may be motivated
+by concerns that incentivize learning a limited set of facts about as many individuals in the training data
+as possible rather than obtaining unique background knowledge about specific individuals. Characterizing
+these “stable adversaries” is an interesting direction that may lead to tighter bounds on advantage or relaxed
+conditions on the learning rule.
+
+
+References
+ [1] G. Ateniese, L. V. Mancini, A. Spognardi, A. Villani, D. Vitali, and G. Felici, “Hacking smart machines
+     with smarter ones: How to extract meaningful data from machine learning classifiers,” International
+     Journal of Security and Networks, vol. 10, pp. 137–150, Sept. 2015.
+ [2] G. Cormode, “Personal privacy vs population privacy: Learning to attack anonymization,” in KDD,
+     2011.
+ [3] M. Fredrikson, S. Jha, and T. Ristenpart, “Model inversion attacks that exploit confidence information
+     and basic countermeasures,” in ACM Conference on Computer and Communications Security (CCS),
+     2015.
+
+ [4] M. Fredrikson, E. Lantz, S. Jha, S. Lin, D. Page, and T. Ristenpart, “Privacy in pharmacogenetics:
+     An end-to-end case study of personalized warfarin dosing,” in USENIX Security Symposium, pp. 17–32,
+     2014.
+ [5] X. Wu, M. Fredrikson, S. Jha, and J. F. Naughton, “A methodology for formalizing model-inversion
+     attacks,” in 2016 IEEE Computer Security Foundations Symposium (CSF), 2016.
+
+ [6] N. Li, W. Qardaji, D. Su, Y. Wu, and W. Yang, “Membership privacy: A unifying framework for privacy
+     definitions,” in Proceedings of ACM CCS, 2013.
+ [7] R. Shokri, M. Stronati, C. Song, and V. Shmatikov, “Membership inference attacks against machine
+     learning models,” in 2017 IEEE Symposium on Security and Privacy (Oakland), pp. 3–18, 2017.
+
+ [8] X. Wu, M. Fredrikson, W. Wu, S. Jha, and J. F. Naughton, “Revisiting Differentially Private Regression:
+     Lessons From Learning Theory and their Consequences,” CoRR, vol. abs/1512.06388, 2015.
+ [9] J. Brickell and V. Shmatikov, “The cost of privacy: destruction of data-mining utility in anonymized
+     data publishing,” in KDD, 2008.
+[10] J. Lei, “Differentially private m-estimators,” in NIPS, 2011.
+
+[11] J. Zhang, Z. Zhang, X. Xiao, Y. Yang, and M. Winslett, “Functional mechanism: regression analysis
+     under differential privacy,” in VLDB, 2012.
+[12] A. G. Thakurta and A. Smith, “Differentially private feature selection via stability arguments, and the
+     robustness of the lasso,” in Proceedings of the 26th Annual Conference on Learning Theory, vol. 30 of
+     Proceedings of Machine Learning Research, pp. 819–850, PMLR, 12–14 Jun 2013.
+[13] C. Dwork, V. Feldman, M. Hardt, T. Pitassi, O. Reingold, and A. L. Roth, “Preserving statistical
+     validity in adaptive data analysis,” in Proceedings of the Forty-seventh Annual ACM Symposium on
+     Theory of Computing, STOC ’15, (New York, NY, USA), pp. 117–126, ACM, 2015.
+
+
+
+                                                     23
+[14] C. Dwork, V. Feldman, M. Hardt, T. Pitassi, O. Reingold, and A. Roth, “Generalization in adaptive data
+     analysis and holdout reuse,” in Proceedings of the 28th International Conference on Neural Information
+     Processing Systems, NIPS’15, (Cambridge, MA, USA), pp. 2350–2358, MIT Press, 2015.
+[15] Y.-X. Wang, J. Lei, and S. E. Fienberg, “Learning with differential privacy: Stability, learnability and
+     the sufficiency and necessity of ERM principle,” Journal of Machine Learning Research, vol. 17, no. 183,
+     pp. 1–40, 2016.
+[16] R. Bassily, A. Smith, and A. Thakurta, “Private empirical risk minimization: Efficient algorithms and
+     tight error bounds,” in In 55th IEEE Annual Symposium on Foundations of Computer Science (FOCS),
+     2014.
+
+[17] K. Chaudhuri, C. Monteleoni, and A. D. Sarwate, “Differentially private empirical risk minimization,”
+     Journal of Machine Learning Research, 2011.
+[18] R. Bassily, K. Nissim, A. Smith, T. Steinke, U. Stemmer, and J. Ullman, “Algorithmic stability for
+     adaptive data analysis,” in Proceedings of the 48th Annual ACM Symposium on Theory of Computing,
+     pp. 1046–1059, 2016.
+
+[19] Y.-X. Wang, J. Lei, and S. E. Fienberg, “On-average KL-privacy and its equivalence to generalization
+     for max-entropy mechanisms,” in International Conference on Privacy in Statistical Databases, pp. 121–
+     134, 2016.
+[20] R. O’Donnell, Analysis of Boolean Functions. Cambridge University Press, 2014.
+
+[21] N. Homer, S. Szelinger, M. Redman, D. Duggan, W. Tembe, J. Muehling, J. V. Pearson, D. A. Stephan,
+     S. F. Nelson, and D. W. Craig, “Resolving individuals contributing trace amounts of DNA to highly
+     complex mixtures using high-density SNP genotyping microarrays,” PLoS Genetics, vol. 4, no. 8, 2008.
+[22] S. Sankararaman, G. Obozinski, M. I. Jordan, and E. Halperin, “Genomic privacy and limits of indi-
+     vidual detection in a pool,” Nature Genetics, vol. 41, no. 9, pp. 965–967, 2009.
+
+[23] M. Bellare, K. G. Paterson, and P. Rogaway, “Security of symmetric encryption against mass surveil-
+     lance,” in Advances in Cryptology - CRYPTO 2014 - 34th Annual Cryptology Conference, Santa Bar-
+     bara, CA, USA, August 17-21, 2014, Proceedings, Part I, pp. 1–19, 2014.
+[24] C. Song, T. Ristenpart, and V. Shmatikov, “Machine learning models that remember too much,” in
+     Proceedings of the 2017 ACM SIGSAC Conference on Computer and Communications Security, CCS
+     2017, Dallas, TX, USA, October 30 - November 03, 2017, pp. 587–601, 2017.
+[25] K. P. Murphy, Machine Learning: A Probabilistic Perspective. The MIT Press, 2012.
+[26] C. Dwork, “Differential privacy,” in ICALP, Springer, 2006.
+[27] S. Shalev-Shwartz, O. Shamir, N. Srebro, and K. Sridharan, “Learnability, stability and uniform con-
+     vergence,” Jouranal of Machine Learing. Research, vol. 11, Dec. 2010.
+[28] C. Zhang, S. Bengio, M. Hardt, B. Recht, and O. Vinyals, “Understanding deep learning requires
+     rethinking generalization,” CoRR, vol. abs/1611.03530, 2016.
+[29] I. Giacomelli, R. F. Olimid, and S. Ranellucci, “Security of linear secret-sharing schemes against mass
+     surveillance,” in Cryptology and Network Security - 14th International Conference, CANS 2015, Mar-
+     rakesh, Morocco, December 10-12, 2015, Proceedings, pp. 43–58, 2015.
+[30] G. Ateniese, B. Magri, and D. Venturi, “Subversion-resilient signature schemes,” in Proceedings of
+     the 22nd ACM SIGSAC Conference on Computer and Communications Security, Denver, CO, USA,
+     October 12-6, 2015, pp. 364–375, 2015.
+
+
+                                                     24
+[31] M. Bellare, J. Jaeger, and D. Kane, “Mass-surveillance without the state: Strongly undetectable
+     algorithm-substitution attacks,” in Proceedings of the 22nd ACM SIGSAC Conference on Computer
+     and Communications Security, Denver, CO, USA, October 12-6, 2015, pp. 1431–1440, 2015.
+[32] F. Pedregosa, G. Varoquaux, A. Gramfort, V. Michel, B. Thirion, O. Grisel, M. Blondel, P. Pretten-
+     hofer, R. Weiss, V. Dubourg, J. Vanderplas, A. Passos, D. Cournapeau, M. Brucher, M. Perrot, and
+     E. Duchesnay, “Scikit-learn: Machine learning in Python,” Journal of Machine Learning Research,
+     vol. 12, pp. 2825–2830, 2011.
+[33] O. Bousquet and A. Elisseeff, “Stability and generalization,” Journal of Machine Learning Research,
+     vol. 2, pp. 499–526, 2002.
+
+[34] T. E. Scheetz, K.-Y. A. Kim, R. E. Swiderski, A. R. Philp, T. A. Braun, K. L. Knudtson, A. M.
+     Dorrance, G. F. DiBona, J. Huang, T. L. Casavant, V. C. Sheffield, and E. M. Stone, “Regulation of
+     gene expression in the mammalian eye and its relevance to eye disease,” Proceedings of the National
+     Academy of Sciences, vol. 103, no. 39, pp. 14429–14434, 2006.
+[35] International Warfarin Pharmacogenetics Consortium, “Estimation of the warfarin dose with clinical
+     and pharmacogenetic data,” New England Journal of Medicine, vol. 360, no. 8, pp. 753–764, 2009.
+[36] Netflix, “Netflix prize.” http://netflixprize.com, 2006.
+[37] F. Chollet, “Keras: Deep learning library for Theano and TensorFlow.” https://keras.io, 2017.
+[38] I. Goodfellow, Y. Bengio, and A. Courville, Deep Learning.           MIT Press, 2016.      http://www.
+     deeplearningbook.org.
+[39] K. Simonyan and A. Zisserman, “Very deep convolutional networks for large-scale image recognition,”
+     CoRR, vol. abs/1409.1556, 2014.
+[40] D. P. Kingma and J. Ba, “Adam: A method for stochastic optimization,” in 3rd International Conference
+     for Learning Representations (ICLR), 2015.
+
+[41] Y. LeCun, C. Cortes, and C. Burges, “The MNIST database of handwritten digits.” http://yann.
+     lecun.com/exdb/mnist/, 1998.
+[42] A. Krizhevsky and G. Hinton, “Learning multiple layers of features from tiny images,” 2009.
+[43] B. Neuberg, “Personal photos model.” https://github.com/BradNeuberg/personal-photos-model,
+     2017.
+[44] P. Krähenbühl, C. Doersch, J. Donahue, and T. Darrell, “Data-dependent initializations of convolutional
+     neural networks,” CoRR, vol. abs/1511.06856, 2015.
+[45] T. Komarova, D. Nekipelov, and E. Yakovlev, “Estimation of treatment effects from combined data:
+     Identification versus data security,” in Economic Analysis of the Digital Economy, pp. 279–308, Univer-
+     sity of Chicago Press, 2015.
+[46] R. Wang, Y. F. Li, X. Wang, H. Tang, and X. Zhou, “Learning your identity and disease from research
+     papers: information leaks in genome wide association studies,” in CCS, 2009.
+[47] K. El Emam, E. Jonker, L. Arbuckle, and B. Malin, “A systematic review of re-identification attacks
+     on health data,” PLOS ONE, vol. 6, pp. 1–12, 12 2011.
+[48] M. Gymrek, A. L. McGuire, D. Golan, E. Halperin, and Y. Erlich, “Identifying personal genomes by
+     surname inference,” Science, vol. 339, no. 6117, pp. 321–324, 2013.
+
+
+
+                                                     25
+[49] S. S. Shringarpure and C. D. Bustamante, “Privacy risks from genomic data-sharing beacons,” The
+     American Journal of Human Genetics, vol. 97, pp. 631–646, May 2015.
+[50] J. A. Calandrino, A. Kilzer, A. Narayanan, E. W. Felten, and V. Shmatikov, ““You might also like:”
+     Privacy risks of collaborative filtering,” in Proceedings of the 2011 IEEE Symposium on Security and
+     Privacy (Oakland), 2011.
+
+[51] I. Dinur and K. Nissim, “Revealing information while preserving privacy,” in PODS, 2003.
+[52] C. Dwork, F. McSherry, and K. Talwar, “The price of privacy and the limits of LP decoding,” in STOC,
+     2007.
+[53] S. P. Kasiviswanathan, M. Rudelson, A. Smith, and J. Ullman, “The price of privately releasing con-
+     tingency tables and the spectra of random matrices with correlated rows,” in STOC, 2010.
+[54] S. P. Kasiviswanathan, M. Rudelson, and A. Smith, “The power of linear reconstruction attacks,” in
+     SODA, 2013.
+
+
+
+
+                                                   26
+                    Training Set Error (Netflix, Ridge regression with λ = 5)                       Test Set Error (Netflix, Ridge regression with λ = 5)
+                  0.2                                                                        0.03
+                            Experimental                                                                  Experimental
+                              Gaussian                                                                      Gaussian
+                 0.15
+                                                                                             0.02
+
+     frequency                                                                   frequency
+                  0.1
+
+                                                                                             0.01
+                 0.05
+
+
+                   0                                                                           0
+                   −1.5      −1      −0.5       0       0.5       1       1.5                  −1.5        −1     −0.5        0       0.5       1       1.5
+                                              error                                                                         error
+
+
+Figure 5: The training and test error distributions for an overfitted Ridge regression model. The histograms
+are juxtaposed with what we would expect if the errors were normally distributed with standard deviation
+Remp = 0.2774 and Rcv = 0.8884, respectively. Note the different vertical scale for the two graphs. To
+minimize the effect of noise, the errors were measured using 1000 different random 75-25 splits of the data
+into training and test sets and then aggregated.
+
+                    Training Set Error (IWPC, decision tree with depth = 15)                        Test Set Error (IWPC, decision tree with depth = 15)
+
+                            Experimental                                                                  Experimental
+                 0.04         Gaussian                                                       0.04           Gaussian
+
+
+
+     frequency                                                                   frequency
+                 0.02                                                                        0.02
+
+
+
+
+                   0                                                                           0
+                   −1.5      −1     −0.5       0       0.5       1        1.5                  −1.5        −1     −0.5        0       0.5       1       1.5
+                                             error                                                                          error
+
+
+Figure 6: The training and test error distributions for an overfitted decision tree. The histograms are
+juxtaposed with what we would expect if the errors were normally distributed with standard deviation
+Remp = 0.3899 and Rcv = 0.9507, respectively. The bar at error = 0 does not fit inside the first graph; in
+order to fit it, the graph would have to be almost 10 times as high. To minimize the effect of noise, the
+errors were measured using 1000 different random 75-25 splits of the data into training and test sets and
+then aggregated.
+
+
+
+
+                                                                                27
+

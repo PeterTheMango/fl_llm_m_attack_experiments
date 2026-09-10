@@ -1,0 +1,287 @@
+# CELL 1 (markdown)
+# Window-Based Comparison (WBC) Membership Inference Attack Recreation
+
+This notebook recreates the **Window-Based Comparison (WBC)** membership inference attack summarized in `papers/summary/07_wbc.md`.
+
+Primary source:
+
+- Yuetian Chen, Yuntao Du, Kaiyuan Zhang, Ashish Kundu, Charles Fleming, Bruno Ribeiro, Ninghui Li. *Window-based Membership Inference Attacks Against Fine-tuned Large Language Models.* arXiv:2601.02751 (Purdue University / Cisco). Code: https://github.com/Stry233/WBC (config key literally `wbc`).
+
+**Source-identification note.** Unlike most catalogued attacks, `wbc` is not a widely known acronym. It was identified by reading both the repository README (github.com/Stry233/WBC, whose configuration key is literally `wbc`) and the paper's arXiv HTML. The identification is high-confidence, but if `wbc` in a downstream evaluation harness denotes a different method, please flag it so this recreation can be revised. (Expansions such as "white-box calibration" were considered and ruled out.)
+
+**Attack in one paragraph.** WBC is a reference-based, score-based **black-box** MIA purpose-built for **fine-tuned LLMs**. It rejects the "global average loss" paradigm, arguing that the memorization signal from fine-tuning is not spread evenly across a sequence but appears as **sparse, localized, extremal events** that global averaging dilutes. For each candidate text it forms the per-token loss-difference sequence `Delta_j = l^R_j - l^T_j` (reference model NLL minus target model NLL at position `j`), slides windows of several sizes over that sequence, lets each window cast a **binary sign vote** on membership, and ensembles the votes over **geometrically spaced window sizes** `[2, 3, 4, 6, 9, 13, 18, 25, 32, 40]` (no per-dataset tuning). The membership score is the fraction of windows voting "member". The paper reports average AUC 0.839 vs 0.754 for the best baseline, and 2-3x higher TPR at low FPR, across 11 datasets against 13 baselines.
+
+**Threat model.** Black-box, score-based: the attacker queries the fine-tuned target model and a pre-trained reference model for per-token loss (NLL) sequences. The paper argues this is realistic given open-weight fine-tuning and APIs that expose log-probabilities (e.g. vLLM's `prompt_logprobs`). Reference model default: `EleutherAI/pythia-2.8b`; the paper's empirical analysis fine-tunes Pythia-2.8B on the Khan Academy subset of `HuggingFaceTB/Cosmopedia` (10k member / 10k non-member).
+
+**Metrics.** AUC plus TPR@FPR (0.1 / 0.01 / 0.001), matching the repository's reporting.
+
+**Window-size note (discrepancy in the source paper).** Section 4.1.4 states the geometric progression `w_k = round(2 * 20^((k-1)/9))` (Eq. 12) and says it "generates windows of {2, 3, 4, 6, 9, 13, 18, 25, 32, 40} tokens". That formula does not actually produce that set — evaluating it gives `[2, 3, 4, 5, 8, 11, 15, 21, 29, 40]`. The two disagree from k=4 onward. We use the **literal set the paper states it used** (and which the repo config carries), not the recomputed formula output, since that set is what the reported results were produced with. The ensemble is robust to the exact spacing (the paper's point is that no per-dataset tuning is needed), so this does not affect the method — but it is worth knowing if you regenerate the window sizes from Eq. 12 and get different numbers.
+
+
+# CELL 2 (markdown)
+## Baseline Attack Definition
+
+**Target record.** A candidate text sequence. Members are sequences present in the target model's fine-tuning set; non-members are distribution-matched held-out sequences.
+
+**Per-token loss difference.** `Delta_j(x) = l^R_j - l^T_j`, the reference model's per-token NLL minus the target model's per-token NLL at position `j`. The paper models it as `Delta_j = 1[x in D_train] . delta_j + xi_j + eps_j`, where `delta_j` is the sparse membership signal, `xi_j` is heavy-tailed rare-token noise dominating the right tail, and `eps_j` is baseline noise.
+
+**Windowed sum.** `S_i(w) = sum_{j=i}^{i+w-1} Delta_j`, computed for every start position `i` and window size `w`.
+
+**Sign-based aggregation.** Each window contributes a *binary* vote: it votes "member" when `S_i(w) > 0`, i.e. the target model's summed loss is lower than the reference's over that span (the model is more confident, consistent with memorization). The membership score is the **fraction of windows voting member**, ensembled over the geometric window sizes. Higher fraction => more likely member.
+
+**Why the sign vote, not the mean.** The global average `Delta_bar` is masked because rare-token variance can be effectively infinite, so a single right-tail outlier dominates it. The sign test enjoys a higher Pitman asymptotic relative efficiency under long-tailed contamination, and the genuine membership signal is sparse and extremal (excess kurtosis > 18; ~1.77% of member tokens beyond 3-sigma) and spatially scattered (Poisson-random, not clustered). The paper also notes the strongest *genuine* signal sits in the **left tail** - positions where the target model has higher loss than the reference - which the multi-scale window ensemble is designed to surface without being swamped by right-tail rare-token noise. This recreation implements the concrete rule the repository uses: a window votes member when its summed loss difference is positive, and members are ranked by the fraction of such votes.
+
+
+# CELL 3 (code)
+from dataclasses import dataclass
+from pathlib import Path
+from typing import List, Sequence, Tuple
+
+SOURCE_SUMMARY = Path("../../papers/summary/07_wbc.md")
+ATTACK_NAME = "wbc"
+
+# Paper default: geometrically spaced window sizes, no per-dataset tuning.
+DEFAULT_WINDOW_SIZES: Tuple[int, ...] = (2, 3, 4, 6, 9, 13, 18, 25, 32, 40)
+
+
+def windowed_sums(deltas: Sequence[float], w: int) -> List[float]:
+    """All contiguous window sums S_i(w) = sum_{j=i}^{i+w-1} Delta_j for one window size w.
+
+    Returns an empty list when the window is larger than the sequence, so short
+    sequences simply contribute fewer window sizes to the ensemble.
+    """
+    n = len(deltas)
+    if w <= 0 or w > n:
+        return []
+    return [float(sum(deltas[i:i + w])) for i in range(n - w + 1)]
+
+
+def wbc_score(deltas: Sequence[float], window_sizes: Sequence[int] = DEFAULT_WINDOW_SIZES) -> float:
+    """WBC membership score: fraction of windows whose sum favours membership.
+
+    Each window over the per-token loss-difference sequence Delta_j = l^R_j - l^T_j
+    casts a BINARY sign vote: it votes "member" when its sum is > 0, i.e. the target
+    model's summed loss is lower than the reference's over that span. Votes are
+    ensembled across every start position and every geometric window size. A higher
+    returned fraction => more likely a member.
+
+    The sign vote (rather than a mean) is the crux: under the paper's heavy-tailed
+    rare-token contamination a single outlier can dominate a mean, whereas the sign
+    test has a higher Pitman asymptotic relative efficiency.
+    """
+    member_votes = 0
+    total_windows = 0
+    for w in window_sizes:
+        for s in windowed_sums(deltas, w):
+            total_windows += 1
+            if s > 0.0:
+                member_votes += 1
+    if total_windows == 0:
+        return 0.0
+    return member_votes / total_windows
+
+
+@dataclass(frozen=True)
+class CandidateDeltas:
+    """One candidate: its text, truth label, and per-token Delta_j = ref NLL - target NLL."""
+
+    text: str
+    truth_member: bool
+    deltas: Tuple[float, ...]
+
+    @property
+    def membership_score(self) -> float:
+        # Fraction of windows voting member, ensembled over the default geometric sizes.
+        return wbc_score(self.deltas, DEFAULT_WINDOW_SIZES)
+
+
+
+# CELL 4 (markdown)
+## Optional Hugging Face Scoring
+
+Use this cell to build per-token `Delta_j` from a real target model (a fine-tuned checkpoint) and a real reference model (the paper default is `EleutherAI/pythia-2.8b`). `per_token_nll_hf` returns the list of per-token NLLs for one text; `build_deltas` subtracts target from reference position-by-position; `score_text_with_hf` feeds the result to `wbc_score`. The synthetic smoke test below needs none of these packages or any model download.
+
+
+# CELL 5 (code)
+def per_token_nll_hf(model, tokenizer, text: str, device: str = "cpu", max_length: int = 256) -> List[float]:
+    """Return the list of per-token negative log-likelihoods for one text under a causal LM."""
+    import torch
+
+    encoded = tokenizer(text, return_tensors="pt", truncation=True, max_length=max_length)
+    input_ids = encoded["input_ids"].to(device)
+    if input_ids.shape[-1] < 2:
+        raise ValueError("Need at least two tokens to score a causal-LM sequence.")
+
+    with torch.no_grad():
+        logits = model(input_ids).logits
+    shift_logits = logits[:, :-1, :]
+    shift_labels = input_ids[:, 1:]
+    log_probs = torch.log_softmax(shift_logits, dim=-1)
+    token_ll = log_probs.gather(-1, shift_labels.unsqueeze(-1)).squeeze(-1)
+    return [float(v) for v in (-token_ll[0]).detach().cpu().tolist()]
+
+
+def build_deltas(reference_nll: Sequence[float], target_nll: Sequence[float]) -> List[float]:
+    """Delta_j = reference NLL - target NLL, elementwise over aligned token positions."""
+    return [float(r) - float(t) for r, t in zip(reference_nll, target_nll)]
+
+
+def score_text_with_hf(target_model, reference_model, tokenizer, text: str,
+                       window_sizes: Sequence[int] = DEFAULT_WINDOW_SIZES,
+                       device: str = "cpu", max_length: int = 256) -> float:
+    target_nll = per_token_nll_hf(target_model, tokenizer, text, device=device, max_length=max_length)
+    reference_nll = per_token_nll_hf(reference_model, tokenizer, text, device=device, max_length=max_length)
+    return wbc_score(build_deltas(reference_nll, target_nll), window_sizes)
+
+
+
+# CELL 6 (markdown)
+## Thresholding and Metrics
+
+The paper-style evaluation ranks candidates by the membership score (the fraction of member-voting windows) and reports AUC plus TPR at low FPR. For small controlled trials, this notebook additionally reports thresholded confusion counts, TPR, TNR, attack advantage, accuracy, precision, recall, and F1, plus a threshold-free ROC-AUC. The metric helpers are copied from the shared recreation convention (members score higher, so a `>=` threshold predicts membership).
+
+
+# CELL 7 (code)
+def predict_membership(rows: Sequence[CandidateDeltas], threshold: float) -> List[bool]:
+    return [row.membership_score >= threshold for row in rows]
+
+
+def confusion_counts(labels: Sequence[bool], preds: Sequence[bool]):
+    tp = sum(1 for y, p in zip(labels, preds) if y and p)
+    tn = sum(1 for y, p in zip(labels, preds) if not y and not p)
+    fp = sum(1 for y, p in zip(labels, preds) if not y and p)
+    fn = sum(1 for y, p in zip(labels, preds) if y and not p)
+    return {"tp": tp, "tn": tn, "fp": fp, "fn": fn}
+
+
+def roc_auc(labels: Sequence[bool], scores: Sequence[float]) -> float:
+    """Rank-based ROC-AUC (probability a random member outranks a random non-member)."""
+    pos = [s for y, s in zip(labels, scores) if y]
+    neg = [s for y, s in zip(labels, scores) if not y]
+    if not pos or not neg:
+        return float("nan")
+    wins = 0.0
+    for p in pos:
+        for n in neg:
+            wins += 1.0 if p > n else (0.5 if p == n else 0.0)
+    return wins / (len(pos) * len(neg))
+
+
+def metric_summary(rows: Sequence[CandidateDeltas], preds: Sequence[bool]):
+    labels = [row.truth_member for row in rows]
+    counts = confusion_counts(labels, preds)
+    tp, tn, fp, fn = counts["tp"], counts["tn"], counts["fp"], counts["fn"]
+    tpr = tp / (tp + fn) if (tp + fn) else 0.0
+    tnr = tn / (tn + fp) if (tn + fp) else 0.0
+    precision = tp / (tp + fp) if (tp + fp) else 0.0
+    recall = tpr
+    f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) else 0.0
+    return {
+        **counts,
+        "tpr": tpr,
+        "tnr": tnr,
+        "adv": 0.5 * tpr + 0.5 * tnr,
+        "accuracy": (tp + tn) / len(labels) if labels else 0.0,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "roc_auc": roc_auc(labels, [row.membership_score for row in rows]),
+    }
+
+
+def percentile_threshold(rows: Sequence[CandidateDeltas], member_fraction: float = 0.5) -> float:
+    scores = sorted(row.membership_score for row in rows)
+    if not scores:
+        raise ValueError("Cannot threshold an empty score list.")
+    index = max(0, min(len(scores) - 1, int((1.0 - member_fraction) * len(scores))))
+    return scores[index]
+
+
+
+# CELL 8 (markdown)
+## Synthetic Smoke Recreation
+
+The synthetic table emulates the WBC signal directly on the per-token loss-difference sequences:
+
+- **Members** have a small positive baseline `Delta_j` (the fine-tuned target is consistently a little more confident than the reference), punctuated by **sparse, extremal positive events** where fine-tuning made the target dramatically more confident. Most windows sum positive, so a large fraction vote member => high membership score.
+- **Non-members** have `Delta_j` hovering near zero / slightly negative with no sustained memorization spikes, so most windows sum negative => low membership score.
+
+This is a runnable correctness check that `windowed_sums`, the sign-vote aggregation in `wbc_score`, and the metrics pipeline behave as the paper describes; it is not a substitute for the full Pythia-2.8B / Cosmopedia experiment.
+
+
+# CELL 9 (code)
+import random
+
+
+def _make_delta_sequence(seed: int, member: bool, length: int = 48) -> Tuple[float, ...]:
+    rng = random.Random(seed)
+    if member:
+        # Memorized: target loss consistently a little below the reference (positive
+        # baseline Delta), plus SPARSE extremal positive events from fine-tuning.
+        deltas = [rng.gauss(0.20, 0.08) for _ in range(length)]
+        for pos in rng.sample(range(length), 4):
+            deltas[pos] += rng.uniform(4.0, 9.0)
+    else:
+        # Non-member: target and reference agree, Delta hovers near zero / slightly
+        # negative, with no sustained memorization spikes.
+        deltas = [rng.gauss(-0.20, 0.08) for _ in range(length)]
+    return tuple(deltas)
+
+
+def synthetic_wbc_candidates() -> List[CandidateDeltas]:
+    return [
+        CandidateDeltas("member_record_A", True, _make_delta_sequence(1, member=True)),
+        CandidateDeltas("member_record_B", True, _make_delta_sequence(2, member=True)),
+        CandidateDeltas("held_out_record_A", False, _make_delta_sequence(3, member=False)),
+        CandidateDeltas("held_out_record_B", False, _make_delta_sequence(4, member=False)),
+    ]
+
+
+def run_recreation_smoke_test():
+    rows = synthetic_wbc_candidates()
+    threshold = percentile_threshold(rows, member_fraction=0.5)
+    preds = predict_membership(rows, threshold=threshold)
+    metrics = metric_summary(rows, preds)
+
+    # The two memorized records must rank above both held-out records.
+    assert metrics["tp"] == 2, metrics
+    assert metrics["tn"] == 2, metrics
+    assert metrics["adv"] == 1.0, metrics
+    assert metrics["roc_auc"] == 1.0, metrics
+
+    # WBC sign-vote sanity: every member's member-voting fraction must exceed every
+    # non-member's, purely from the sparse positive extremal structure.
+    members = [r for r in rows if r.truth_member]
+    non_members = [r for r in rows if not r.truth_member]
+    assert min(r.membership_score for r in members) > max(r.membership_score for r in non_members), \
+        "WBC sign-vote fraction failed to separate members from non-members"
+
+    return {
+        "threshold": threshold,
+        "window_sizes": list(DEFAULT_WINDOW_SIZES),
+        "metrics": metrics,
+        "ranking": [
+            {"text": r.text, "member": r.truth_member,
+             "score": round(r.membership_score, 4),
+             "num_tokens": len(r.deltas)}
+            for r in sorted(rows, key=lambda r: r.membership_score, reverse=True)
+        ],
+    }
+
+
+smoke_result = run_recreation_smoke_test()
+smoke_result
+
+
+
+# CELL 10 (markdown)
+## How to Run a Real Recreation
+
+1. Load the fine-tuned target model and the pre-trained reference model with `AutoModelForCausalLM` (paper reference default: `EleutherAI/pythia-2.8b`; target: Pythia-2.8B fine-tuned on the Khan Academy subset of `HuggingFaceTB/Cosmopedia`).
+2. Collect matched member / non-member texts (the paper uses 10k member / 10k non-member).
+3. For each text, call `per_token_nll_hf` on both models, `build_deltas(reference_nll, target_nll)`, then `wbc_score(deltas, DEFAULT_WINDOW_SIZES)` (or `score_text_with_hf`, which chains all three).
+4. Rank candidates by `membership_score` and report ROC-AUC plus TPR@FPR (0.1 / 0.01 / 0.001) with bootstrap confidence intervals, as in the repository (github.com/Stry233/WBC).
+5. WBC's practical advantage: it stays robust even when the reference model is misaligned with the target, because the multi-scale sign-vote ensemble reads localized memorization rather than a single calibrated global loss.
+
+For the federated-learning fine-tuning adaptation of this attack, see `../adaptations/wbc_adaptations.ipynb`.
+

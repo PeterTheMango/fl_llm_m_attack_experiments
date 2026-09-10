@@ -1,6 +1,6 @@
 """ReCaLL relative conditional log-likelihood MIA. Ported from recall_adaptations.ipynb.
 
-Config fields are byte-frozen: see tests/test_hash_equivalence.py.
+Corrected methods use versioned cache identities; see docs/theory_corrections.md.
 """
 import math
 from dataclasses import dataclass
@@ -77,7 +77,9 @@ NON_MEMBER_SHOTS = [
 
 def build_prefix(config) -> str:
     """Concatenate the first `num_shots` non-member shots into the fixed prefix P."""
-    n = max(1, int(config.num_shots))
+    n = config.num_shots
+    if type(n) is not int or not 1 <= n <= len(NON_MEMBER_SHOTS):
+        raise ValueError("num_shots exceeds the available fixed nonmember prefix")
     return " ".join(NON_MEMBER_SHOTS[:n])
 
 
@@ -134,17 +136,15 @@ def _sequence_loglik_hf(model, tokenizer, text: str, prefix: Optional[str], devi
     """
     import torch
 
-    if prefix:
-        prefix_ids = tokenizer(prefix, return_tensors="pt").input_ids
-        text_ids = tokenizer(text, return_tensors="pt").input_ids
-        input_ids = torch.cat([prefix_ids, text_ids], dim=1)[:, :max_length]
-        labels = input_ids.clone()
-        labels[:, : prefix_ids.shape[1]] = -100
-    else:
-        input_ids = tokenizer(text, return_tensors="pt", truncation=True, max_length=max_length).input_ids
-        labels = input_ids.clone()
-    input_ids = input_ids.to(device)
-    labels = labels.to(device)
+    # max_length limits x, not P+x. Both calls score precisely x[1:].
+    text_ids = tokenizer(text, truncation=True, max_length=max_length)["input_ids"]
+    prefix_ids = tokenizer.encode(prefix + "\n\n", add_special_tokens=False) if prefix else []
+    capacity = getattr(model.config, "max_position_embeddings", getattr(model.config, "n_positions", None))
+    if len(text_ids) < 2 or (capacity is not None and len(prefix_ids) + len(text_ids) > capacity):
+        raise ValueError("ReCaLL requires the same nonempty candidate span within model capacity")
+    input_ids = torch.tensor([prefix_ids + text_ids], dtype=torch.long, device=device)
+    labels = input_ids.clone()
+    labels[:, :len(prefix_ids) + 1] = -100
     with torch.no_grad():
         outputs = model(input_ids=input_ids, labels=labels)
     shift_labels = labels[:, 1:]

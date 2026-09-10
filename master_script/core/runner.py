@@ -6,12 +6,14 @@ cache check -> FL fine-tune -> attack -> measure -> persist -> cleanup.
 from dataclasses import asdict, replace
 from pathlib import Path
 import logging
+import math
+from hashlib import sha256
 import shutil
 import time
 
 from . import federation, firestore
 from . import datasets as dataset_sources
-from .config import artifact_dir_for, experiment_key
+from .config import artifact_dir_for, experiment_key, validate_attack_config, resolve_run_config, METHOD_VERSION, implementation_fingerprint
 from .metrics import summarize
 from .scoring import ScoreContext
 
@@ -71,7 +73,7 @@ def run_attack_trial(config, spec, trial_id: int, truth_member: bool) -> dict:
     # hashed -- the run_id belongs to the original config. Real-data trials use
     # the same seed in adjacent positive/negative trials so each pair differs
     # only in target membership, not in the sampled target or client corpus.
-    seed_offset = trial_id // 2 if dataset_sources.uses_real_dataset(config) or spec.pipeline is not None else trial_id
+    seed_offset = trial_id // 2
     trial_config = replace(config, seed=config.seed + seed_offset)
     if trial_config.use_hf_models:
         target, history = federation.run_hf_federated_finetune(
@@ -84,16 +86,25 @@ def run_attack_trial(config, spec, trial_id: int, truth_member: bool) -> dict:
         target, history = federation.run_toy_federated_finetune(trial_config, truth_member=truth_member)
         reference = None
         if spec.needs_reference:
-            reference, _ = federation.run_toy_federated_finetune(trial_config, truth_member=False)
+            reference = federation.ToyFederatedLM()
         candidate_text = getattr(target, "target_record", federation.TARGET_RECORD)
         score = spec.score_toy(ScoreContext(trial_config, target, candidate_text, reference))
 
+    if not math.isfinite(float(score)):
+        raise FloatingPointError(f"{spec.name} produced a nonfinite membership score")
+    exposed = any(config.target_client_id in r.get("selected_clients", []) for r in history)
     trial = {
         "trial_id": trial_id,
         "truth_member": bool(truth_member),
         "score": float(score),
         "pred_member": bool(score >= trial_config.threshold),
         "federated_history": history,
+        "membership_target": "assigned_training_record",
+        "target_exposed": bool(truth_member and exposed),
+        "seed": trial_config.seed,
+        "candidate_sha256": sha256(candidate_text.encode()).hexdigest(),
+        **({"training_provenance": target.get("training_provenance", {}),
+            "attack_provenance": target.get("attack_provenance", {})} if trial_config.use_hf_models else {}),
     }
     if spec.pipeline is not None:
         from .rag import evaluate_pipeline
@@ -110,6 +121,8 @@ def run_attack_trials(config, spec) -> list:
 
 def run_single_experiment(config, spec, *, use_firestore: bool = True, keep_artifacts=None,
                           artifact_directory=None) -> dict:
+    validate_attack_config(config, spec)
+    config = resolve_run_config(config)
     # run_id always uses spec: amia and loss have their own key formulas.
     run_id = experiment_key(config, spec)
     cache_error = None
@@ -129,11 +142,16 @@ def run_single_experiment(config, spec, *, use_firestore: bool = True, keep_arti
     artifact_dir = Path(artifact_directory) if artifact_directory is not None else artifact_dir_for(config, spec)
     artifact_dir.mkdir(parents=True, exist_ok=True)
     try:
+        context = None
         if spec.custom_trials is not None:
             trials = spec.custom_trials(config, artifact_dir,
                                         **({"pipeline": spec.pipeline} if spec.pipeline is not None else {}))
+            if isinstance(trials, dict):
+                context, trials = trials["context"], trials["trials"]
         else:
             trials = run_attack_trials(config, spec)
+        if not trials or not all(math.isfinite(float(t["score"])) for t in trials):
+            raise FloatingPointError("A completed experiment requires finite nonempty trial scores")
     except Exception as exc:
         log.exception("run %s (%s) failed", run_id, spec.name)
         if use_firestore:
@@ -141,7 +159,7 @@ def run_single_experiment(config, spec, *, use_firestore: bool = True, keep_arti
         raise  # NOTE: no cleanup -- a failed run keeps its artifacts.
 
     if spec.build_payload is not None:
-        result = spec.build_payload(config, trials, artifact_dir)
+        result = spec.build_payload(config, trials, artifact_dir, **({"context": context} if context is not None else {}))
         result.setdefault("run_id", run_id)
         result.setdefault("status", "complete")
         result.setdefault("updated_at_unix", int(time.time()))
@@ -162,27 +180,35 @@ def run_single_experiment(config, spec, *, use_firestore: bool = True, keep_arti
             ],
             "metrics": summarize(trials, spec),
             "attack_trials": [
-                {k: r[k] for k in ("trial_id", "truth_member", "score", "pred_member")}
+                {k: value for k, value in r.items() if k not in ("federated_history", "pipeline_evaluation")}
                 for r in trials
             ],
             "artifacts": {"artifact_dir": str(artifact_dir), "federated_model_path": None},
         }
 
+    result["method_version"] = METHOD_VERSION
+    result["implementation_fingerprint"] = implementation_fingerprint()
+    result["evaluation_scope"] = "FL adaptation; not a reproduction of the source benchmark"
+    if spec.name == "wbc":
+        result["wbc_protocol"] = {
+            "window_sizes": list(config.window_sizes),
+            "schedule": ("local-v2-appendix-author-config" if tuple(config.window_sizes) == (2,3,4,6,9,13,18,25,32,40)
+                         else "equation-12" if tuple(config.window_sizes) == (2,3,4,5,8,11,15,21,29,40) else "explicit-custom"),
+            "aggregation": "uniform_mean_of_per_size_positive_fractions",
+            "short_input_policy": "clamp_each_requested_size_to_scored_length",
+            "source_discrepancy": "Local v2 Eq.12 and Appendix C.1.5 give different schedules"}
     if spec.pipeline is not None:
-        from .metrics import roc_auc, tpr_at_fpr
+        from .metrics import scientific_metrics
         result["run_id"] = run_id
         result["pipeline"] = spec.pipeline.metadata()
+        result["pipeline_evaluation_scope"] = "Study-specific FL defense/RAG adaptation; not a source benchmark reproduction"
         result["pipeline_evaluations"] = [
             {"trial_id": t["trial_id"], **t["pipeline_evaluation"]}
             for t in trials if "pipeline_evaluation" in t
         ]
         labels = [t["truth_member"] for t in trials]
         scores = [(-1 if spec.name == "loss" else 1) * t["score"] for t in trials]
-        result["training_membership_metrics"] = {
-            "roc_auc": roc_auc(labels, scores), "tpr_at_fpr_0_01": tpr_at_fpr(labels, scores, 0.01),
-            "nonmember_count": labels.count(False), "member_count": labels.count(True),
-            "low_fpr_resolution": 1 / labels.count(False) if False in labels else None,
-        }
+        result["batch_membership_metrics" if spec.name == "amia" else "training_membership_metrics"] = scientific_metrics(labels, scores)
         # Sequentially released models on overlapping records must compose.
         from .defenses import privacy_bound
         protected = [e.get("training_privacy", {}) for e in result["pipeline_evaluations"]]
@@ -234,9 +260,11 @@ def run_sweep(pairs, *, use_firestore: bool = True, keep_artifacts=None,
     results = []
     for index, (config, spec) in enumerate(pairs):
         run_id = experiment_key(config, spec)
-        if on_run_start is not None:
-            on_run_start(run_id, spec.name, config)
         try:
+            config = resolve_run_config(config)
+            run_id = experiment_key(config, spec)
+            if on_run_start is not None:
+                on_run_start(run_id, spec.name, config)
             result = run_single_experiment(
                 config, spec, use_firestore=use_firestore, keep_artifacts=keep_artifacts,
                 **({"artifact_directory": Path(artifact_base) / f"{index:04d}-{run_id}"}

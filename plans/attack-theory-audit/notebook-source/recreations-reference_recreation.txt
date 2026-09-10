@@ -1,0 +1,183 @@
+# CELL 1 (markdown)
+# Reference-calibrated Membership Inference Attack Recreation
+
+This notebook recreates the reference / comparison-model calibrated membership inference attack summarized in `papers/summary/02_reference.md`.
+
+Primary sources:
+
+- Nicholas Carlini, Florian Tramer, Eric Wallace, et al., *Extracting Training Data from Large Language Models*, USENIX Security 2021 / arXiv:2012.07805.
+- Mireshghallah et al. likelihood-ratio / LiRA-style language-model MIA framing.
+- Carlini et al., *Membership Inference Attacks From First Principles*, IEEE S&P 2022 / arXiv:2112.03570.
+
+No public Carlini et al. 2021 repository is stated for this specific reference attack. The recreation therefore implements the baseline score directly: compare a target model's sequence likelihood to a reference model's sequence likelihood, then threshold the calibrated score.
+
+
+# CELL 2 (markdown)
+## Baseline Attack Definition
+
+Threat model: the attacker can score candidate sequences under the target language model and under a reference language model. The reference model is either smaller, trained on disjoint data, or otherwise unlikely to memorize the same examples.
+
+Target record: a candidate text sequence. Members are sequences present in the target model's training or fine-tuning set; non-members are distribution-matched held-out sequences.
+
+Score: compute per-token negative log-likelihood for both models. A high membership score means the target assigns unusually high likelihood relative to the reference.
+
+For this notebook, higher `reference_nll - target_nll` means more likely member.
+
+
+# CELL 3 (code)
+from dataclasses import dataclass
+from math import exp
+from pathlib import Path
+from typing import Iterable, List, Sequence
+
+SOURCE_SUMMARY = Path("../../papers/summary/02_reference.md")
+ATTACK_NAME = "reference"
+
+@dataclass(frozen=True)
+class CandidateScore:
+    text: str
+    truth_member: bool
+    target_nll: float
+    reference_nll: float
+
+    @property
+    def membership_score(self) -> float:
+        # Larger means target loss is lower than reference loss, after calibration.
+        return self.reference_nll - self.target_nll
+
+    @property
+    def target_perplexity(self) -> float:
+        return exp(self.target_nll)
+
+    @property
+    def reference_perplexity(self) -> float:
+        return exp(self.reference_nll)
+
+
+# CELL 4 (markdown)
+## Optional Hugging Face Scoring
+
+Use this cell for a real target/reference pair such as `gpt2-medium` and `gpt2`, or a fine-tuned model and its base checkpoint. The smoke test below does not require these packages or model downloads.
+
+
+# CELL 5 (code)
+def mean_token_nll_hf(model, tokenizer, text: str, device: str = "cpu", max_length: int = 256) -> float:
+    """Return mean next-token negative log-likelihood for one text."""
+    import torch
+
+    encoded = tokenizer(
+        text,
+        return_tensors="pt",
+        truncation=True,
+        max_length=max_length,
+    )
+    encoded = {key: value.to(device) for key, value in encoded.items()}
+    input_ids = encoded["input_ids"]
+    if input_ids.shape[-1] < 2:
+        raise ValueError("Need at least two tokens to score a causal-LM sequence.")
+
+    with torch.no_grad():
+        outputs = model(**encoded, labels=input_ids)
+    return float(outputs.loss.detach().cpu())
+
+
+def score_texts_with_hf(target_model, reference_model, tokenizer, texts: Sequence[str], labels: Sequence[bool], device: str = "cpu") -> List[CandidateScore]:
+    rows = []
+    for text, truth_member in zip(texts, labels):
+        rows.append(
+            CandidateScore(
+                text=text,
+                truth_member=bool(truth_member),
+                target_nll=mean_token_nll_hf(target_model, tokenizer, text, device=device),
+                reference_nll=mean_token_nll_hf(reference_model, tokenizer, text, device=device),
+            )
+        )
+    return rows
+
+
+# CELL 6 (markdown)
+## Thresholding and Metrics
+
+The paper-style evaluation ranks samples by the calibrated membership score. For small controlled trials, this notebook reports thresholded confusion counts, TPR, TNR, attack advantage, accuracy, precision, recall, and F1.
+
+
+# CELL 7 (code)
+def predict_membership(rows: Sequence[CandidateScore], threshold: float) -> List[bool]:
+    return [row.membership_score >= threshold for row in rows]
+
+
+def confusion_counts(labels: Sequence[bool], preds: Sequence[bool]):
+    tp = sum(1 for y, p in zip(labels, preds) if y and p)
+    tn = sum(1 for y, p in zip(labels, preds) if not y and not p)
+    fp = sum(1 for y, p in zip(labels, preds) if not y and p)
+    fn = sum(1 for y, p in zip(labels, preds) if y and not p)
+    return {"tp": tp, "tn": tn, "fp": fp, "fn": fn}
+
+
+def metric_summary(labels: Sequence[bool], preds: Sequence[bool]):
+    counts = confusion_counts(labels, preds)
+    tp, tn, fp, fn = counts["tp"], counts["tn"], counts["fp"], counts["fn"]
+    tpr = tp / (tp + fn) if (tp + fn) else 0.0
+    tnr = tn / (tn + fp) if (tn + fp) else 0.0
+    precision = tp / (tp + fp) if (tp + fp) else 0.0
+    recall = tpr
+    f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) else 0.0
+    return {
+        **counts,
+        "tpr": tpr,
+        "tnr": tnr,
+        "adv": 0.5 * tpr + 0.5 * tnr,
+        "accuracy": (tp + tn) / len(labels) if labels else 0.0,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+    }
+
+
+def percentile_threshold(rows: Sequence[CandidateScore], member_fraction: float = 0.5) -> float:
+    scores = sorted(row.membership_score for row in rows)
+    if not scores:
+        raise ValueError("Cannot threshold an empty score list.")
+    index = max(0, min(len(scores) - 1, int((1.0 - member_fraction) * len(scores))))
+    return scores[index]
+
+
+# CELL 8 (markdown)
+## Synthetic Smoke Recreation
+
+The synthetic table emulates the expected calibrated signal: member records have lower target NLL than reference NLL, while held-out records have similar or worse target NLL relative to the reference. This is not a substitute for the full paper-scale experiment; it is a runnable correctness check for the scoring and metrics pipeline.
+
+
+# CELL 9 (code)
+def synthetic_reference_scores() -> List[CandidateScore]:
+    return [
+        CandidateScore("memorized customer-support transcript A", True, target_nll=1.10, reference_nll=2.05),
+        CandidateScore("memorized private note B", True, target_nll=1.25, reference_nll=2.10),
+        CandidateScore("held-out generic boilerplate C", False, target_nll=2.00, reference_nll=1.90),
+        CandidateScore("held-out public FAQ D", False, target_nll=2.20, reference_nll=2.00),
+    ]
+
+
+def run_recreation_smoke_test():
+    rows = synthetic_reference_scores()
+    threshold = 0.50
+    preds = predict_membership(rows, threshold=threshold)
+    metrics = metric_summary([row.truth_member for row in rows], preds)
+    assert metrics["tp"] == 2, metrics
+    assert metrics["tn"] == 2, metrics
+    assert metrics["adv"] == 1.0, metrics
+    return {"threshold": threshold, "metrics": metrics, "scores": [row.membership_score for row in rows]}
+
+smoke_result = run_recreation_smoke_test()
+smoke_result
+
+
+# CELL 10 (markdown)
+## How to Run a Real Recreation
+
+1. Load a target language model and a reference language model with `AutoModelForCausalLM`.
+2. Collect matched candidate member and non-member texts.
+3. Call `score_texts_with_hf(...)`.
+4. Choose a threshold from a validation split or report threshold-free ranking metrics.
+5. Report the same metrics from `metric_summary(...)`, plus paper-specific ranking precision at low false-positive rates when enough candidates are available.
+

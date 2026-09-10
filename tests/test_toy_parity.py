@@ -27,8 +27,8 @@ def test_smoke_run_produces_both_worlds_and_core_metrics(attack):
         assert key in result["metrics"]
 
 
-def test_zlib_smoke_roc_auc_is_one():
-    """zlib_adaptations.ipynb asserts perfect ranking on the toy path."""
+def test_small_smoke_does_not_claim_low_fpr_resolution():
     spec = ATTACKS["zlib"]
     result = runner.run_single_experiment(spec.config_cls(attack_trials=4), spec)
-    assert result["metrics"]["roc_auc"] == 1.0
+    assert result["metrics"]["tpr_at_fpr_0_01"] is None
+    assert result["metrics"]["nonmember_count"] == 2

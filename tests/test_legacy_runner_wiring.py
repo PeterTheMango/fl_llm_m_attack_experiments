@@ -40,7 +40,7 @@ def test_loss_runs_through_runner_with_mocked_fl(monkeypatch):
 
     res = runner.run_single_experiment(spec.config_cls(), spec)
     assert res["status"] == "complete"
-    assert res["run_id"].startswith("loss_federated_llm_adaptation_v1_")
+    assert res["run_id"].startswith("theory_v2_")
     assert "metrics" in res
     assert res["attack_name"] == "loss"
 
@@ -51,30 +51,22 @@ def test_amia_runs_through_runner_with_mocked_fl(monkeypatch):
     monkeypatch.setattr(runner.firestore, "load_cached_result", lambda c, s=None: None)
     monkeypatch.setattr(runner.firestore, "save_result", lambda c, r, s=None: False)
 
-    def fake_federated_fine_tune(config, artifact_dir=None):
-        return object(), object(), [], [], "model/path"
-
-    def fake_train_ami_probe(model, tokenizer, clients, config, artifact_dir=None):
-        return object(), [], "probe/path"
-
-    def fake_run_attack_trials(model, tokenizer, probe, clients, config):
-        return [
+    def fake_trials(config, artifact_dir):
+        return {"trials": [
             {"trial_id": 0, "truth_member": True, "score": 1.0, "pred_member": True, "batch_size": 8},
             {"trial_id": 1, "truth_member": False, "score": 0.0, "pred_member": False, "batch_size": 8},
-        ]
-
-    def fake_clear_experiment_objects(*objects):
-        return None
-
-    monkeypatch.setattr(amiamod, "federated_fine_tune", fake_federated_fine_tune)
-    monkeypatch.setattr(amiamod, "train_ami_probe", fake_train_ami_probe)
-    monkeypatch.setattr(amiamod, "run_attack_trials", fake_run_attack_trials)
-    monkeypatch.setattr(amiamod, "clear_experiment_objects", fake_clear_experiment_objects)
-
-    spec = ATTACKS["amia"]
+        ], "context": {"fed_history": [], "probe_history": [], "model_path": "model/path",
+                       "probe_path": "probe/path", "certificate": {"certified_attack": False}}}
+    spec = replace(ATTACKS["amia"], custom_trials=fake_trials)
     res = runner.run_single_experiment(spec.config_cls(), spec)
 
-    assert len(res["run_id"]) == 24
+    assert res["run_id"].startswith("theory_v2_")
     assert "probe_training_loss" in res
     assert res["attack_name"] == "amia"
     assert res["config"]["firestore_collection"] == "ami_federated_llm_results"
+
+
+import pytest
+@pytest.fixture(autouse=True)
+def _no_hub_resolution(monkeypatch):
+    monkeypatch.setattr(runner, "resolve_run_config", lambda config: config)

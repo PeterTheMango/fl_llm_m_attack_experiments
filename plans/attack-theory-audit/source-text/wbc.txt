@@ -1,0 +1,1742 @@
+                                                              Window-based Membership Inference Attacks Against
+                                                                     Fine-tuned Large Language Models
+
+                                                    Yuetian Chen                    Yuntao Du                     Kaiyuan Zhang                                Ashish Kundu
+                                                  Purdue University              Purdue University               Purdue University                             Cisco Research
+                                                               Charles Fleming                 Bruno Ribeiro                                       Ninghui Li
+                                                                Cisco Systems                 Purdue University                                 Purdue University
+
+
+
+
+arXiv:2601.02751v2 [cs.CL] 5 Mar 2026
+                                                                 Abstract                                                             100
+                                                                                                                                                                           Ours - 0.828
+
+
+
+
+                                                                                                                 True Positive Rate
+                                                                                                                                                                           Ratio - 0.787
+                                        Most membership inference attacks (MIAs) against Large                                        10 1                                 Ensemble - 0.786
+                                        Language Models (LLMs) rely on global signals, like average                                                                        Zlib - 0.596
+                                                                                                                                                                           Lowercase - 0.592
+                                        loss, to identify training data. This approach, however, dilutes                              10 2                                 Min-K% - 0.588
+                                        the subtle, localized signals of memorization, reducing attack                                                                     Min-K%++ - 0.587
+                                                                                                                                                                           Loss - 0.582
+                                        effectiveness. We challenge this global-averaging paradigm,                                   10 3                                 Recall - 0.582
+                                        positing that membership signals are more pronounced within                                                                        CON-Recall - 0.562
+                                                                                                                                                                           BoW - 0.493
+                                        localized contexts. We introduce WBC (Window-Based Com-                                       10 4 4
+                                                                                                                                         10     10 3   10 2   10 1   100
+                                        parison), which exploits this insight through a sliding window                                         False Positive Rate
+                                        approach with sign-based aggregation. Our method slides
+                                        windows of varying sizes across text sequences, with each              Figure 1: Performance comparison of membership infer-
+                                        window casting a binary vote on membership based on loss               ence attacks on Pythia-2.8B. ROC curves showing true
+                                        comparisons between target and reference models. By ensem-             positive rate vs. false positive rate (both on log scale) for
+                                        bling votes across geometrically spaced window sizes, we               various MIA methods evaluated on Web Samples V2 split.
+                                        capture memorization patterns from token-level artifacts to            The diagonal dashed line represents random guessing per-
+                                        phrase-level structures. Extensive experiments across eleven           formance. Numbers in legends indicate AUC scores. Our
+                                        datasets demonstrate that WBC substantially outperforms es-            proposed WBC Attack significantly outperforms existing
+                                        tablished baselines, achieving higher AUC scores and 2–3×              baselines across all false positive rate regimes, demonstrating
+                                        improvements in detection rates at low false positive thresh-          superior membership inference capability.
+                                        olds. Our findings reveal that aggregating localized evidence
+                                        is fundamentally more effective than global averaging, expos-
+                                        ing critical privacy vulnerabilities in fine-tuned LLMs.
+                                                                                                               cialized, often proprietary, datasets [11, 67, 68]. Most estab-
+                                                                                                               lished MIAs in this setting are reference-based, operating by
+                                        1    Introduction                                                      comparing a global statistic—typically the average per-token
+                                                                                                               loss—between a fine-tuned target model and a pre-trained
+                                        Large Language Models (LLMs) have achieved transfor-                   reference model [2, 29, 100, 106].
+                                        mative success across numerous applications [17, 80, 94].                 In a reference-based MIA, for each instance, one computes
+                                        However, the training of these models often involves ex-               token-level losses (negative log predicted probability) from
+                                        tensive datasets that can contain private or sensitive infor-          the reference model minus those from the target model. To
+                                        mation. This practice introduces significant privacy risks,            understand how to best utilize such token loss difference
+                                        including the memorization and potential leakage of train-             sequences for membership inference, we analyzed the distri-
+                                        ing data [9, 42, 45, 57]. Membership Inference Attacks                 butions of loss differences for 10 million tokens. Our analysis
+                                        (MIAs)—which determine whether specific samples were                   reveals that membership signals manifest as sparse, extremal
+                                        included in training data—are the primary method for quanti-           events rather than uniform distributional shifts. Furthermore,
+                                        fying these risks [92], with successful attacks directly demon-        these membership signals are intermixed with sparser and
+                                        strating information leakage [29, 67, 79, 108].                        more extreme events caused by domain-specific tokens, which
+                                           These privacy vulnerabilities are particularly pronounced           have high loss reduction and occur with similar frequencies
+                                        during the fine-tuning stage, where models are adapted to spe-         in non-members as well as members. These events create
+
+
+                                                                                                           1
+Figure 2: Overview of the Window-Based Comparison (WBC) Attack. Unlike baseline methods (a) that rely on comparing a
+single, noisy global average of per-token losses, our approach (b) introduces a local aggregation step. We slide a window across
+the loss sequences from the target (M T ) and reference (M R ) models, making a binary comparison for each window. The final
+membership score is the sum of this local evidence, a process that filters noise and provides a more sensitive measure, leading to
+better separation between member and non-member distributions.
+
+
+long-tailed noise with potentially infinite variance; global av-            fine-tuned model has a higher loss than the reference
+eraging becomes unreliable—a single outlier can dominate                    model. See Section 4.1.1 for discussion of these find-
+the entire statistic, obscuring genuine membership signals                  ings. We conjecture that a similar analysis could result
+concentrated in localized regions. This raises a critical ques-             in useful insights for MIA in pre-trained LLMs and pos-
+tion: Can robust detection methods overcome the fundamental                 sibly other paradigms, including vision-language [81]
+challenge of extracting sparse membership signals from long-                and diffusion language models [74].
+tailed noise dominated by domain adaptation effects?
+   Building on the insights gained from the empirical anal-             2. We formalize these observations with a mixture of point
+ysis, we construct a mathematical model for the token loss                 process models, which explains why global averaging
+reduction sequences using the point process theory from ex-                is suboptimal and provides theoretical grounding for lo-
+treme value statistics [26, 53]. Theoretical analysis using the            calized detection. We thus propose the WBC attack that
+model shows that the most reliable membership signals are                  replaces global averaging with sliding window analysis.
+concentrated in localized token sequences. While individual                Our method captures localized memorization patterns
+token losses are too volatile to be trusted, aggregating them              while maintaining robustness to long-tailed noise. A ge-
+over short windows (e.g., 3-10 consecutive tokens) can filter              ometric ensemble strategy aggregates evidence across
+noise without destroying the underlying signal.                            multiple window sizes, eliminating parameter tuning.
+   Taking advantage of these theoretical insights, we introduce         3. Through extensive experiments on eleven diverse
+the Window-Based Comparison (WBC) attack, illustrated in                   datasets using various models, we show that WBC signif-
+Figure 2. Our method employs a sliding window approach                     icantly outperforms thirteen baseline attacks. Averaged
+that performs hundreds of local comparisons, combined with                 across all datasets, WBC achieves an AUC of 0.839 com-
+sign-based aggregation that counts the fraction of windows                 pared to the strongest baseline’s 0.754, and improves the
+favoring membership. Our contributions are as follows:                     True Positive Rate at 1% False Positive Rate by 2.8×
+                                                                           (from 5.2% to 14.6%). Figure 1 shows this superiority on
+  1. We are the first to use empirical analysis of distributions           a representative example, the Web Samples V2 dataset.
+     of token-level loss signals to understand how to construct
+     more effective MIAs. Our analysis results in several in-            Our findings prove that the aggregation of local signals is a
+     triguing findings. For example, counter-intuitively, the          more potent attack vector than previously established global
+     strongest membership signals occur on tokens where the            methods. This work not only introduces a more effective MIA
+
+
+                                                                   2
+but also underscores the need for defenses that can account            knowledge, and capabilities.
+for these localized memorization patterns.
+                                                                       3.1    Autoregressive Language Model
+2    Related Works                                                     Next-Token Prediction. The dominant paradigm for Large
+                                                                       Language Models (LLMs) is autoregressive modeling [7, 83].
+LLM. Large Language Models (LLMs) build on trans-                      For a sequence of discrete tokens x = (x1 , x2 , . . . , xn ), these
+former architectures [97], employing self-supervised pre-              models operate on the unidirectional dependency assumption,
+training objectives such as masked language modeling [18],             where the probability of observing a token xi depends only
+causal language modeling [83], or span corruption [84] over            on its prefix (x1 , . . . , xi−1 ). This permits factorization of the
+vast, diverse corpora to capture linguistic patterns and world         joint probability as:
+knowledge. Guided by empirical scaling laws that corre-                                            n
+late model size, dataset volume, and compute with perfor-                                p(x) = ∏ p(xi | x1 , . . . , xi−1 )            (1)
+mance [37, 39, 49], LLMs have scaled to trillions of param-                                       i=1
+eters, exemplified by foundational models like GPT-3 [7],
+PaLM [13], BLOOM [103], OPT [112], LLaMA [95], Mis-                    A model M with parameters θ is trained to maximize this
+tral [46], and Falcon [77]. Recent advancements incorpo-               likelihood over a large corpus, typically by minimizing the
+rate architectural innovations, including mixture-of-experts           cross-entropy loss. The core metric derived from this process,
+(MoE) for efficient scaling [27, 47, 90], FlashAttention for           and the fundamental signal for our attack, is the per-token
+optimized memory and speed [15], and hybrid designs blend-             loss (negative log-likelihood) for a given sequence:
+ing dense and sparse activations [55]. State-of-the-art models
+                                                                                      ℓM
+                                                                                       i = − log pM (xi | x1 , . . . , xi−1 )           (2)
+such as LLaMA-3 [25], Qwen3 [105], DeepSeek-V3 [17],
+and Gemma-3 [93] push boundaries in multilingual capa-                 This value, ℓM
+                                                                                    i , quantifies the model’s “surprise” at seeing
+bilities, reasoning, and efficiency. Despite their prowess in          token xi given the preceding context.
+natural language understanding, generation, and downstream
+tasks [36, 58], LLMs pose privacy risks through unintended             Fine-Tuning and Memorization. While pre-trained on
+memorization of sensitive training data, enabling extrac-              vast, general-domain corpora, LLMs are often specialized
+tion attacks and highlighting vulnerabilities in data cura-            for downstream tasks via fine-tuning on smaller, targeted
+tion [9, 42, 45, 57, 71].                                              datasets. This process adapts the model’s parameters to the
+                                                                       new data distribution [18, 82]. A well-documented side effect
+MIA on LLMs. MIAs against LLMs initially showed                        of fine-tuning is that it amplifies the model’s memorization
+limited success on pre-training data [16, 24, 63, 89], at-             of the training samples [66, 108]. Consequently, for a data
+tributed to massive datasets, few epochs, and fuzzy bound-             sample x that is part of the fine-tuning set (a “member”),
+aries [9, 50, 111]. Early LLM MIAs adapted loss threshold-             the target model M T will exhibit significantly lower average
+ing [88, 92, 107], reference model calibration [8, 66, 100], and       loss compared to its loss on unseen data. Reference-based
+likelihood ratio tests [8, 23, 106]. Fine-tuned LLMs demon-            attacks leverage this phenomenon by comparing the target
+strated significantly higher vulnerability [62, 67], motivat-          model’s loss against that of a reference model M R (typically
+ing specialized attacks: neighborhood comparison [38, 61],             the pre-trained base model), which has not been exposed to
+loss trajectory exploitation [56, 59], token probability anal-         the fine-tuning data. The discrepancy in loss reduction be-
+ysis [91, 109], and self-prompt calibration (SPV-MIA) [29].            tween members and non-members provides a potent signal
+Advanced methods include instruction-based detection (MIA-             for membership inference.
+Tuner) [30], user-level inference [21, 48], context-aware at-
+tacks [10, 101], semantic-based approaches (SMIA) [69],
+and alignment-specific attacks [28], and instruction-tuned             3.2    Threat Model and Attacker Capabilities
+models [41]. Label-only attacks [12, 35], extraction meth-
+                                                                       Adversary’s Objective. We investigate Membership Infer-
+ods [9, 71], and aggregation strategies [79] further expanded
+                                                                       ence Attacks (MIAs) in the context of fine-tuned LLMs. The
+the threat landscape.
+                                                                       adversary’s goal is to determine if a specific data record x
+                                                                       was part of the private fine-tuning dataset, Dtrain . Given a tar-
+3    Preliminaries                                                     get model M T fine-tuned on Dtrain , the adversary constructs
+                                                                       an attack function A(x, M T , M R ) that outputs a real-valued
+This section provides the necessary background on autore-              score or a binary prediction m̂(x) ∈ {0, 1}, where m̂(x) = 1
+gressive language models, establishing the formulation for             signifies a prediction that x ∈ Dtrain .
+per-token loss that underpins our attack. It then formally de-         Access Model and Knowledge. We assume a score-based
+fines the threat model, detailing the adversary’s objective,           black-box access model, a realistic scenario for attacks against
+
+
+                                                                   3
+                                                                                          (a)                                     (b)                                   (c)
+deployed LLMs where internal model details are inaccessi-                           100
+                                                                                                                                                                    5
+                                                                                                                           10 1                                     0
+ble [91, 109, 113]. In this setting, the adversary’s capabilities
+
+                                                                                                                                                 Loss Difference
+                                                                                   10 1                                                                            -5
+
+
+                                                                                                              P(|X| > x)
+                                                                                                                                                                    5
+are limited to querying the target model M T with a text se-
+                                                                         Density
+                                                                                                                                                                    0
+                                                                                   10 2                                                                            -5
+quence x and receiving only the corresponding sequence of                                                                  10 3                                     5
+                                                                                                                                                                    0
+                                                                                   10 3                                                                            -5
+per-token loss values {ℓTi }ni=1 . This distinguishes our setting                                                                                                   5
+                                                                                                                                                                    0
+                                                                                   10 4                                    10 5                                    -5
+from stricter black-box scenarios where only sequence-level                                     0         10                        100   101                           0     50   100
+                                                                                            Loss Difference                    |Loss Difference|         Token Position
+averaged losses are returned [29, 43, 64, 66, 92, 100]. This                                    Members                      Non-members         Gaussian baseline
+assumption reflects two standard deployment scenarios: (1)
+Open-weight adaptation, where practitioners fine-tune public             Figure 3: Empirical distribution of token-level loss differ-
+models (e.g., via HuggingFace [102]) on proprietary data,                ences. (a) Log-scale density plots reveal long-tailed distribu-
+granting attackers access to the model weights for local in-             tions with a subtle rightward shift for members. The difference
+ference; and (2) API-based inference, where standard serving             is most pronounced in the left tail, not the mean. (b) Comple-
+backends like vLLM [52] explicitly support parameters such               mentary CDF confirms the long-tailed behavior of the token
+as prompt_logprobs, returning the exact signal required by               loss. (c) Time series shows sparse, scattered extremes.
+WBC. Furthermore, consistent with reference-based attack
+literature [29, 100], the adversary is assumed to have identical
+score-based black-box access to a reference model, M R . The             over 10 million token-level comparisons reveals that mem-
+most principled choice for this reference is the pre-trained             bership signals are governed by a regime of extremal events.
+base model from which M T was fine-tuned, as this best iso-              These extremes arise from two sources: (1) tokens where
+lates the memorization signal induced by the fine-tuning pro-            the fine-tuned model achieves dramatic perplexity reduction
+cess. As shown in Section 5.5, WBC remains robust and con-               compared to the reference model, appearing in both mem-
+tinues to outperform baselines even when M R is a misaligned             bers and non-members due to domain adaptation, and (2)
+model. The adversary has no access to the model’s internal               membership-specific tokens where fine-tuning provides ad-
+components, such as its parameters, gradients, or hidden-state           ditional confidence due to memorization. The former creates
+activations, nor to the membership status of any sample.                 extreme values in the loss difference distribution that domi-
+                                                                         nate global averages but carry no membership information,
+                                                                         masking the discriminative signals from the latter. We argue
+4    Window-Based Comparison Attack                                      that this behavior aligns with a mixture of point processes,
+                                                                         where non-informative extremal events from domain adapta-
+A fundamental limitation of prior membership inference at-               tion obscure the sparse true membership signals. Our sliding
+tacks is their reliance on global statistics that aggregate losses       window approach isolates these localized patterns, and our
+over entire texts. This document-level averaging is dominated            sign-based binary aggregation strategy provides robustness to
+by extremal events, rare tokens with outlier losses that over-           the long-tailed distributions created by both types of extremes.
+whelm genuine membership signals. Our empirical analysis
+reveals that these outliers can be 10–100 times larger than              4.1.1              Empirical Structure of Membership Signals
+typical fluctuations, making global statistics unreliable for
+detecting the sparse, localized memorization patterns that               To understand the nature of membership signals in fine-tuned
+distinguish members from non-members. This motivates our                 LLMs, we conducted an empirical analysis of token-level
+window-based approach: by evaluating hundreds of local com-              loss differences. We fine-tuned Pythia-2.8B [6] on the Khan
+parisons instead of a single global average, we can isolate              Academy subset of Cosmopedia [4], following standard prac-
+membership signals from contaminating noise.                             tices with a learning rate of 5 × 10−5 and training for 3 epochs
+   WBC attack exploits this clustering by systematically eval-           on 10,000 samples. We then evaluated both the fine-tuned
+uating contiguous text windows. Rather than computing a                  target model M T and the original pre-trained reference model
+single global statistic, we perform hundreds of local compar-            M R on balanced sets of 10,000 member samples (from the
+isons and aggregate their outcomes. This approach transforms             training set) and 10,000 non-member samples (held-out data
+the noisy, high-dimensional problem of token-level analysis              from the same distribution).
+into a robust voting mechanism across multiple granularities.               For each text sequence x = (x1 , . . . , xn ), we computed the
+                                                                         per-token loss (negative log-likelihood) for both models, yield-
+                                                                         ing loss sequences {ℓTj }nj=1 and {ℓRj }nj=1 . The token-level loss
+4.1 Theoretical Foundation: Extremal Events                              difference ∆ j = ℓRj − ℓTj quantifies how much more confident
+    and Window-Based Detection                                           the fine-tuned model is compared to the reference model at
+In this section, we provide a plausible explanation for why              each position. Positive values indicate positions where fine-
+our sign-based localized window-based detection outperforms              tuning improved prediction.
+global averaging for membership inference. Our analysis of               Figure 3(a) presents the empirical distribution of these loss
+
+
+                                                                     4
+differences on a logarithmic scale to emphasize tail behavior.           right-tail regions will occur frequently enough to be exploited
+The distributions reveal several critical insights.                      for membership inference. These observations motivate mod-
+   First, the curves for members and non-members look quite              eling membership signals as a mixture of extremal event pro-
+similar, but there is a small but non-trivial mean difference be-        cesses rather than a uniform or Gaussian process.
+tween members (0.393) and non-members (0.331). This sug-                 Figure 3(b) shows the log-log scale of the token loss com-
+gests that using global averaging for membership inference               plementary cumulative distribution (i.e., 1-CDF). It reveals
+would work to some limited extent. In order to achieve higher            a long-tailed behavior, a hallmark of distributions whose av-
+attack effectiveness, we need to identify and extract finer-             erages are dominated by rare extreme events. For members,
+grained membership signals from the token-loss sequences.                approximately 1.77% of tokens exceed three standard devia-
+Furthermore, the overwhelming majority of tokens show near-              tions from the mean, compared to only 0.3% expected under
+zero differences, suggesting that any fine-grained membership            a Gaussian distribution.
+signals would appear as relatively rare events.
+                                                                         Figure 3(c) illustrates the sequential structure of these signals
+   Second, the right tail regions for both members and non-
+                                                                         by plotting loss differences across token positions for rep-
+members extend to very high positive values and are almost
+                                                                         resentative samples. Instead of clustered patterns suggestive
+overlapping. This suggests that tokens with dramatic loss
+                                                                         of memorization of contiguous passages, we observe sparse,
+reduction are not good membership signals. While this ob-
+                                                                         scattered spikes distributed seemingly at random throughout
+servation may appear counterintuitive, it makes perfect sense.
+                                                                         the sequences. Statistical analysis confirms this observation:
+For tokens to result in high loss reduction, they must appear
+                                                                         computing the clustering coefficient (ratio of observed to
+many times during fine-tuning, meaning that they are domain-
+                                                                         expected spacing between extreme values) [14, 87] yields val-
+specific features that appear frequently across the dataset, in
+                                                                         ues of 1.049 for members and 1.053 for non-members, where
+non-members as well as members. We call these domain-
+                                                                         1.0 indicates perfectly random placement under a Poisson
+specific tokens. High loss reduction on these tokens are the
+                                                                         point process [19]. This absence of spatial clustering suggests
+result of domain adaptation that occurs because of fine-tuning.
+                                                                         that membership signals manifest as isolated, extremal events
+   This fact creates significant challenges for distinguishing
+                                                                         rather than coherent, memorized passages.
+members from non-members. For example, the approach of
+using the maximum loss reduction across all tokens to deter-
+mine membership would not be effective.                                  4.1.2    Modeling Membership Signals as Extremal Events
+   Third, the most noticeable difference between the two dis-            The empirical observations we made above from Figure 3 col-
+tributions is that the one for members shows a small but                 lectively suggest that membership inference should be framed
+consistent rightward shift in the left tail region. As this region       not as detecting distribution shifts through averages but as
+consists of tokens on which the fine-tuned model actually per-           identifying and aggregating evidence from sparse extremal
+forms worse than the reference model, it counter-intuitively             events—a perspective grounded in point process theory from
+suggests that the strongest membership signals appear in to-             extreme value statistics [26, 53]. From these observations,
+kens where the target model has higher loss.                             we model the per-token loss difference point process as a
+   We believe that the reasons for this phenomenon are as                superposition of three components:
+follows. First, for a token to be a good signal of membership
+of an instance, it should appear in this instance and few other                  ∆ j (x) = ℓRj − ℓTj = I[x ∈ Dtrain ] · δ j (x) + ξ j + ε j ,   (3)
+instances. As a result, we expect this token’s loss to be just
+slightly lower compared to the case that the instance is a non-          Here ε j represents baseline noise with a small mean µε and
+member. Second, as the fine-tuned model needs to increase                variance σ2 , capturing typical prediction fluctuations. The
+predicted probabilities for domain-specific features, it would           term ξ j captures domain-specific tokens (e.g., frequent tech-
+have to reduce predicted probabilities for some other tokens.            nical terms) that exhibit high loss reduction due to domain
+Since members are used in fine-tuning, such reductions, when             adaptation independent of membership. Since these features
+they occur, would be less than those for non-members.                    appear in both members and non-members, ξ j acts as high-
+   Compared to the right-tail region, the left-tail region ex-           magnitude noise that dominates the right tail of the distri-
+tends less horizontally, but has higher density. This suggests           bution. We model these events due to domain-specific to-
+that such membership signals have less magnitude than the                kens as a point process where events occur with low proba-
+noise signals from the right region, but are less rare.                  bility but large magnitude. Specifically, ξ j = Z j · |Y j | where
+   Lastly, both member and non-member distributions exhibit              Z j ∼ Bernoulli(ρξ ) with ρξ ≪ 1 marks rare token occurrence,
+long tails with excess kurtosis exceeding 18, far surpassing the         and Y j follows a long-tailed distribution representing the mag-
+value of 0 expected for Gaussian distributions. They also show           nitude of these events. From our observations, approximately
+positive skewness (2.82 for members, 2.63 for non-members),              1.8% of tokens exhibit extreme values exceeding 3σ, suggest-
+confirming the asymmetric nature of these extremal events.               ing ρξ ≈ 0.02. The term δ j (x) ≥ 0 represents the membership
+This means that the extremal events from both left-tail and              signal at position j. Unlike domain features, these signals
+
+
+                                                                     5
+manifest as smaller, more frequent loss reductions resulting             where the summation spans w consecutive tokens from posi-
+from the memorization of specific instances, causing ∆ j (x) to          tion i to position i + w − 1. By sliding this window across the
+increase when x is a member as opposed to a non-member.                  entire sequence, we obtain n − w + 1 different windows.
+   Similarly, membership signals (δ j (x)’s) follow a sparse                The distribution of these windowed sums follows a con-
+pattern: δ j (x) = B j · γ j where B j ∼ Bernoulli(ρδ ) indicates        taminated mixture:
+whether position j contains memorized content, and γ j > 0
+represents the signal strength when present.                                    Si (w) ∼ (1 − pextreme ) · Fnormal + pextreme · Flong    (6)
+The Masking Effect of Extremal Events in Global Aver-
+ages. Under our model, global averaging reveals why tradi-               where pextreme is the probability that a window contains ei-
+tional membership inference approaches struggle with fine-               ther a membership signal or a rare token event, and Flong
+tuned LLMs. The global average loss difference across all                represents a long-tailed distribution. Consider two natural
+tokens becomes:                                                          approaches to aggregate these windowed differences into a
+                                                                         membership score:
+
+     1 n                               1 n                                               1    n−w+1
+ ∆¯ = ∑ ∆ j = I[x ∈ Dtrain ] · ρδ γ̄ +              ε̄ . (4)
+                                         ∑ ξ j + |{z}                      Tmean =              ∑ Si (w),               (mean-based) (7)
+     n j=1    |       {z          }    n j=1                                         n − w + 1 i=1
+                membership signal      | {z } baseline noise
+                                                                                              n−w+1
+                                         rare token noise                                1
+                                                                           Tsign =              ∑ I[Si (w) > 0].         (sign-based) (8)
+                                                                                     n − w + 1 i=1
+The first term represents the true membership signal with
+expected value ρδ γ̄. However, the second term, arising from
+                                                                         The mean-based approach uses the magnitude of each win-
+rare token events, has variance proportional to ρξ · E[Y j2 ]. For
+                                                                         dow’s difference for MIA, while the sign-based approach uses
+long-tailed distributions of Y j , this variance can be extremely
+                                                                         only the direction. Classical robust statistics theory shows
+large. Hence, a single extreme ξ j value can dominate the
+                                                                         which method offers superior statistical power and under
+entire average, as these outliers can be 10-100 times larger
+                                                                         which conditions. The Pitman asymptotic relative efficiency
+than typical fluctuations.
+                                                                         (ARE) quantifies the relative sample sizes needed by two tests
+   This simple model explains why global averaging methods
+                                                                         to achieve equal power [54, 78]. For location testing under
+can have weak MIA signals: the signal-to-noise ratio deteri-
+                                                                         contaminated distributions, the ARE is given by
+orates not due to the weakness of membership signals, but
+because rare token events create overwhelming noise that can-
+                                                                                     ARE(sign, mean) = 4 f 2 (0) · Var[Si (w)],          (9)
+not be averaged away. With only ρξ n ≈ 0.02n extreme events
+in a sequence, the law of large numbers converges slowly (or
+                                                                         where f (0) is the density of the centered distribution at zero
+not at all for some long-tailed distributions), making global
+                                                                         and Var[Si (w)] is the variance of Si (w). When ARE exceeds
+statistics unreliable signals.
+                                                                         unity, the sign test requires fewer samples than the mean test
+                                                                         for equal power [96].
+4.1.3   Window-Based Detection and Robust Aggregation                       For the long-tailed contaminated mixture in Equation (6),
+Instead of attempting to detect a global mean shift corrupted            Var[Si (w)] is dominated by the long-tailed extremal events
+by long-tailed noise, we reformulate membership inference as             Flong . Meanwhile, the density f (0) remains bounded be-
+detecting localized extremal events. This formulation aligns             cause most windows cluster near zero. Consequently, the
+with standard problems in local sequence analysis, where the             ARE grows with contamination degree, strongly favoring
+design space ranges from change-point detection algorithms               the sign test. To illustrate this phenomenon, let’s examine
+to various aggregation functions. However, unlike change-                an extreme scenario: an unrealistic long-tailed distribution,
+point detection, which typically seeks contiguous regime                 such as Cauchy contamination. In this case, the ARE can be
+shifts, our empirical analysis at Section 4.1.1 indicates that           infinite, implying that the mean test has zero asymptotic effi-
+membership signals do not appear as such sharp transitions;              ciency relative to the sign test [44]. This result underscores
+rather, they manifest as continuous, low-degree signals that             the robustness of the sign test when variance is dominated by
+are consistently buried under the dominated signal of domain             extremes. This theoretical result directly motivates our use of
+adaptation. We therefore adopt a sliding window approach as              the sign test:
+a particularly effective instance of this paradigm to capture
+                                                                                             n−w+1
+these scattered events. For a window of size w starting at                              1
+                                                                             Tsign =           ∑ I[Si (w) > 0]                          (10)
+position i, we compute the windowed sum:                                            n − w + 1 i=1
+                                                                                                   "                   #
+                                                                                             n−w+1  i+w−1      i+w−1
+                                  i+w−1                                                 1                  R         T
+                       Si (w) =                                                   =            ∑ I ∑ ℓj > ∑ ℓj .                        (11)
+                                   ∑ ∆ j,                     (5)                   n − w + 1 i=1      j=i       j=i
+                                   j=i
+
+
+                                                                     6
+This statistic counts the fraction of windows where the ref-               small w, the probability that a window containing a signal
+erence model loss exceeds the target model loss, regard-                   yields Si (w) > 0 is barely above 0.5, making each binary test
+less of difference magnitude. By adapting this standard non-               uninformative despite the large number of tests available.
+parametric test to the domain of membership inference, we                      Conversely, excessively large window sizes introduce three
+inherit several key known robustness guarantees:                           key challenges. In probability theory [72], our task is related
+Breakdown point. The breakdown point of an estimator is                    to the well-known scan statistic tests, and the effect of w
+the largest fraction of data that can be arbitrarily corrupted             is well-documented. First, the effective sample size of any
+without the estimator becoming uninformative [22, 44]. The                 statistics diminishes sharply with window size w. Although
+sign test achieves the maximum possible breakdown point                    the total number of windows is n − w + 1, which decreases
+of 0.5, meaning it remains reliable even when up to half the               only linearly with w, adjacent windows share w − 1 tokens,
+windows contain arbitrarily large contaminating values from                inducing strong dependencies. Consequently, the effective
+rare tokens. In our context, “window contamination” refers                 number of independent tests is closer to n/w, the maximum
+to windows where rare token events ξ j create extreme val-                 number of non-overlapping windows, which decays rapidly
+ues that dominate the window sum. Even if 50% of windows                   as w increases.
+contain such extreme contaminations, the sign test still cor-                  Second, large windows elevate the risk of contamination
+rectly identifies the majority vote, whereas the mean would                by rare token events. When a window contains an extreme
+be completely dominated by these outliers.                                 rare token event ξ j , its magnitude can dominate the sum
+                                                                           Si (w), overshadowing the accumulated membership signal.
+Scale invariance. The sign test is invariant to monotone
+                                                                           The probability of such contamination is proportional to
+transformations of the data [54]. Whether the loss differences
+                                                                           1 − (1 − ρξ )w ≈ wρξ for small ρξ , where ρξ is the rare to-
+are measured in nats, bits, or any monotone transformation
+                                                                           ken probability.
+thereof, the sign test yields identical results. Unlike the mean,
+which is sensitive to non-linear scaling, this invariance ensures              Third, signal dilution becomes pronounced. In a window
+consistent detection regardless of calibration differences.                of size w, only ρδ w tokens are expected to be memorized,
+                                                                           while the remaining (1 − ρδ )w tokens are non-memorized.
+Bounded output. Unlike the mean, which can take arbitrary                  For sparse signals (ρδ ≪ 1), this averaging dilutes the mem-
+values depending on outlier magnitudes, the sign statistic                 bership signal, reducing the likelihood that windows contain-
+is naturally bounded in [0,1], representing the fraction of                ing signals yield positive sums. Empirically, an intermedi-
+windows favoring membership. This bounded range facilitates                ate window (3–10 tokens) balances these competing factors.
+consistent threshold selection across different datasets and               However, determining the optimal window size analytically
+models without requiring dataset-specific normalization.                   requires parameters that cannot be estimated reliably: the sig-
+   The fundamental distinction is that mean-based aggre-                   nal sparsity ρδ , rare token frequency ρξ , signal strength γ̄, and
+gation attempts to measure “how much lower is the loss                     rare token distribution E[Y 2 ]. These parameters vary across
+on average,” while sign-based comparison asks “how of-                     datasets and even within documents—e.g., technical sections
+ten is the loss lower”, a more robust question under long-                 exhibit different patterns than narrative prose. We provide a
+tailed noise. For empirically observed contamination levels                detailed analysis of this optimization problem in Appendix B.
+(pextreme ≈ 0.05 − 0.10), the ARE typically exceeds 2 to 5,
+                                                                               Thus, instead of pursuing an elusive optimal window size,
+meaning sign-based comparison requires 2 to 5 times fewer
+                                                                           we adopt an ensemble approach that provides robustness
+samples than mean aggregation for equivalent detection power.
+                                                                           through diversification. We employ a geometric progression
+This explains our empirical results in Section 5.3.3, where
+                                                                           that densely samples small windows while maintaining cover-
+sign-based aggregation consistently outperforms mean, me-
+                                                                           age of larger scales:
+dian, and min aggregation across all datasets, with particularly
+pronounced advantages in high-precision regimes.                                                                      k−1 !
+                                                                                                          wmax          |W |−1
+                                                                                        wk = round wmin ·                                (12)
+                                                                                                          wmin
+4.1.4   Window Size Trade-off and Ensemble Strategy
+
+The use of windows in detecting membership signals intro-                  where k ∈ {1, . . . , |W |}, and wmin , wmax bound the range of
+duces a trade-off, governed by the window size w. On one                   scales. The geometric spacing ensures that the ratio between
+hand, smaller windows (e.g., w = 1 or 2) increase the num-                 consecutive window sizes remains approximately constant:
+ber of (correlated) tests that can be performed, as there are              wk+1 /wk ≈ (wmax /wmin )1/(|W |−1) . This provides equal rela-
+n − w + 1 possible windows in a sequence of length n. How-                 tive resolution across scales, a principle from scale-space the-
+ever, this comes at the cost of a poor signal-to-noise ratio               ory that optimizes multi-resolution analysis. Small windows,
+for each individual window sum Si (w) = ∑i+w−1  j=i   ∆ j . Specifi-       where memorization signals are most likely, receive dense
+cally, the expected signal scales with ρδ wγ̄, while
+                                                  √  the  standard         sampling, while larger windows are sampled more sparsely
+deviation due to baseline noise scales with wσ. For very                   to provide coverage without redundancy. The final ensemble
+
+
+                                                                       7
+score uses uniform weights, yielding                                     Algorithm 1: WBC Attack
+                                                                           Inputs :Target model M T ; Reference model M R ;
+                          1 |W |                                                    Input x = {x j }nj=1 ; Window size schemes W
+                  SWBC =      ∑ Tsign (wk ).
+                         |W | k=1
+                                                            (13)
+                                                                         1 forall k ∈ {T, R} do
+                                                                         2     for j = 1 to n do
+Uniform weighting follows the principle of maximum en-
+                                                                         3         ℓkj ← − log pM k (x j | x1 , . . . , x j−1 )
+tropy—minimizing worst-case regret under parameter uncer-
+tainty. This equal weighting also provides variance reduction           4  SWBC ← 0
+through averaging partially correlated measurements, with en-           5  forall w ∈ W do
+semble variance decreasing as τ2 [1 + (|W | − 1)ρ]/|W | when             6     sumT ← 0; sumR ← 0 for j = 1 to w do
+correlations ρ are modest.                                               7         sumT ← sumT + ℓTj sumR ← sumR + ℓRj
+   This equal weighting is theoretically justified under pa-
+rameter uncertainty. By the principle of maximum entropy,                       ▷ Initialize sums for first window
+uniform weights minimize worst-case regret when the true                 8      count ← 0 if sumR > sumT then
+optimal window size is unknown. Additionally, uniform av-                9         count ← count + 1
+eraging provides variance reduction: if individual window               10      for i = 2 to n − w + 1 do
+scores have variance τ2 and correlation ρ, the ensemble vari-           11          sumT ← sumT − ℓTi−1 + ℓTi+w−1
+ance becomes τ2 [1 + (|W | − 1)ρ]/|W |, which decreases with            12          sumR ← sumR − ℓRi−1 + ℓRi+w−1
+ensemble size when correlations are modest.                             13          if sumR > sumT then
+   The ensemble strategy solves two fundamental problems.               14               count ← count + 1
+First, it provides robustness against unknown parameters (ρδ ,
+ρξ , γ̄, E[Y 2 ]) that vary across datasets and even within docu-               ▷ Slide & compare
+ments. Second, it captures heterogeneous memorization pat-              15      Tsign (w) ← count/(n − w + 1)
+terns that no single window size can detect optimally—small             16      SWBC ← SWBC + Tsign (w)
+windows (2-4 tokens) capture token-level artifacts, medium              17   SWBC ← SWBC /|W |
+windows (5-10 tokens) detect phrases, and larger windows                18   return SWBC
+identify paragraph-level patterns. When texts mix technical
+terms with quoted passages, the ensemble naturally combines
+these complementary detection capabilities.
+                                                                        accelerate this computation by leveraging optimized convo-
+   This ensemble consistently outperforms the empirically               lution implementations. Details and performance evaluation
+best single window size, as validated in our ablation studies           are provided in Appendix D.
+(Sections 5.3.2). The strategy thus achieves both robustness
+and superior performance—transforming theoretical insights
+into a practical attack requiring no parameter tuning.
+                                                                        5      Experiments
+4.2    Algorithmic Specification                                        This section details the empirical evaluation of our proposed
+                                                                        WBC attack. We first describe the experimental setup, includ-
+The complete procedure for our attack is detailed in Algo-              ing the datasets, models, and baseline attacks. We then present
+rithm 1. The procedure unfolds as follows. First, the per-token         our main results, demonstrating the superior performance of
+negative log-likelihoods (i.e., the negative log-probability of         our method, followed by ablation studies and analyses that
+each token conditioned on its prefix) are computed for the              provide deeper insights into why our approach is effective.
+input x using both the target (M T ) and reference (M R ) mod-
+els, yielding the loss sequences {ℓTj }nj=1 and {ℓRj }nj=1 (Lines
+1-3). The algorithm then iterates through each window size              5.1     Experimental Setup
+w ∈ W (Line 5). For a given w, it initializes the sums for the
+first window (Lines 6-7) and performs the first sign-based              Datasets. We evaluate on eleven datasets spanning syn-
+comparison (Lines 8-9). It then slides the window from the              thetic and real-world domains. The first category consists
+second position to the end, incrementally updating the sums             of six subsets from Cosmopedia [4], a large-scale synthetic
+and the comparison count at each step (Lines 10-14). Once               dataset generated by Mixtral-8x7B-Instruct-v0.1 [47]. We
+all windows for size w are processed, the normalized count              utilize the Khan Academy, Stanford, Stories, Web Samples
+yields the window-specific score Tsign (w) (Line 15), which is          v2, AutoMathText, and WikiHow subsets as these represent
+added to the total ensemble score (Line 16). Finally, this total        the scale and quality of data commonly used in modern fine-
+is averaged over the number of window sizes |W | to produce             tuning practices, where practitioners increasingly rely on high-
+the final score SWBC (Lines 17-18). In practice, we further             quality synthetic data for domain adaptation. The second
+
+
+                                                                    8
+Table 1: MIA performance (AUC, TPR@10%FPR, TPR@1%FPR, TPR@0.1%FPR) across different datasets. Each cell shows
+mean with std. dev. as a subscript. Best-performing results are highlighted. We observe that WBC consistently outperforms all
+baseline methods across all reported metrics and datasets.
+
+                                 Khan Academy                                             Stanford                                           Stories
+ MIAs
+                       AUC      T@10%          T@1%       T@0.1%           AUC      T@10%          T@1%       T@0.1%           AUC      T@10%          T@1%       T@0.1%
+ Loss [107]       0.568±.003   0.151±.003   0.017±.002   0.001±.001   0.590±.006   0.170±.008   0.023±.003   0.003±.001   0.587±.004   0.146±.008   0.020±.001   0.003±.001
+ ZLIB [9]         0.583±.004   0.161±.003   0.019±.003   0.003±.001   0.606±.006   0.178±.009   0.024±.003   0.002±.000   0.596±.004   0.157±.005   0.019±.002   0.003±.001
+ Lowercase [9]    0.586±.004   0.154±.006   0.013±.002   0.002±.001   0.596±.003   0.173±.004   0.024±.002   0.003±.001   0.593±.004   0.172±.004   0.018±.002   0.002±.001
+ Min-K% [91]      0.595±.002   0.182±.004   0.024±.002   0.002±.000   0.593±.005   0.168±.006   0.024±.002   0.003±.001   0.588±.003   0.145±.004   0.019±.003   0.003±.001
+ Min-K%++ [109] 0.596±.002     0.180±.005   0.022±.003   0.002±.001   0.592±.004   0.161±.006   0.023±.002   0.004±.001   0.586±.003   0.150±.006   0.018±.002   0.002±.001
+ BoWs [16]        0.499±.004   0.101±.003   0.011±.001   0.001±.001   0.498±.003   0.109±.003   0.012±.001   0.001±.001   0.502±.005   0.100±.002   0.011±.001   0.002±.001
+ ReCall [104]     0.568±.003   0.151±.003   0.017±.002   0.001±.001   0.590±.006   0.170±.008   0.023±.003   0.003±.001   0.587±.004   0.146±.008   0.020±.001   0.003±.001
+ CON-Recall [99] 0.563±.003    0.142±.004   0.014±.002   0.002±.001   0.570±.006   0.159±.007   0.018±.002   0.003±.000   0.558±.004   0.143±.006   0.020±.002   0.002±.001
+ DC-PDD [113]     0.567±.003   0.136±.003   0.015±.002   0.002±.001   0.570±.003   0.140±.003   0.014±.002   0.002±.001   0.574±.002   0.146±.002   0.019±.002   0.002±.001
+ SPV-MIA [29]     0.695±.003   0.240±.006   0.049±.004   0.005±.003   0.760±.003   0.260±.010   0.077±.005   0.012±.003   0.763±.004   0.360±.007   0.070±.006   0.018±.005
+ Ratio [100]      0.703±.003   0.264±.004   0.037±.004   0.003±.001   0.781±.004   0.401±.010   0.080±.008   0.013±.001   0.769±.004   0.389±.011   0.091±.008   0.022±.006
+ Difference [100] 0.692±.002   0.259±.005   0.045±.002   0.003±.001   0.742±.005   0.360±.011   0.080±.008   0.021±.004   0.719±.005   0.348±.007   0.079±.006   0.014±.003
+ Ensemble [110] 0.687±.003     0.217±.004   0.061±.002   0.007±.001   0.738±.004   0.142±.003   0.075±.006   0.011±.004   0.758±.004   0.338±.004   0.048±.003   0.014±.003
+ WBC (Ours)       0.837±.003 0.538±.007 0.146±.009 0.026±.009 0.854±.003 0.583±.008 0.194±.012 0.034±.017 0.808±.005 0.494±.007 0.160±.013 0.034±.003
+
+
+                                 Web Samples v2                                        Auto Math Text                                       WikiHow
+ MIAs
+                       AUC      T@10%          T@1%       T@0.1%           AUC      T@10%          T@1%       T@0.1%           AUC      T@10%          T@1%       T@0.1%
+ Loss [107]       0.579±.004   0.153±.006   0.022±.003   0.004±.001   0.553±.005   0.133±.005   0.014±.001   0.002±.001   0.592±.004   0.162±.005   0.022±.002   0.004±.001
+ ZLIB [9]         0.593±.004   0.175±.005   0.023±.002   0.005±.001   0.562±.005   0.141±.005   0.015±.002   0.002±.001   0.604±.004   0.171±.004   0.022±.002   0.002±.000
+ Lowercase [9]    0.592±.004   0.166±.005   0.021±.003   0.003±.001   0.568±.003   0.141±.008   0.015±.002   0.001±.001   0.614±.004   0.182±.007   0.024±.002   0.001±.001
+ Min-K% [91]      0.587±.005   0.158±.007   0.023±.002   0.002±.000   0.581±.006   0.150±.006   0.021±.001   0.002±.000   0.600±.004   0.178±.005   0.025±.002   0.004±.001
+ Min-K%++ [109] 0.586±.004     0.153±.005   0.020±.002   0.003±.001   0.583±.005   0.150±.005   0.022±.002   0.003±.001   0.598±.004   0.174±.005   0.027±.003   0.004±.001
+ BoWs [16]        0.493±.004   0.097±.004   0.010±.001   0.002±.001   0.500±.004   0.105±.005   0.009±.001   0.001±.000   0.498±.004   0.096±.003   0.008±.001   0.001±.000
+ ReCall [104]     0.579±.004   0.153±.006   0.022±.003   0.004±.001   0.553±.005   0.133±.005   0.014±.001   0.002±.001   0.592±.004   0.162±.005   0.022±.002   0.004±.001
+ CON-Recall [99] 0.560±.004    0.144±.003   0.017±.001   0.002±.001   0.547±.005   0.135±.005   0.015±.001   0.002±.001   0.571±.005   0.161±.005   0.019±.002   0.002±.001
+ DC-PDD [113]     0.569±.003   0.143±.003   0.019±.002   0.003±.001   0.560±.006   0.130±.006   0.015±.002   0.002±.001   0.571±.004   0.143±.003   0.016±.002   0.002±.001
+ SPV-MIA [29]     0.787±.003   0.456±.006   0.088±.004   0.008±.006   0.759±.003   0.369±.006   0.063±.006   0.007±.004   0.719±.003   0.300±.007   0.053±.005   0.013±.004
+ Ratio [100]      0.788±.003   0.435±.009   0.090±.007   0.012±.003   0.768±.002   0.378±.005   0.075±.002   0.011±.006   0.714±.003   0.261±.006   0.042±.003   0.008±.002
+ Difference [100] 0.739±.003   0.365±.008   0.094±.008   0.019±.007   0.700±.004   0.300±.009   0.051±.006   0.009±.003   0.709±.003   0.278±.005   0.047±.003   0.009±.002
+ Ensemble [110] 0.786±.003     0.477±.004   0.086±.002   0.005±.013   0.749±.002   0.359±.004   0.051±.002   0.003±.002   0.724±.003   0.338±.004   0.065±.005   0.018±.001
+ WBC (Ours)       0.843±.003 0.573±.008 0.198±.012 0.045±.004 0.814±.003 0.504±.007 0.153±.009 0.040±.008 0.802±.003 0.451±.010 0.096±.007 0.019±.006
+
+
+
+category comprises real-world document benchmarks, includ-                               Detailed fine-tuning hyperparameters and computational in-
+ing WikiText-103 [65] and XSum [70] for direct comparison                                frastructure are described in Appendix C.1.3.
+with prior work [29], supplemented by Amazon Reviews [73],
+                                                                                         Attack Baselines. We evaluate our proposed method against
+CC-News [34], and Reddit [86] to extend evaluation across
+                                                                                         a comprehensive suite of thirteen established MIA baselines,
+diverse domains at similar scales. All evaluations use bal-
+                                                                                         covering both reference-free and reference-based approaches.
+anced 10,000-sample splits for members/non-members with a
+                                                                                         The reference-free attacks include the straightforward Loss
+minimum 512-token length. See Appendix C.1.1 for detailed
+                                                                                         score (average negative log-likelihood) [107], methods based
+descriptions.
+                                                                                         on input perturbations like ZLIB (which measures text com-
+Models and Fine-Tuning. Our primary analysis is conducted                                pressibility) and Lowercase (which measures loss change after
+on the Pythia-2.8B [6]. To assess the generalizability of our                            case modification) [9], tail-end distribution methods including
+findings, we perform additional experiments across a wide                                Min-K% [91] and Min-K%++ [109], and distribution-based
+range of model architectures and scales. To study the effect                             DC-PDD [113]. The reference-based attacks include the foun-
+of model scale, we evaluate on the Pythia Scaling Suite [6],                             dational Ratio and Difference methods that compare the target
+including the 160M, 410M, 1B, 1.4B, and 6.9B parameter                                   model’s average loss to a reference model’s [100]; context-
+models. To test architectural diversity, we also evaluate on sev-                        aware query methods like ReCall [104] and CON-ReCall [99]
+eral widely adopted [99, 104] models, including GPT-2 [83],                              that test a model’s ability to complete a prefix; self-prompt
+GPT-J-6B [98], Llama-3.2-3B [25], and a state-space model,                               verification with SPV-MIA [29]; and classifier-based attacks
+Mamba-1.4B [32]. For each experiment, M T is created by                                  including a data-oriented Bag-of-Words baseline [16] and an
+fine-tuning the corresponding pre-trained model on a spe-                                Ensemble attack that uses multiple loss-based statistics as
+cific dataset. The original pre-trained model serves as M R .                            features [110]. Our proposed method, WBC, is evaluated us-
+
+
+                                                                                   9
+ing its ensemble configuration with wmin = 2 and wmax = 40.                          Khan Academy                    Stories                            Auto Math Text
+Implementation specifics and hyperparameter configurations                           Stanford                        Web Samples v2                     WikiHow
+                                                                            0.85                                  0.60                               0.20
+
+
+                                                                                                    TPR@10% FPR                         TPR@1% FPR
+for all baselines are detailed in Appendix C.1.5.                           0.80                                  0.45                               0.15
+Evaluation Metrics. We evaluate attack performance using              AUC   0.75                                  0.30                               0.10
+AUC-ROC, TPR at low FPR thresholds (10%, 1%, 0.1%),                         0.70                                  0.15                               0.05
+and model utility via perplexity shown in Appendix C.2. All                 0.65
+                                                                                                                  0.00                               0.00
+                                                                                   1 2 4 10 20 40                      1 2 4 10 20 40                     1 2 4 10 20 40
+metrics are reported with mean and standard deviation over                                                            Window Size
+100 bootstrap runs following [5].
+                                                                      Figure 4: Window size trade-off. Performance of single-
+                                                                      window WBC attacks as a function of window size w ∈ [1, 39]
+5.2     Main Results                                                  on six datasets. Metrics include AUC, TPR@10% FPR, and
+The main attack performance results, presented in Table 1,            TPR@1% FPR. Shaded regions show the standard deviation
+demonstrate that WBC decisively outperforms all baselines             over 100 bootstrap samples.
+across the six Cosmopedia datasets shown; results for the
+five real-world datasets are provided in Appendix C.3 due             Table 2: Ensemble configuration comparison on Khan
+to space constraints, with consistently strong performance            Academy dataset. Performance of different window size
+across all eleven datasets. WBC achieves an average AUC               combinations. The full ensemble achieves optimal balance
+of 0.826 compared to the strongest baseline, Ratio’s 0.754,           between coverage and computational cost.
+with consistent improvements across diverse domains; for
+instance, on the Stanford dataset, WBC reaches an AUC of                Configuration                              AUC        TPR@10%                    TPR@1%
+0.845, significantly surpassing the 0.781 achieved by Ratio.            Single Best (w=4) 0.8341±.0024 0.5103±.0105 0.1262±.0094
+The superiority of our method is most pronounced in the                 Small Range       0.8340±.0028 0.5195±.0091 0.1296±.0090
+critical low-FPR regime. On the Web Samples v2 dataset,                 Large Range       0.7836±.0030 0.4293±.0079 0.0011±.0110
+WBC achieves a True Positive Rate at 1% False Positive                  Full Ensemble     0.8369±.0027 0.5384±.0076 0.1464±.0088
+Rate (TPR@1%FPR) of 19.8%, more than doubling the 9.4%                  Extended          0.8268±.0030 0.5209±.0084 0.1378±.0085
+from the strongest baseline on that metric, Difference. At the          Linear Spacing    0.8241±.0034 0.5147±.0096 0.1389±.0087
+extreme 0.1% FPR level on Khan Academy, WBC identifies                  Random Selection 0.8065±.0026 0.4720±.0090 0.1325±.0078
+2.6% of members—a 3.7-fold increase over the next best
+method, Ensemble (0.7%). This performance contrasts with
+reference-free baselines, whose near-random performance               from 509 tests at w = 4 to 257 at w = 256), overwhelming
+(AUC ≈ 0.6) validates that a reference model is essential for         the sparse membership signals.
+effectively attacking modern fine-tuned LLMs.
+                                                                      5.3.2        Ensemble Composition Analysis
+5.3     Ablation Studies                                              We evaluate different ensemble strategies for aggregating
+                                                                      evidence across scales. Table 2 compares seven configurations
+We conduct systematic ablation studies to validate each com-          on Khan Academy, with consistent trends observed across all
+ponent of WBC and quantify their individual contributions.            datasets shown in Appendix C.5. Our geometric ensemble
+                                                                      follows the progression defined in Equation 12 with wmin = 2,
+5.3.1   Optimal Window Size Determination                             wmax = 40, and |W | = 10. This achieves the highest AUC,
+                                                                      outperforming all alternatives.
+Figure 4 empirically confirms our theoretical window size                Systematic baselines includes: Linear spacing with
+trade-off. Performance generally peaks at small windows               W = {wmin + i∆ : i ∈ [0, |W | − 1]} where ∆ = (wmax −
+(w ∈ [3, 4]) before degrading, reflecting the balance between         wmin )/(|W | − 1) reaching AUC 0.8241, a 1.5% drop. Ex-
+accumulating sufficient signal and avoiding dilution. The ex-         tended coverage using W = {w : w = wmin + ki, k ∈ N, w <
+act optimum varies by dataset, e.g., Khan Academy peaks at            n/2} with larger stride i = 16 reaches windows near n/2
+w = 4 (AUC 0.834) while Stories optimizes at w = 3 (AUC               but yields only AUC 0.8268. Range-restricted ensembles
+0.806), driven by unobservable parameters like signal sparsity        isolate scales: Small range W = [wmin , wmin + 4] preserves
+ρδ and rare token frequency ρξ .                                      99.7% of full performance, whereas Large range W =
+   Performance declines with larger windows; on Khan                  w ∈ [18, 50] : |w − w′ | ≥ 7 falls to 0.7836 AUC with near-
+Academy, increasing w from 4 to 32 drops AUC to 0.702,                zero TPR@1%FPR, confirming that large windows add noise
+with TPR@1%FPR collapsing to near zero beyond w = 20.                 rather than signal. Notably, most reasonable configurations
+This validates our model: larger windows increase contami-            achieve AUC above 0.80, demonstrating the robustness of
+nation probability and reduce the effective sample size (e.g.,        window-based aggregation—even random selection of 10
+
+
+                                                                 10
+windows yields AUC 0.8065. However, the geometric ensem-                                                   Loss                Ratio           WBC
+ble’s systematic design provides crucial advantages in high-                                                             0.6
+                                                                                                                                                        0.15
+
+
+                                                                                                           TPR@10% FPR
+                                                                                           0.8
+
+
+                                                                                                                                           TPR@1% FPR
+precision regimes: while AUC improves modestly (0.3%),                                                                   0.4                            0.10
+TPR@1%FPR increases by 16% over the single best window.                              AUC   0.7
+This disproportionate gain in low-FPR detection, where secu-                                                             0.2                            0.05
+                                                                                           0.6
+rity applications operate, justifies the minimal computational                                                           0.0                            0.00
+                                                                                            64                            64                              64
+overhead ( 6% additional cost) and establishes geometric spac-                             12
+                                                                                           25
+                                                                                           38
+                                                                                           518
+                                                                                             6
+                                                                                             4                           12
+                                                                                                                         25
+                                                                                                                         38
+                                                                                                                         518
+                                                                                                                           6
+                                                                                                                           4                             12
+                                                                                                                                                         25
+                                                                                                                                                         38
+                                                                                                                                                         518
+                                                                                                                                                           6
+                                                                                                                                                           4
+                                                                                                                    Text Length (tokens)
+                                                                                             2                             2                               2
+ing as the optimal configuration for practical deployment. The
+consistent superiority across datasets confirms that geometric
+                                                                                     Figure 6: Attack performance scaling with text length.
+progression effectively balances the exploration-exploitation
+                                                                                     Loss, Ratio, and WBC on texts truncated to different length.
+trade-off without requiring dataset-specific tuning.
+                                                                                     (a) WBC ’s margin over baselines grows with L, reaching
+                                                                                     20.8% over Ratio at 512 tokens. (b,c) TPR scales super-
+5.3.3        Aggregation Method Comparison                                           linearly for WBC.
+
+                   Sign (Ours)            Median    Min                  Mean
+                                 0.6                              0.20               grows from 0.019 to 0.135 for WBC (7.1× increase) ver-
+      0.85                            TPR@10% FPR
+
+                                                     TPR@1% FPR
+                          Ac K   0.5                                                 sus 0.009 to 0.037 for Ratio (4.1× increase). The Loss
+      0.80                  ad ha                                 0.15
+                               em n
+AUC                         Sta y0.4
+                                                                                     baseline shows negligible length dependence, maintaining
+      0.75                      nfo                               0.10               AUC ≈ 0.55 across all lengths, confirming that reference
+                              Sto rd
+                                 0.3 //
+      0.70 //                     ri                              0.05 //            comparison is essential regardless of text length. The rela-
+  Ac K
+    ad ha                 Sa Wes                           Ac K
+                                                             ad ha                   tive gain of WBC over Ratio—measured as (AUCWBC −
+                             mp e
+       e
+    Sta my n
+        nfo                                                     e
+                                                             Sta my n
+                                                                 nfo
+                                les b
+      Sto rd                                                   Sto rd
+  Sa Wes
+     mp e  ri
+         les b                                             Sa Wes
+                                                              mp e  ri
+                                                                  les b              AUCRatio )/AUCRatio —increases from 11.4% to 20.8% as
+                                          Dataset                                    length grows, demonstrating that our voting mechanism’s
+                                                                                     statistical power scales with the number of windows. Perfor-
+Figure 5: Aggregation method comparison across datasets.                             mance plateaus beyond L = 384: extending to 512 tokens
+(a) AUC performance across four aggregation strategies. (b,c)                        improves AUC by only 0.9% (0.833 vs 0.825).
+TPR at low FPR thresholds shows amplified advantages in
+high-precision regimes.
+                                                                                     5.3.5       Component Importance Quantification
+   Figure 5 validates our theoretical prediction that sign-based
+aggregation provides superior robustness to long-tailed loss                         Table 3 quantifies each component’s contribution. The ref-
+distributions. Sign aggregation achieves the highest average                         erence model comparison proves essential; without it, AUC
+AUC (0.835) compared to mean (0.728), median (0.818), and                            drops to 0.569 (near random), confirming that membership sig-
+min (0.825), with a 2.2× advantage in TPR@1%FPR.                                     nals emerge from differential behavior between fine-tuned and
+   The relative performance of magnitude-based methods                               base models rather than absolute confidence. While design
+(mean, median, min) varies by dataset, reflecting different                          choices have modest individual impacts—ensemble aggrega-
+noise characteristics. However, all underperform sign aggrega-                       tion (+0.3%), geometric spacing (+2.6%), sliding windows
+tion, which achieves provable robustness through its bounded                         (+3.9%)—the sign-based scoring proves critical with a 15.8%
+[0,1] output range and invariance to outlier magnitudes. Min                         performance drop when removed. More importantly, these
+aggregation’s strong performance suggests membership man-                            components dramatically affect high-precision detection: slid-
+ifests as consistently lower losses across multiple windows                          ing windows alone account for 51.2% of TPR@1%FPR
+rather than isolated memorized passages.                                             (0.0715 vs 0.1464), demonstrating that maximizing measure-
+                                                                                     ment count is crucial for confident membership identification.
+5.3.4        Text Length Scaling
+Window-based analysis requires sufficient text to extract
+multiple measurements. Figure 6 examines performance                                 5.4 Generalization Across Model Scales and
+scaling by truncating 512-token samples to lengths L ∈                                   Architectures
+{64, 128, 256, 384, 512}. WBC’s advantage over baselines
+increases monotonically with length. At L = 64 (permitting                           We test its generalizability across two key dimensions: model
+only 62 windows of size 3), WBC achieves AUC 0.606                                   scale and architectural family. In these experiments, we com-
+versus Ratio’s 0.544—an 11.4% improvement. This gap                                  pare WBC against the representative baseline, Ratio, to pro-
+widens to 15.4% at L = 256 and 20.8% at L = 512. The                                 vide a consistent reference point and evaluate the relative
+scaling is super-linear for precision metrics: TPR@1%FPR                             performance gap in new contexts.
+
+
+                                                                                11
+Table 3: Component ablation study on Khan Academy                                                  Table 4: Model performance comparison on Khan
+dataset. Removal of WBC components reveals reference                                               Academy dataset. WBC consistently outperforms the Ratio
+model comparison and sign-based scoring as critical, con-                                          baseline across all architectures and scales.
+tributing 32.0% and 15.9% of total performance, respectively.
+                                                                                                                                                Attack Performance
+                                                                                                   Model               Method
+ Configuration        AUC                      ∆       TPR@10%                 TPR@1%                                               AUC        TPR@10% TPR@1% TPR@0.1%
+
+ Full WBC          0.8369±.0027                —       0.5384±.0076            0.1464±.0088                            Ratio      0.505±.004   0.101±.003      0.009±.001      0.001±.001
+                                                                                                   GPT-2 [83]
+                                                                                                                       WBC        0.505±.003   0.104±.003      0.013±.002      0.001±.001
+ Design choices
+                                                                                                                       Ratio      0.592±.003   0.154±.005      0.018±.002      0.001±.000
+  w/o ensemble     0.8341±.0026               −0.3%    0.5093±.0092            0.1278±.0091        Mamba-1.4B [32]
+                                                                                                                       WBC        0.673±.002   0.274±.004      0.048±.003      0.004±.001
+  w/o geometric    0.8152±.0029               −2.6%    0.5023±.0088            0.1373±.0080
+  w/o sliding      0.8042±.0030               −3.9%    0.4195±.0062            0.0715±.0099                            Ratio      0.703±.003   0.264±.004      0.037±.004      0.003±.001
+                                                                                                   Pythia-2.8B [6]
+                                                                                                                       WBC        0.833±.002   0.529±.009      0.135±.008      0.026±.009
+ Core components
+                                                                                                                       Ratio      0.861±.003   0.551±.010      0.135±.014      0.019±.006
+  w/o sign-based 0.7045±.0038 −15.8%                   0.2835±.0077            0.0508±.0046        Llama-3.2-3B [25]
+                                                                                                                       WBC        0.942±.002   0.831±.006      0.467±.015      0.193±.028
+  w/o reference  0.5693±.0040 −31.9%                   0.1510±.0053            0.0175±.0022
+                                                                                                                       Ratio      0.868±.002   0.564±.009      0.126±.007      0.013±.005
+                                                                                                   GPT-J-6B [98]
+                                                                                                                       WBC        0.961±.001   0.887±.003      0.566±.016      0.209±.043
+
+
+5.4.1       Performance Across Model Scales
+                                                                                                   Table 5: Impact of Reference Model Mismatch. We attack a
+The vulnerability to our window-based attack intensifies dra-                                      Pythia-2.8B target using reference models with different sizes
+matically with model scale. Figure 7 shows attack perfor-                                          and different architectures.
+mance on the Pythia suite from 160M to 6.9B parameters,
+revealing that vulnerability to window-based attacks increases                                                                      Khan Academy (Target: Pythia-2.8B)
+                                                                                                     Ref. Model      Method
+dramatically with model scale. While both WBC and Ratio                                                                          AUC        TPR@10% TPR@1% TPR@0.1%
+perform near randomly at 160M parameters (AUC ≈ 0.51),                                               Pythia-160m
+                                                                                                                     Ratio     0.656±.003   0.205±.005      0.029±.003      0.001±.001
+their performance diverges sharply as model size grows.                                                              WBC       0.692±.002   0.294±.005      0.062±.005      0.011±.004
+                                                                                                                     Ratio     0.692±.003   0.245±.007      0.034±.003      0.003±.001
+                                                                                                     Pythia-1.4B
+                                                                                                                     WBC       0.774±.002   0.407±.008      0.077±.004      0.016±.006
+                                      Ratio           WBC
+                                                                                                                     Ratio     0.695±.002   0.255±.003      0.037±.002      0.002±.001
+
+
+
+
+                      TPR@10% FPR
+                                                                         0.3
+
+
+                                                            TPR@1% FPR
+                                                                                                     Pythia-6.9B
+      0.8                           0.6                                                                              WBC       0.769±.002   0.369±.008      0.071±.006      0.014±.004
+                                                                         0.2
+AUC                                 0.4                                                              GPT-J-6B
+                                                                                                                     Ratio     0.685±.003   0.256±.003      0.038±.003      0.002±.001
+      0.6                                                                0.1                                         WBC       0.673±.003   0.269±.006      0.044±.003      0.003±.002
+                                    0.2
+                                                                         0.0
+      16
+      410M
+        0M
+         1B                         16
+                                    410M
+                                      0M
+                                       1B                                16
+                                                                         410M
+                                                                           0M
+                                                                            1B
+       1.4
+       2.8B                          1.4
+                                     2.8B                                 1.4
+                                                                          2.8B
+       6.9BB                         6.9BB
+                         Model Scale (Parameters)
+                                                                          6.9BB                    diverse architectures on the Khan Academy dataset. On
+                                                                                                   large-scale transformers, WBC substantially outperforms
+Figure 7: Performance comparison of WBC and Ra-                                                    Ratio: GPT-J-6B achieves AUC 0.961 versus 0.868, with
+tio methods across model scales. Metrics include AUC,                                              TPR@1%FPR of 56.6% versus 12.6% (4.5× improvement);
+TPR@10% FPR, and TPR@1% FPR. Shaded regions de-                                                    Llama-3.2-3B shows similar gains with TPR@1%FPR of
+note standard deviations.                                                                          46.7% versus 13.5% (3.4× improvement). The advantage ex-
+                                                                                                   tends beyond transformers—on the state-space model Mamba-
+   At 2.8B parameters, WBC achieves AUC 0.835 versus                                               1.4B, WBC maintains superiority (AUC 0.673 vs. 0.592),
+Ratio’s 0.703. The advantage is most pronounced in high-                                           confirming that local signal aggregation is architecturally ag-
+confidence detection: TPR@1%FPR reaches 14.3% for WBC                                              nostic. Only GPT-2 shows near-random performance for both
+versus 3.7% for Ratio, nearly a 4× improvement. This widen-                                        methods, consistent with minimal memorization in smaller
+ing gap reflects the fact that larger models possess greater                                       models on complex datasets. These results establish that
+memorization capacity, thereby exposing increased vulnera-                                         window-based detection exploits fundamental memorization
+bility to MIA. While global averaging dilutes these sharp lo-                                      patterns that transcend specific architectural choices.
+cal patterns, causing Ratio’s effectiveness to plateau, WBC’s
+window-based detection captures them directly, with perfor-                                        5.5      Robustness to Misaligned References
+mance scaling in tandem with model capacity.
+                                                                                                   We simulate a scenario where the adversary does not have
+5.4.2       Performance Across Model Architectures                                                 access to the exact base model used for fine-tuning. We fix
+                                                                                                   the target model as Pythia-2.8B and evaluate performance
+To ensure our findings are not specific to the Pythia architec-                                    using distinct reference models with size mismatch (Pythia-
+ture, Table 4 demonstrates WBC’s generalizability across                                           160m, Pythia-1.4B, and Pythia-6.9B) and architecture mis-
+
+
+                                                                                              12
+Table 6: Attack performance under differential privacy                               Table 7: Attack performance under LoRA on Khan
+on Khan Academy dataset. Evaluation at privacy budgets                               Academy dataset. Evaluation with ranks r ∈ {8, 16, 32, 64}
+ε ∈ {1, 4, 8, ∞} with fixed δ = 10−5 .                                               and scaling factor α = 2r.
+
+                                    Attack Performance                                                               Attack Performance
+      ε     Method                                                       PPL         r     Method                                                           Trn. % PPL
+                       AUC        TPR@10% TPR@1% TPR@0.1%                                              AUC        TPR@10% TPR@1% TPR@0.1%
+            Ratio    0.703±.003   0.264±.004   0.037±.004   0.003±.001                     Ratio     0.703±.003    0.264±.004     0.037±.004   0.003±.001
+   ∞                                                                     3.49        ∞                                                                      100%    3.49
+            WBC      0.837±.003   0.538±.008   0.146±.008   0.026±.009                     WBC       0.837±.003    0.538±.008     0.146±.008   0.026±.009
+            Ratio    0.642±.004   0.198±.006   0.024±.003   0.002±.001                     Ratio     0.615±.003    0.186±.005     0.022±.002   0.002±.001
+      8                                                                  3.85        64                                                                     0.75%   3.77
+            WBC      0.751±.003   0.358±.008   0.078±.006   0.013±.003                     WBC       0.748±.002    0.378±.007     0.074±.005   0.009±.002
+            Ratio    0.591±.005   0.147±.005   0.015±.002   0.001±.000                     Ratio     0.592±.003    0.164±.004     0.018±.002   0.001±.000
+      4                                                                  4.68        32                                                                     0.38%   3.82
+            WBC      0.674±.004   0.254±.007   0.042±.005   0.006±.002                     WBC       0.698±.002    0.312±.006     0.048±.004   0.005±.001
+            Ratio    0.524±.006   0.108±.004   0.008±.002   0.000±.000                     Ratio     0.564±.003    0.142±.004     0.014±.001   0.001±.000
+      1                                                                  4.77        16                                                                     0.19%   3.88
+            WBC      0.561±.005   0.135±.005   0.019±.003   0.001±.001                     WBC       0.634±.002    0.234±.005     0.029±.003   0.003±.001
+                                                                                           Ratio     0.541±.004    0.124±.003     0.011±.002   0.000±.000
+                                                                                     8                                                                      0.09%   3.93
+                                                                                           WBC       0.578±.003    0.171±.004     0.018±.002   0.002±.001
+
+match (GPT-J-6B).
+   The results are summarized in Table 5. When using Pythia-                         Table 8: Attack performance against SOFT defense on
+1.4B (a model half the size of the target) as a reference, WBC                       Khan Academy dataset. SOFT configured with selection
+achieves an AUC of 0.774 and a TPR of 7.7% at 1% FPR, sig-                           ratio α = 0.3 and paraphrase ratio β = 0.5.
+nificantly outperforming the Ratio baseline (AUC 0.692, TPR
+                                                                                                                                Attack Performance
+3.4%). With a different architecture (GPT-J), WBC maintains                           Defense       Method                                                          PPL
+a performance advantage in the critical low false-positive                                                        AUC     TPR@10% TPR@1% TPR@0.1%
+
+regime, though it trails slightly in overall AUC (0.673 vs                            Baseline
+                                                                                                    Ratio    0.703±.003    0.264±.004     0.037±.004   0.003±.001
+                                                                                                                                                                    3.49
+                                                                                                    WBC      0.837±.003    0.538±.008     0.146±.008   0.026±.009
+0.685). This AUC deficit likely stems from tokenization and
+architectural disparities, introducing noise into local compar-                                     Ratio    0.494±.003    0.100±.004     0.010±.001   0.001±.000
+                                                                                          SOFT                                                                      3.48
+                                                                                                    WBC      0.494±.004    0.100±.003     0.012±.002   0.001±.000
+isons that global averaging smooths out.
+
+                                                                                     5.6.2       Low-Rank Adaptation
+5.6       Defense Evaluation
+                                                                                     LoRA [40], while designed for parameter efficiency, provides
+Given that WBC is highly effective, it is important to assess                        unintended privacy benefits by constraining memorization
+whether privacy-preserving training techniques can defend                            capacity [3, 60, 110]. The defense mechanism stems from ca-
+against it. We evaluate WBC against three defense mech-                              pacity constraints: low-rank factorizations W = W0 + BA with
+anisms spanning different protection strategies: differential                        r ≪ min(d, k) force the model to compress information into a
+privacy, parameter-efficient training, and data obfuscation.                         rank-r subspace, favoring generalizable patterns over sample-
+                                                                                     specific memorization. We note that this protection relies
+                                                                                     on accepting a slight utility decrease; recent work indicates
+5.6.1     Differential Privacy                                                       LoRA is not a robust defense under strict utility matching [85].
+                                                                                     While both attacks degrade under LoRA, WBC maintains a
+Table 6 reveals that while DP-SGD reduces absolute at-                               consistent advantage—2.67× higher TPR@1%FPR at rank
+tack success, WBC maintains substantial relative advantages                          32 (0.048 vs 0.018) compared to 3.95× for full fine-tuning.
+across all privacy budgets. At moderate privacy (ε = 8), WBC                         This persistence suggests that even constrained memoriza-
+achieves AUC 0.751 versus Ratio’s 0.642, with a more pro-                            tion retains localized patterns that window-based detection
+nounced 3.25× advantage in TPR@1%FPR (0.078 vs 0.024).                               exploits. LoRA thus offers meaningful protection with mini-
+This gap persists at strong privacy (ε = 1): while both meth-                        mal utility cost, though sophisticated attacks targeting local
+ods approach random guessing, WBC still achieves 2.4×                                signals remain partially effective.
+higher TPR@1%FPR. While global noise reduces overall
+signal strength, local coherence within text windows remains
+                                                                                     5.6.3       Selective data Obfuscation in LLM Fine-Tuning
+partially intact. Notably, stronger privacy guarantees (ε = 1)
+provide limited additional protection—AUC decreases from                             SOFT [110] defends against membership inference by se-
+ε = 8 (0.751 to 0.561) while perplexity increases by 37%.                            lectively paraphrasing influential training samples identified
+This modest utility cost makes DP-SGD more practical than                            through loss-based thresholds. Table 8 shows SOFT’s effec-
+previously thought, though window-based attacks remain par-                          tiveness: it reduces both WBC and Ratio from strong de-
+tially effective even under strong privacy guarantees.                               tection (AUC 0.837 and 0.703, respectively) to near-random
+
+
+                                                                                13
+performance (AUC ≈ 0.494). At TPR@1%FPR, WBC’s ad-                       ysis outperforms global averaging, enabling the development
+vantage over Ratio shrinks from 3.9× to marginal (0.012 vs               of more targeted defenses.
+0.010), a 92% reduction in detection capability.                            We implemented several measures to minimize potential
+                                                                         harm. First, all experiments used publicly available mod-
+                                                                         els and datasets, eliminating risks to proprietary systems or
+6    Conclusion                                                          private data. We specifically chose datasets like Cosmope-
+                                                                         dia (synthetic data), WikiText-103, and other public corpora
+We demonstrated that membership inference attacks against                where membership disclosure poses minimal privacy risk.
+fine-tuned LLMs fail as global averaging is fundamentally                Second, we evaluated multiple defense mechanisms, includ-
+unsuitable for detecting sparse, extremal memorization events.           ing differential privacy, SOFT, and LoRA, providing concrete
+Instead, membership signals manifest as rare, localized pat-             guidance for practitioners seeking to protect their systems.
+terns that are masked by long-tailed noise from domain adapta-           Our results show that while these defenses reduce attack effec-
+tion. We thus presented WBC, a membership inference attack               tiveness, they do not eliminate the vulnerability, highlighting
+that replaces global averaging with localized window-based               the need for continued research into privacy-preserving train-
+analysis. The method slides windows of varying sizes across              ing methods. Third, we responsibly disclose the limitations of
+token sequences, computes binary comparisons between ref-                our attack, including its requirement for score-based access
+erence and target model losses, and aggregates these local               to both target and reference models, making it impractical for
+votes using sign statistics, achieving 2-3× higher detection             many real-world scenarios without legitimate access.
+rates than existing methods across eleven datasets. While our            Justification. We proceeded with publication after determin-
+empirical results demonstrate the effectiveness of the sign              ing that the benefits outweigh the potential harms. Our attack
+test, the shift from global to localized analysis opens a rich           serves as a diagnostic tool for quantifying existing privacy
+design space. We note that WBC represents one effective in-              risks—it requires only score-based black-box access that le-
+stance of this paradigm; given the sparse, spike-like structure          gitimate users already possess, introducing no new attack
+of membership signals we identified, future work could ex-               surfaces. By revealing that localized memorization is more
+plore alternative aggregation functions or statistical modeling          detectable than previously believed and simultaneously eval-
+techniques to further enhance detection.                                 uating defenses, we enable practitioners to make informed
+                                                                         privacy decisions rather than relying on false confidence in
+                                                                         inadequate measures. Publication through peer review at a
+7    Ethical Considerations                                              defensive security venue ensures our findings reach those
+                                                                         developing countermeasures rather than malicious actors.
+We conducted a comprehensive stakeholder-based ethics anal-
+ysis following the Menlo Report principles. Our research
+develops a membership inference attack that achieves 2–3×                8    Open Science
+higher detection rates than existing methods, raising important
+privacy considerations that we carefully evaluated throughout            The complete implementation of our Window-Based Compari-
+the research process.                                                    son attack, including all baseline methods, training and evalua-
+Stakeholders and Impacts. We identified three primary                    tion scripts, is available at https://github.com/Stry233/
+stakeholder groups: ML practitioners and organizations de-               WBC and archived at https://doi.org/10.5281/zenodo.
+ploying fine-tuned LLMs who may face increased privacy                   17968678. The archive includes the core WBC attack im-
+risks from our more effective attack; individuals whose data             plementation with configurable window sizes and aggrega-
+appears in training datasets and may be exposed through                  tion methods, implementations of all thirteen baseline attacks
+successful membership inference; and the broader research                used in our evaluation, scripts for fine-tuning models on the
+community working to understand and mitigate privacy risks               datasets used in our experiments, and evaluation metrics in-
+in machine learning systems. For practitioners, our attack               cluding AUC and TPR at various FPR thresholds. All code
+demonstrates that current assumptions about membership in-               is properly documented with clear instructions for setup and
+ference difficulty significantly underestimate actual risks, par-        execution.
+ticularly for localized memorization patterns. This knowledge               Our experiments utilize publicly available datasets ac-
+enables more informed decisions about data handling and                  cessible through standard channels: Cosmopedia [4] sub-
+privacy-preserving training techniques. For individuals, while           sets via HuggingFace [102], WikiText-103 [65], XSum [70],
+our attack could theoretically enable adversaries to determine           Amazon Reviews [73], CC-News [34], and Reddit [86]
+if their data was used in training, we note that our experiments         datasets through their respective public repositories. We pro-
+used only publicly available datasets and synthetic data, avoid-         vide scripts to automatically download and preprocess these
+ing any direct privacy violations. The research community                datasets into the format required for our experiments. For
+benefits from our theoretical insights into why localized anal-          models, we use the publicly available Pythia suite (160M
+
+
+                                                                    14
+to 6.9B parameters) [6], GPT-2 [7], GPT-J-6B [98], Llama-                    Ilya Sutskever, and Dario Amodei. Language models
+3.2-3B [25], and Mamba-1.4B [32], all accessible through                     are few-shot learners, 2020.
+HuggingFace [102]. Our repository includes model configura-
+tion files and fine-tuning scripts to reproduce the exact target         [8] Nicholas Carlini, Steve Chien, Milad Nasr, Shuang
+models used in our evaluation.                                               Song, Andreas Terzis, and Florian Tramèr. Member-
+   Reproducing our results requires access to GPUs capable of                ship inference attacks from first principles. In 2022
+running models up to 6.9B parameters. We provide guidance                    IEEE Symposium on Security and Privacy (SP), pages
+for scaling experiments to smaller models for researchers with               1897–1914, 2022.
+limited computational resources. The complete experimental
+suite required approximately 500 GPU-hours on NVIDIA                     [9] Nicholas Carlini, Florian Tramer, Eric Wallace,
+A100 GPUs, though individual experiments can be run with                     Matthew Jagielski, Ariel Herbert-Voss, Katherine Lee,
+significantly fewer resources.                                               Adam Roberts, Tom Brown, Dawn Song, Ulfar Erlings-
+                                                                             son, et al. Extracting training data from large language
+                                                                             models. In 30th USENIX security symposium (USENIX
+References                                                                   Security 21), pages 2633–2650, 2021.
+
+  [1] Martin Abadi, Andy Chu, Ian Goodfellow, H Brendan                 [10] Hongyan Chang, Ali Shahin Shamsabadi, Kleomenis
+      McMahan, Ilya Mironov, Kunal Talwar, and Li Zhang.                     Katevas, Hamed Haddadi, and Reza Shokri. Context-
+      Deep learning with differential privacy. In Proceedings                aware membership inference attacks against pre-
+      of the 2016 ACM SIGSAC conference on computer and                      trained large language models.    arXiv preprint
+      communications security, pages 308–318, 2016.                          arXiv:2409.13745, 2024.
+
+  [2] Guy Amit, Abigail Goldsteen, and Ariel Farkash. Sok:              [11] Xiaoyi Chen, Siyuan Tang, Rui Zhu, Shijun Yan, Lei
+      Reducing the vulnerability of fine-tuned language mod-                 Jin, Zihao Wang, Liya Su, Zhikun Zhang, XiaoFeng
+      els to membership inference attacks. arXiv preprint                    Wang, and Haixu Tang. The janus interface: How fine-
+      arXiv:2403.08481, 2024.                                                tuning in large language models amplifies the privacy
+                                                                             risks. In Proceedings of the 2024 on ACM SIGSAC
+  [3] Guy Amit, Abigail Goldsteen, and Ariel Farkash. Sok:                   Conference on Computer and Communications Secu-
+      Reducing the vulnerability of fine-tuned language mod-                 rity, pages 1285–1299, 2024.
+      els to membership inference attacks, 2024.
+                                                                        [12] Christopher A. Choquette-Choo, Florian Tramer,
+  [4] Loubna Ben Allal, Anton Lozhkov, Guilherme Penedo,
+                                                                             Nicholas Carlini, and Nicolas Papernot. Label-only
+      Thomas Wolf, and Leandro von Werra. Cosmopedia,
+                                                                             membership inference attacks, 2021.
+      2024.
+
+  [5] Patrice Bertail, Stéphan Clémençcon, and Nicolas Vay-             [13] Aakanksha Chowdhery, Sharan Narang, Jacob Devlin,
+      atis. On bootstrapping the roc curve. Advances in                      Maarten Bosma, Gaurav Mishra, Adam Roberts, Paul
+      Neural Information Processing Systems, 21, 2008.                       Barham, Hyung Won Chung, Charles Sutton, Sebastian
+                                                                             Gehrmann, et al. Palm: Scaling language modeling
+  [6] Stella Biderman, Hailey Schoelkopf, Quentin Gregory                    with pathways. Journal of Machine Learning Research,
+      Anthony, Herbie Bradley, Kyle O’Brien, Eric Hal-                       24(240):1–113, 2023.
+      lahan, Mohammad Aflah Khan, Shivanshu Purohit,
+      USVSN Sai Prashanth, Edward Raff, et al. Pythia:                  [14] Philip J Clark and Francis C Evans. Distance to near-
+      A suite for analyzing large language models across                     est neighbor as a measure of spatial relationships in
+      training and scaling. In International Conference on                   populations. Ecology, 35(4):445–453, 1954.
+      Machine Learning, pages 2397–2430. PMLR, 2023.
+                                                                        [15] T Dao, DY Fu, S Ermon, A Rudra, and C FlashAt-
+  [7] Tom B. Brown, Benjamin Mann, Nick Ryder, Melanie                       tention Ré. Fast and memory-efficient exact atten-
+      Subbiah, Jared Kaplan, Prafulla Dhariwal, Arvind Nee-                  tion with io-awareness. arxiv 2022. arXiv preprint
+      lakantan, Pranav Shyam, Girish Sastry, Amanda Askell,                  arXiv:2205.14135.
+      Sandhini Agarwal, Ariel Herbert-Voss, Gretchen
+      Krueger, Tom Henighan, Rewon Child, Aditya Ramesh,                [16] Debeshee Das, Jie Zhang, and Florian Tramèr. Blind
+      Daniel M. Ziegler, Jeffrey Wu, Clemens Winter,                         baselines beat membership inference attacks for foun-
+      Christopher Hesse, Mark Chen, Eric Sigler, Mateusz                     dation models, 2025.
+      Litwin, Scott Gray, Benjamin Chess, Jack Clark,
+      Christopher Berner, Sam McCandlish, Alec Radford,                 [17] DeepSeek-AI. Deepseek-v3 technical report, 2025.
+
+
+                                                                   15
+[18] Jacob Devlin, Ming-Wei Chang, Kenton Lee, and                      [29] Wenjie Fu, Huandong Wang, Chen Gao, Guanghua Liu,
+     Kristina Toutanova. Bert: Pre-training of deep bidi-                    Yong Li, and Tao Jiang. Practical membership infer-
+     rectional transformers for language understanding. In                   ence attacks against fine-tuned large language models
+     Proceedings of the 2019 conference of the North Amer-                   via self-prompt calibration, 2024.
+     ican chapter of the association for computational lin-
+     guistics: human language technologies, volume 1 (long              [30] Wenjie Fu, Huandong Wang, Chen Gao, Guanghua Liu,
+     and short papers), pages 4171–4186, 2019.                               Yong Li, and Tao Jiang. Mia-tuner: adapting large lan-
+                                                                             guage models as pre-training text detector. In Proceed-
+[19] Peter J Diggle. Statistical analysis of spatial and spatio-             ings of the AAAI Conference on Artificial Intelligence,
+     temporal point patterns. CRC press, 2013.                               volume 39, pages 27295–27303, 2025.
+
+[20] Ning Ding, Yulin Chen, Bokai Xu, Yujia Qin, Zhi                    [31] Ian Goodfellow, Yoshua Bengio, Aaron Courville, and
+     Zheng, Shengding Hu, Zhiyuan Liu, Maosong Sun,                          Yoshua Bengio. Deep learning, volume 1. MIT press
+     and Bowen Zhou. Enhancing chat language models by                       Cambridge, 2016.
+     scaling high-quality instructional conversations. arXiv
+                                                                        [32] Albert Gu and Tri Dao. Mamba: Linear-time sequence
+     preprint arXiv:2305.14233, 2023.
+                                                                             modeling with selective state spaces. arXiv preprint
+[21] Nirav Diwan, Tanmoy Chakravorty, and Zubair Shafiq.                     arXiv:2312.00752, 2023.
+     Fingerprinting fine-tuned language models in the wild,
+                                                                        [33] Chuan Guo, Geoff Pleiss, Yu Sun, and Kilian Q. Wein-
+     2021.
+                                                                             berger. On calibration of modern neural networks,
+[22] David L Donoho and Peter J Huber. The notion of                         2017.
+     breakdown point. A festschrift for Erich L. Lehmann,               [34] Felix Hamborg, Norman Meuschke, Corinna Bre-
+     157184, 1983.                                                           itinger, and Bela Gipp. news-please: A generic news
+                                                                             crawler and extractor. In Proceedings of the 15th In-
+[23] Yuntao Du, Jiacheng Li, Yuetian Chen, Kaiyuan Zhang,
+                                                                             ternational Symposium of Information Science, pages
+     Zhizhen Yuan, Hanshen Xiao, Bruno Ribeiro, and
+                                                                             218–223, March 2017.
+     Ninghui Li. Cascading and Proxy Membership Infer-
+     ence Attacks. In 33th Annual Network and Distributed               [35] Yu He, Boheng Li, Liu Liu, Zhongjie Ba, Wei Dong,
+     System Security Symposium (NDSS), 2026.                                 Yiming Li, Zhan Qin, Kui Ren, and Chun Chen. To-
+                                                                             wards label-only membership inference attack against
+[24] Michael Duan, Anshuman Suri, Niloofar Mireshghal-                       pre-trained large language models, 2025.
+     lah, Sewon Min, Weijia Shi, Luke Zettlemoyer, Yulia
+     Tsvetkov, Yejin Choi, David Evans, and Hannaneh Ha-                [36] Dan Hendrycks, Collin Burns, Steven Basart, Andy
+     jishirzi. Do membership inference attacks work on                       Zou, Mantas Mazeika, Dawn Song, and Jacob Stein-
+     large language models?, 2024.                                           hardt. Measuring massive multitask language under-
+                                                                             standing. arXiv preprint arXiv:2009.03300, 2020.
+[25] Abhimanyu Dubey, Abhinav Jauhri, Abhinav Pandey,
+     Abhishek Kadian, Ahmad Al-Dahle, Aiesha Letman,                    [37] Tom Henighan, Jared Kaplan, Mor Katz, Mark Chen,
+     Akhil Mathur, Alan Schelten, Amy Yang, Angela Fan,                      Christopher Hesse, Jacob Jackson, Heewoo Jun, Tom B
+     et al. The llama 3 herd of models. arXiv e-prints, pages                Brown, Prafulla Dhariwal, Scott Gray, et al. Scaling
+     arXiv–2407, 2024.                                                       laws for autoregressive generative modeling. arXiv
+                                                                             preprint arXiv:2010.14701, 2020.
+[26] Paul Embrechts, Thomas Mikosch, and Claudia Klüp-
+     pelberg. Modelling extremal events: for insurance and              [38] Sorami Hisamoto, Matt Post, and Kevin Duh. Member-
+     finance, 1997.                                                          ship inference attacks on sequence-to-sequence mod-
+                                                                             els: Is my data in your machine translation system?
+[27] William Fedus, Barret Zoph, and Noam Shazeer.                           Transactions of the Association for Computational Lin-
+     Switch transformers: Scaling to trillion parameter mod-                 guistics, 8:49–63, December 2020.
+     els with simple and efficient sparsity. Journal of Ma-
+     chine Learning Research, 23(120):1–39, 2022.                       [39] Jordan Hoffmann, Sebastian Borgeaud, Arthur Men-
+                                                                             sch, Elena Buchatskaya, Trevor Cai, Eliza Ruther-
+[28] Qizhang Feng, Siva Rajesh Kasa, Santhosh Kumar                          ford, Diego de Las Casas, Lisa Anne Hendricks, Jo-
+     Kasa, Hyokun Yun, Choon Hui Teo, and Sravan Babu                        hannes Welbl, Aidan Clark, et al. Training compute-
+     Bodapati. Exposing privacy gaps: Membership infer-                      optimal large language models.       arXiv preprint
+     ence attack on preference data for llm alignment, 2025.                 arXiv:2203.15556, 2022.
+
+
+                                                                   16
+[40] Edward J Hu, Yelong Shen, Phillip Wallis, Zeyuan               [51] Mahnaz Koupaee and William Yang Wang. Wiki-
+     Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, Weizhu                  how: A large scale text summarization dataset. arXiv
+     Chen, et al. Lora: Low-rank adaptation of large lan-                preprint arXiv:1810.09305, 2018.
+     guage models. ICLR, 1(2):3, 2022.
+                                                                    [52] Woosuk Kwon, Zhuohan Li, Siyuan Zhuang, Ying
+[41] Yuke Hu, Zheng Li, Zhihao Liu, Yang Zhang, Zhan                     Sheng, Lianmin Zheng, Cody Hao Yu, Joseph E. Gon-
+     Qin, Kui Ren, and Chun Chen. Membership inference                   zalez, Hao Zhang, and Ion Stoica. Efficient memory
+     attacks against vision-language models, 2025.                       management for large language model serving with
+                                                                         pagedattention. In Proceedings of the ACM SIGOPS
+[42] Jie Huang, Hanyin Shao, and Kevin Chen-Chuan                        29th Symposium on Operating Systems Principles,
+     Chang. Are large pre-trained language models leaking                2023.
+     your personal information?, 2022.
+                                                                    [53] M Ross Leadbetter, Georg Lindgren, and Holger
+[43] Zhiheng Huang, Yannan Liu, Daojing He, and Yu Li.                   Rootzén. Extremes and related properties of random
+     Df-mia: A distribution-free membership inference at-                sequences and processes. Springer Series in Statistics,
+     tack on fine-tuned large language models. Proceed-                  1983.
+     ings of the AAAI Conference on Artificial Intelligence,        [54] Erich Leo Lehmann and Joseph P Romano. Testing
+     39(1):343–351, Apr. 2025.                                           statistical hypotheses. Springer, 2005.
+[44] Peter J Huber. Robust statistics. In International             [55] Dmitry Lepikhin, HyoukJoong Lee, Yuanzhong Xu,
+     encyclopedia of statistical science, pages 1248–1251.               Dehao Chen, Orhan Firat, Yanping Huang, Maxim
+     Springer, 2011.                                                     Krikun, Noam Shazeer, and Zhifeng Chen. Gshard:
+                                                                         Scaling giant models with conditional computation and
+[45] Huseyin A. Inan, Osman Ramadan, Lukas Wutschitz,                    automatic sharding. arXiv preprint arXiv:2006.16668,
+     Daniel Jones, Victor Rühle, James Withers, and Robert               2020.
+     Sim. Training data leakage analysis in language mod-
+     els, 2021.                                                     [56] Hao Li, Zheng Li, Siyuan Wu, Chengrui Hu, Yutong Ye,
+                                                                         Min Zhang, Dengguo Feng, and Yang Zhang. Seqmia:
+[46] Albert Q. Jiang, Alexandre Sablayrolles, Arthur Men-                Sequential-metric based membership inference attack,
+     sch, Chris Bamford, Devendra Singh Chaplot, Diego                   2024.
+     de las Casas, Florian Bressand, Gianna Lengyel, Guil-
+     laume Lample, Lucile Saulnier, Lélio Renard Lavaud,            [57] Haoran Li, Yulin Chen, Jinglong Luo, Jiecong Wang,
+     Marie-Anne Lachaux, Pierre Stock, Teven Le Scao,                    Hao Peng, Yan Kang, Xiaojin Zhang, Qi Hu, Chunkit
+     Thibaut Lavril, Thomas Wang, Timothée Lacroix, and                  Chan, Zenglin Xu, Bryan Hooi, and Yangqiu Song.
+     William El Sayed. Mistral 7b, 2023.                                 Privacy in large language models: Attacks, defenses
+                                                                         and future directions, 2024.
+[47] Albert Q Jiang, Alexandre Sablayrolles, Antoine Roux,
+     Arthur Mensch, Blanche Savary, Chris Bamford, De-              [58] Percy Liang, Rishi Bommasani, Tony Lee, Dim-
+     vendra Singh Chaplot, Diego de las Casas, Emma Bou                  itris Tsipras, Dilara Soylu, Michihiro Yasunaga, Yian
+     Hanna, Florian Bressand, et al. Mixtral of experts.                 Zhang, Deepak Narayanan, Yuhuai Wu, Ananya Ku-
+     arXiv preprint arXiv:2401.04088, 2024.                              mar, et al. Holistic evaluation of language models.
+                                                                         arXiv preprint arXiv:2211.09110, 2022.
+[48] Nikhil Kandpal, Krishna Pillutla, Alina Oprea, Peter           [59] Yiyong Liu, Zhengyu Zhao, Michael Backes, and Yang
+     Kairouz, Christopher A. Choquette-Choo, and Zheng                   Zhang. Membership inference attacks by exploiting
+     Xu. User inference attacks on large language models,                loss trajectory, 2022.
+     2024.
+                                                                    [60] Zihao Luo, Xilie Xu, Feng Liu, Yun Sing Koh,
+[49] Jared Kaplan, Sam McCandlish, Tom Henighan, Tom B                   Di Wang, and Jingfeng Zhang. Privacy-preserving low-
+     Brown, Benjamin Chess, Rewon Child, Scott Gray,                     rank adaptation against membership inference attacks
+     Alec Radford, Jeffrey Wu, and Dario Amodei. Scal-                   for latent diffusion models, 2024.
+     ing laws for neural language models. arXiv preprint
+     arXiv:2001.08361, 2020.                                        [61] Justus Mattern, Fatemehsadat Mireshghallah, Zhijing
+                                                                         Jin, Bernhard Schölkopf, Mrinmaya Sachan, and Tay-
+[50] Antonia Karamolegkou, Jiaang Li, Li Zhou, and An-                   lor Berg-Kirkpatrick. Membership inference attacks
+     ders Søgaard. Copyright violations and large language               against language models via neighbourhood compari-
+     models. arXiv preprint arXiv:2310.13771, 2023.                      son, 2023.
+
+
+                                                               17
+[62] Matthieu Meeus, Shubham Jain, Marek Rei, and Yves-              [72] Joseph I. Naus. Approximations for distributions of
+     Alexandre de Montjoye. Did the neurons read your                     scan statistics. Journal of the American Statistical
+     book? document-level membership inference for large                  Association, 77(377):177–181, 1982.
+     language models. In 33rd USENIX Security Sympo-
+     sium (USENIX Security 24), pages 2369–2385, 2024.               [73] Jianmo Ni, Jiacheng Li, and Julian McAuley. Justify-
+                                                                          ing recommendations using distantly-labeled reviews
+[63] Matthieu Meeus, Igor Shilov, Shubham Jain, Manuel                    and fine-grained aspects. In Proceedings of the 2019
+     Faysse, Marek Rei, and Yves-Alexandre de Montjoye.                   conference on empirical methods in natural language
+     Sok: Membership inference attacks on llms are rushing                processing and the 9th international joint conference
+     nowhere (and how to fix it), 2025.                                   on natural language processing (EMNLP-IJCNLP),
+                                                                          pages 188–197, 2019.
+[64] Wenlong Meng, Zhenyuan Guo, Lenan Wu, Chen
+     Gong, Wenyan Liu, Weixian Li, Chengkun Wei, and                 [74] Shen Nie, Fengqi Zhu, Zebin You, Xiaolu Zhang,
+     Wenzhi Chen. Rr: Unveiling llm training privacy                      Jingyang Ou, Jun Hu, Jun Zhou, Yankai Lin, Ji-Rong
+     through recollection and ranking. arXiv preprint                     Wen, and Chongxuan Li. Large language diffusion
+     arXiv:2502.12658, 2025.                                              models. arXiv preprint arXiv:2502.09992, 2025.
+[65] Stephen Merity, Caiming Xiong, James Bradbury, and              [75] Alan V Oppenheim. Discrete-time signal processing.
+     Richard Socher. Pointer sentinel mixture models. arXiv               Pearson Education India, 1999.
+     preprint arXiv:1609.07843, 2016.
+                                                                     [76] Adam Paszke, Sam Gross, Francisco Massa, Adam
+[66] Fatemehsadat Mireshghallah, Kartik Goyal, Archit                     Lerer, James Bradbury, Gregory Chanan, Trevor
+     Uniyal, Taylor Berg-Kirkpatrick, and Reza Shokri.                    Killeen, Zeming Lin, Natalia Gimelshein, Luca Antiga,
+     Quantifying privacy risks of masked language mod-                    Alban Desmaison, Andreas Köpf, Edward Yang, Zach
+     els using membership inference attacks. arXiv preprint               DeVito, Martin Raison, Alykhan Tejani, Sasank Chil-
+     arXiv:2203.03929, 2022.                                              amkurthy, Benoit Steiner, Lu Fang, Junjie Bai, and
+                                                                          Soumith Chintala. Pytorch: An imperative style, high-
+[67] Fatemehsadat Mireshghallah, Archit Uniyal, Tianhao                   performance deep learning library, 2019.
+     Wang, David Evans, and Taylor Berg-Kirkpatrick. An
+     empirical analysis of memorization in fine-tuned au-            [77] Guilherme Penedo, Quentin Malartic, Daniel Hess-
+     toregressive language models. In Yoav Goldberg, Zor-                 low, Ruxandra Cojocaru, Alessandro Cappelli, Hamza
+     nitsa Kozareva, and Yue Zhang, editors, Proceedings of               Alobeidli, Baptiste Pannier, Ebtesam Almazrouei, and
+     the 2022 Conference on Empirical Methods in Natural                  Julien Launay. The refinedweb dataset for falcon llm:
+     Language Processing, pages 1816–1826, Abu Dhabi,                     outperforming curated corpora with web data, and web
+     United Arab Emirates, December 2022. Association                     data only. arXiv preprint arXiv:2306.01116, 2023.
+     for Computational Linguistics.
+                                                                     [78] Edwin JG Pitman. Notes on non-parametric statisti-
+[68] Fatemehsadat Mireshghallah, Archit Uniyal, Tianhao                   cal inference. Technical report, North Carolina State
+     Wang, David Evans, and Taylor Berg-Kirkpatrick.                      University. Dept. of Statistics, 1949.
+     Memorization in nlp fine-tuning methods. arXiv
+     preprint arXiv:2205.12506, 2022.                                [79] Haritz Puerto, Martin Gubri, Sangdoo Yun, and
+                                                                          Seong Joon Oh. Scaling up membership inference:
+[69] Hamid Mozaffari and Virendra J. Marathe. Semantic                    When and how attacks succeed on large language mod-
+     membership inference attack against large language                   els, 2025.
+     models, 2024.
+                                                                     [80] Qwen. Qwen2.5 technical report, 2025.
+[70] Shashi Narayan, Shay B Cohen, and Mirella Lapata.
+     Don’t give me the details, just the summary! topic-             [81] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya
+     aware convolutional neural networks for extreme sum-                 Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sas-
+     marization. arXiv preprint arXiv:1808.08745, 2018.                   try, Amanda Askell, Pamela Mishkin, Jack Clark, et al.
+                                                                          Learning transferable visual models from natural lan-
+[71] Milad Nasr, Nicholas Carlini, Jonathan Hayase,                       guage supervision. In International conference on
+     Matthew Jagielski, A Feder Cooper, Daphne Ippolito,                  machine learning, pages 8748–8763. PmLR, 2021.
+     Christopher A Choquette-Choo, Eric Wallace, Florian
+     Tramèr, and Katherine Lee. Scalable extraction of train-        [82] Alec Radford, Karthik Narasimhan, Tim Salimans, Ilya
+     ing data from (production) language models. arXiv                    Sutskever, et al. Improving language understanding by
+     preprint arXiv:2311.17035, 2023.                                     generative pre-training. 2018.
+
+
+                                                                18
+[83] Alec Radford, Jeffrey Wu, Rewon Child, David Luan,                [95] Hugo Touvron, Thibaut Lavril, Gautier Izacard, Xavier
+     Dario Amodei, Ilya Sutskever, et al. Language mod-                     Martinet, Marie-Anne Lachaux, Timothée Lacroix,
+     els are unsupervised multitask learners. OpenAI blog,                  Baptiste Rozière, Naman Goyal, Eric Hambro, Faisal
+     1(8):9, 2019.                                                          Azhar, et al. Llama: Open and efficient foundation
+                                                                            language models. arXiv preprint arXiv:2302.13971,
+[84] Colin Raffel, Noam Shazeer, Adam Roberts, Katherine                    2023.
+     Lee, Sharan Narang, Michael Matena, Yanqi Zhou, Wei
+     Li, and Peter J Liu. Exploring the limits of transfer             [96] Aad W Van der Vaart. Asymptotic statistics, volume 3.
+     learning with a unified text-to-text transformer. Journal              Cambridge university press, 2000.
+     of machine learning research, 21(140):1–67, 2020.                 [97] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob
+                                                                            Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz
+[85] Delong Ran, Xinlei He, Tianshuo Cong, Anyu Wang,
+                                                                            Kaiser, and Illia Polosukhin. Attention is all you need.
+     Qi Li, and Xiaoyun Wang. Lora-leak: Membership
+                                                                            Advances in neural information processing systems, 30,
+     inference attacks against lora fine-tuned language mod-
+                                                                            2017.
+     els, 2025.
+                                                                       [98] Ben Wang and Aran Komatsuzaki.         GPT-J-
+[86] Nils Reimers and Iryna Gurevych.        sentence-                      6B: A 6 Billion Parameter Autoregressive Lan-
+     transformers/reddit-title-body: Reddit title-body                      guage Model. https://github.com/kingoflolz/
+     dataset.    https://huggingface.co/datasets/                           mesh-transformer-jax, May 2021.
+     sentence-transformers/reddit-title-body,
+     2021. Accessed: 2025-07-21.                                       [99] Cheng Wang, Yiwei Wang, Bryan Hooi, Yujun Cai,
+                                                                            Nanyun Peng, and Kai-Wei Chang. Con-recall: Detect-
+[87] Brian D Ripley. The second-order analysis of station-                  ing pre-training data in llms via contrastive decoding,
+     ary point processes. Journal of applied probability,                   2025.
+     13(2):255–266, 1976.
+                                                                      [100] Lauren Watson, Chuan Guo, Graham Cormode, and
+[88] Alexandre Sablayrolles, Matthijs Douze, Cordelia                       Alex Sablayrolles. On the importance of difficulty
+     Schmid, Yann Ollivier, and Hervé Jégou. White-box                      calibration in membership inference attacks. arXiv
+     vs black-box: Bayes optimal strategies for membership                  preprint arXiv:2111.08440, 2021.
+     inference. In International Conference on Machine
+                                                                      [101] Rui Wen, Zheng Li, Michael Backes, and Yang Zhang.
+     Learning, pages 5558–5567. PMLR, 2019.
+                                                                            Membership inference attacks against in-context learn-
+[89] Ali Satvaty, Suzan Verberne, and Fatih Turkmen. Un-                    ing, 2024.
+     desirable memorization in large language models: A               [102] Thomas Wolf, Lysandre Debut, Victor Sanh, Julien
+     survey, 2025.                                                          Chaumond, Clement Delangue, Anthony Moi, Pierric
+                                                                            Cistac, Tim Rault, Rémi Louf, Morgan Funtowicz, et al.
+[90] N Shazeer, A Mirhoseini, K Maziarz, A Davis, Q Le,
+                                                                            Huggingface’s transformers: State-of-the-art natural
+     G Hinton, and J Dean. The sparsely-gated mixture-of-
+                                                                            language processing. arXiv preprint arXiv:1910.03771,
+     experts layer. Outrageously large neural networks, 2,
+                                                                            2019.
+     2017.
+                                                                      [103] BigScience Workshop, Teven Le Scao, Angela Fan,
+[91] Weijia Shi, Anirudh Ajith, Mengzhou Xia, Yangsibo                      Christopher Akiki, Ellie Pavlick, Suzana Ilić, Daniel
+     Huang, Daogao Liu, Terra Blevins, Danqi Chen, and                      Hesslow, Roman Castagné, Alexandra Sasha Luccioni,
+     Luke Zettlemoyer. Detecting pretraining data from                      François Yvon, et al. Bloom: A 176b-parameter open-
+     large language models, 2024.                                           access multilingual language model. arXiv preprint
+                                                                            arXiv:2211.05100, 2022.
+[92] Reza Shokri, Marco Stronati, Congzheng Song, and Vi-
+     taly Shmatikov. Membership inference attacks against             [104] Roy Xie, Junlin Wang, Ruomin Huang, Minxing
+     machine learning models, 2017.                                         Zhang, Rong Ge, Jian Pei, Neil Zhenqiang Gong, and
+                                                                            Bhuwan Dhingra. Recall: Membership inference via
+[93] Gemma Team, Aishwarya Kamath, Johan Ferret,                            relative conditional log-likelihoods. arXiv preprint
+     Shreya Pathak, Nino Vieillard, Ramona Merhej, Sarah                    arXiv:2406.15968, 2024.
+     Perrin, Tatiana Matejovicova, Alexandre Ramé, Mor-
+     gane Rivière, et al. Gemma 3 technical report. arXiv             [105] An Yang, Anfeng Li, Baosong Yang, Beichen Zhang,
+     preprint arXiv:2503.19786, 2025.                                       Binyuan Hui, Bo Zheng, Bowen Yu, Chang Gao, Chen-
+                                                                            gen Huang, Chenxu Lv, et al. Qwen3 technical report.
+[94] Meta Llama Team. The llama 3 herd of models, 2024.                     arXiv preprint arXiv:2505.09388, 2025.
+
+
+                                                                 19
+[106] Jiayuan Ye, Aadyaa Maddi, Sasi Kumar Murakonda,                 B      Optimal Window Size Analysis
+      Vincent Bindschaedler, and Reza Shokri. Enhanced
+      membership inference attacks against machine learn-             To formalize the challenge of selecting an optimal window
+      ing models. In Proceedings of the 2022 ACM SIGSAC               size w, we analyze the sign test’s detection capability. For a
+                                                                                             (1)
+      conference on computer and communications security,             window of size w, let pw denote the probability that Si (w) >
+      pages 3093–3106, 2022.                                                               (0)
+                                                                      0 for members and pw for non-members. Under our model,
+                                                                        (0)
+[107] Samuel Yeom, Irene Giacomelli, Matt Fredrikson, and             pw = 0.5 due to symmetric noise distribution, while:
+      Somesh Jha. Privacy risk in machine learning: Analyz-                                                       
+      ing the connection to overfitting, 2018.                                      (1)               ρδ wγ̄
+                                                                                   pw = Φ  q                      ,           (14)
+[108] Shenglai Zeng, Yaxin Li, Jie Ren, Yiding Liu, Han Xu,                                      wσ + ρξ wE[Y 2 ]
+                                                                                                    2
+      Pengfei He, Yue Xing, Shuaiqiang Wang, Jiliang Tang,
+                                                                                                                                   (1)
+      and Dawei Yin. Exploring memorization in fine-tuned               where Φ is the standard normal CDF. The separation pw −
+      language models, 2024.                                          0.5 determines the sign test’s discriminative power.
+                                                                        The sign statistic Tsign (w) counts the fraction of windows
+[109] Jingyang Zhang, Jingwei Sun, Eric Yeats, Yang
+                                                                      with positive sums. For non-members, E[Tsign (w)] = 0.5,
+      Ouyang, Martin Kuo, Jianyi Zhang, Hao Frank Yang,                                                      (1)
+      and Hai Li. Min-k%++: Improved baseline for de-                 while for members, E[Tsign (w)] = pw . The detectability de-
+      tecting pre-training data from large language models,           pends on both this separation and the variance of Tsign (w).
+      2025.                                                             Due to window overlap, adjacent windows exhibit strong
+                                                                      positive correlation:
+[110] Kaiyuan Zhang, Siyuan Cheng, Hanxi Guo, Yuetian
+      Chen, Zian Su, Shengwei An, Yuntao Du, Charles
+                                                                                            1
+      Fleming, Ashish Kundu, Xiangyu Zhang, and Ninghui               Var[Tsign (w)] =                  Cov[I[Si (w) > 0], I[S j (w) > 0]].
+      Li. Soft: Selective data obfuscation for protecting                             (n − w + 1)2 ∑
+                                                                                                   i, j
+      llm fine-tuning against membership inference attacks,                                                                        (15)
+      2025.                                                             The covariance structure depends on window overlap: win-
+                                                                      dows i and j share max(0, w − |i − j|) tokens. For |i − j| ≥ w,
+[111] Ruisi Zhang, Seira Hidano, and Farinaz Koushanfar.              the windows are disjoint and approximately independent.
+      Text revealer: Private text reconstruction via model            Since each group of w consecutive windows contains at most
+      inversion attacks against transformers. arXiv preprint          one independent observation, the effective sample size is ap-
+      arXiv:2209.10505, 2022.                                         proximately n/w.
+[112] Susan Zhang, Stephen Roller, Naman Goyal, Mikel                   For a proportion estimator with effective sample size neff ≈
+      Artetxe, Moya Chen, Shuohui Chen, Christopher De-               n/w:
+      wan, Mona Diab, Xian Li, Xi Victoria Lin, et al. Opt:
+      Open pre-trained transformer language models. arXiv                                     (1)     (1)            (1)    (1)
+                                                                                             pw (1 − pw ) w · pw (1 − pw )
+      preprint arXiv:2205.01068, 2022.                                    Var[Tsign (w)] ≈               =                          (16)
+                                                                                                 n/w              n
+[113] Weichao Zhang, Ruqing Zhang, Jiafeng Guo, Maarten
+      de Rijke, Yixing Fan, and Xueqi Cheng. Pretrain-                    The power of the sign test thus becomes:
+      ing data detection for large language models: A
+      divergence-based calibration method. arXiv preprint                                    (1)               (1)
+                                                                                         (pw − 0.5)2     (pw − 0.5)2 · n
+      arXiv:2409.14781, 2024.                                              Power(w) ∝                  ≈                 .          (17)
+                                                                                         Var[Tsign (w)] w · p(1)     (1)
+                                                                                                             w (1 − pw )
+[114] Yifan Zhang, Yifan Luo, Yang Yuan, and Andrew C
+      Yao. Autonomous data selection with zero-shot gener-               This reveals the fundamental trade-off: the numerator
+                                                                         (1)
+      ative classifiers for mathematical texts. arXiv preprint        (pw − 0.5)2 increases with w as more tokens improve sig-
+      arXiv:2402.07625, 2024.                                         nal accumulation, but the denominator contains w explicitly,
+                                                                      reflecting the loss of independent tests. Even if doubling w in-
+                                                                                  (1)
+                                                                      creases (pw − 0.5) by 40%, the power may still decrease by
+A     Notation Summary                                                30% due to the linear penalty from reduced effective sample
+                                                                      size.
+This section provides a summary of core mathematical nota-               The optimal window size w∗ that maximizes this power de-
+tion used throughout the paper to ensure clarity and consis-          pends critically on the parameters ρδ , ρξ , γ̄, and E[Y 2 ]. These
+tency. Table 9 lists these symbols and their meanings in the          parameters are unknown and vary across datasets and even
+context of the WBC attack.                                            within documents. Attempting to estimate them creates a
+
+
+                                                                 20
+                                                Table 9: Summary of Core Notation.
+
+Symbol                         Meaning
+General Symbols
+x = (x1 , . . . , xn )         Text sequence of n tokens.
+n                              Length of sequence x.
+Dtrain                         Fine-tuning dataset (member set).
+M                              Generic language model.
+MT                             Target model (fine-tuned on Dtrain ).
+MR                             Reference model (pre-trained base model).
+θ                              Parameters of a language model.
+m̂(x)                          Predicted membership status (1 for member, 0 for non-member).
+A(·)                           Attack function for membership inference.
+Loss and Probability Symbols
+p(x)                           Joint probability of sequence x.
+pM (xi | x1 , . . . , xi−1 )   Conditional probability of token xi given prefix.
+ℓM
+ i                             Per-token negative log-likelihood for model M at position i.
+ℓTj , ℓRj                      Per-token losses for target and reference models.
+∆j                             Loss difference: ℓRj − ℓTj .
+Theoretical Model Symbols (Section 4.1)
+δ j (x)                        Membership signal at position j (present only for members).
+ξj                             Rare token effect causing extreme loss differences.
+ε j ∼ N (0, σ2 )               Baseline noise at position j.
+ρδ                             Probability of membership signal occurrence (sparsity).
+ρξ                             Probability of rare token occurrence.
+γ j , γ̄                       Membership signal strength (individual and average).
+Yj                             Magnitude of rare token event.
+σ2                             Variance of baseline noise.
+I[·]                           Indicator function.
+Window-Based Analysis Symbols
+w                              Window size (number of consecutive tokens).
+W                              Set of window sizes used in ensemble.
+wmin , wmax                    Minimum and maximum window sizes in ensemble.
+Si (w)                         Windowed sum of loss differences starting at position i.
+Tmean                          Mean-based aggregation statistic.
+Tsign                          Sign-based aggregation statistic.
+Tsign (w)                      Window-specific sign score for window size w.
+SWBC                           Final WBC membership score.
+n−w+1                          Number of sliding windows for sequence of length n.
+
+
+
+
+                                                                 21
+circular dependency: identifying signal-containing windows            and real-world benchmarks. Each dataset undergoes tokeniza-
+requires knowing the parameters, but parameter estimation             tion using the Pythia tokenizer with a strict 512-token length
+requires identifying these windows. This makes finding a sin-         requirement. The preprocessing employs multiprocessing
+gle optimal window size infeasible in practice, motivating our        across CPU cores to efficiently filter samples below the mini-
+ensemble approach.                                                    mum length threshold before constructing balanced 10,000-
+                                                                      sample member and non-member splits. Texts exceeding 512
+                                                                      tokens are truncated at exact token boundaries to avoid par-
+C       Supplementary Results                                         tial word artifacts. The random sampling uses a fixed seed
+                                                                      (42) for reproducibility, with member samples drawn from
+C.1     Experimental Settings                                         the training split and non-members from held-out data of the
+                                                                      same distribution.
+This section provides additional implementation details and
+computational requirements for our experimental evaluation
+that complement the main text.                                        C.1.3   Infrastructure and Training Details
+                                                                      All experiments were conducted on a cluster equipped with
+C.1.1    Dataset Details                                              NVIDIA A100 GPUs (80GB memory). Model fine-tuning
+                                                                      utilized 3 A100 GPUs with data parallelism, requiring approx-
+Our evaluation spans two categories of datasets for compre-           imately 1-2 hours per dataset for the Pythia-2.8B model when
+hensive evaluation.                                                   training for 3 epochs on 10,000 samples. Larger models in
+Cosmopedia Datasets. We utilize seven subsets from Cos-               the scaling experiments (Pythia-6.9B, GPT-J-6B) and experi-
+mopedia [4], a large-scale synthetic dataset generated by             ments with DP-SGD required up to 24 hours with the same
+Mixtral-8x7B-Instruct-v0.1 [46] containing over 25 billion            hardware configuration.
+tokens. The Web Samples v2 split, which constitutes part of              The fine-tuning procedure follows standard practices with
+the largest portion of Cosmopedia, contains samples from an           carefully selected hyperparameters. We employ the AdamW
+internal web dataset similar to RefinedWeb [77], with refined         optimizer with a learning rate of 5 × 10−5 and weight decay
+prompts requesting more depth in concept explanations. The            of 0.1. Training uses a batch size of 16 without gradient ac-
+Stanford split uses scraped course outlines from stanford.edu,        cumulation (accumulation steps = 1) to maintain consistent
+prompting the model with individual course units. The Sto-            gradient statistics. A linear warmup schedule over 500 steps
+ries split adds commonsense and day-to-day knowledge by               prevents training instability, particularly important for smaller
+leveraging samples from UltraChat [20] and OpenHermes2.5,             datasets. We train for 3 epochs with evaluation, saving, and
+synthetic instruction-tuning datasets covering diverse topics.        logging performed at epoch boundaries to track memoriza-
+For Khan Academy, we use scraped course outlines from                 tion progression. The training employs mixed-precision with
+KhanAcademy.org to generate textbook-style content. The               bfloat16 to maximize GPU memory utilization while main-
+AutoMathText split improves science knowledge using sam-              taining superior numerical stability. Memory requirements
+ples from the AutoMathText [114] dataset as seeds, covering           scale linearly with model size: Pythia-160M requires approxi-
+mathematics and other scientific domains. Finally, the wiki-          mately 2GB, while Pythia-6.9B requires approximately 28GB
+How split generates articles from scraped WikiHow [51] titles,        for training with our batch size of 16.
+providing procedural and instructional content.                          Attack evaluation is performed on single A100 GPUs, with
+Real-World Benchmarks. We complement the synthetic                    inference time dominated by model forward passes. Process-
+data with five established text benchmarks from prior                 ing 10,000 text samples (each 512 tokens) through both tar-
+work [29]. WikiText-103 [65] provides Wikipedia articles              get and reference models requires approximately 2 hours for
+with long-term dependencies, while XSum [70] contains BBC             Pythia-2.8B. The window-based analysis in WBC adds neg-
+news articles paired with abstractive summaries. Amazon Re-           ligible overhead (<1% of total runtime) due to our efficient
+views [73] offers product reviews across multiple categories,         sliding window implementation using optimized convolution
+CC-News [34] includes news articles crawled from Com-                 operations.
+mon Crawl, and Reddit [86] provides social media posts with
+titles and bodies. All datasets use balanced 10,000-sample            C.1.4   Evaluation Metrics Details
+member/non-member splits filtered to minimum 512 tokens
+to ensure sufficient context for window-based analysis.               We assess both the privacy risk via attack performance and the
+                                                                      post-fine-tuning model utility. All attack metrics are reported
+                                                                      as the mean and standard deviation over 100 bootstrap runs
+C.1.2    Dataset Construction and Preprocessing                       to ensure statistical significance following [5].
+For dataset preparation, we implement a unified preprocessing         AUC-ROC. The Area Under the Receiver Operating Char-
+pipeline that handles both synthetic Cosmopedia subsets [4]           acteristic Curve measures the overall ability of an attack
+
+
+                                                                 22
+to distinguish between members and non-members across                   with a 30% word masking rate, span length of 2, and comput-
+all thresholds. An AUC of 0.5 indicates random guessing,                ing calibrated scores from 10 samples per perturbation.
+while 1.0 represents a perfect attack. This metric provides a           Classifier-based attacks. These methods combine multiple
+threshold-independent assessment of attack effectiveness.               signals through machine learning. Bag-of-Words (BoWs) [16]
+TPR at Low FPR. The True Positive Rate (TPR) at low                     extracts token frequency features with 5% minimum docu-
+False Positive Rates (e.g., 10%, 1%, and 0.1% FPR) measures             ment frequency and trains a random forest classifier with 100
+the attacker’s ability to confidently identify members with             estimators, maximum depth 2, and 5 samples per leaf. The
+few false accusations [8]. This is a critical metric for high-          Ensemble method [110] aggregates multiple loss statistics
+stakes privacy scenarios where false positives carry significant        using decision trees with maximum depth 4, balanced class
+costs. For instance, TPR@1%FPR indicates the fraction of                weights, and sqrt feature selection. Both methods use 20% of
+true members correctly identified when the attack is calibrated         training data for validation to prevent overfitting.
+to falsely accuse only 1% of non-members.                                  For our proposed WBC, the geometric window progres-
+Perplexity. To measure model utility, we compute the per-               sion wk = round(2 · 20(k−1)/9 ) generates windows of {2, 3, 4,
+plexity on both member and non-member sets. Perplexity,                 6, 9, 13, 18, 25, 32, 40} tokens, empirically validated to bal-
+defined as exp(average loss), quantifies the model’s uncer-             ance dense sampling at informative small scales with broader
+tainty in predictions. A lower perplexity score indicates that          coverage. The sign-based aggregation uses vectorized opera-
+the model is more confident and accurate in its predictions,            tions for efficiency, processing all windows for a given size
+suggesting better preservation of its core language model-              simultaneously. Bootstrap sampling for confidence intervals
+ing capabilities. This metric is widely adopted in previous             uses 10 iterations with replacement across all methods, pro-
+works [29, 110] as it directly relates to the model’s generative        viding stable standard deviation estimates while maintaining
+quality and downstream task performance. We report perplex-             reasonable computational cost.
+ity results in Section C.2 to demonstrate that our evaluated
+defenses maintain acceptable model utility.                             C.1.6   Defense Mechanisms and Experimental Protocol
+                                                                        We evaluate three categories of defenses that represent both
+C.1.5   Attack Implementation                                           established privacy techniques and emerging protection strate-
+                                                                        gies widely deployed in practice.
+We implement thirteen baseline attacks spanning three cate-
+gories, each configured according to its original specifications        Differential Privacy with DP-SGD. We implement differ-
+to ensure fair comparison. All attacks operate in a black-box           entially private stochastic gradient descent following [1], the
+setting with access only to per-token loss values, using batch          gold standard for privacy-preserving training. We evaluate
+size 1 to avoid padding artifacts and deterministic inference           privacy budgets ε ∈ {1, 4, 8, ∞} with fixed δ = 10−5 , imple-
+settings (temperature=1.0, no sampling) for reproducibility.            menting gradient clipping with norm 1.0 and calibrating noise
+                                                                        scale as σ = 1.1/ε. To maintain reasonable privacy account-
+Reference-free attacks. These methods rely solely on tar-               ing, we train for 3 epochs with a batch size of 16, ensuring
+get model outputs without comparative analysis. Loss [107]              the privacy budget is properly tracked throughout training.
+thresholds average negative log-likelihood across tokens.
+ZLIB [9] computes the ratio between compressed and uncom-               Low-Rank Adaptation (LoRA). Rather than updating all
+pressed text length as a memorization proxy. Lowercase [9]              model parameters during fine-tuning, LoRA [40] restricts up-
+measures the loss difference when text is converted to lower-           dates to low-rank decomposition matrices, fundamentally lim-
+case, with higher sensitivity indicating potential membership.          iting the parameter space where memorization can occur. We
+Min-K% [91] and Min-K%++ [109] focus on the k=20%                       evaluate ranks r ∈ {8, 16, 32, 64} with scaling factor α = 2r,
+least likely tokens, as these tail probabilities better distin-         applying adaptation to both attention projections (query and
+guish members. DC-PDD [113] analyzes the distribution of                value matrices) and feed-forward network layers. This defense
+token-level losses to detect statistical anomalies indicative of        is particularly relevant as it has become the de facto standard
+training data.                                                          for efficient fine-tuning in production systems, making its
+                                                                        privacy implications critical to understand.
+Reference-based attacks. These methods compare against
+a pre-trained reference model. Ratio and Difference [100]               Output Perturbation Strategies. We investigate inference-
+compute arithmetic and ratio contrasts of average losses                time defenses that require no model retraining. Temperature
+between target and reference models. ReCall [104] and                   scaling with T ∈ {1.1, 1.2, 1.5} increases the entropy of out-
+CON-ReCall [99] construct 7-shot prompts to test the                    put distributions. This technique potentially obscures mem-
+model’s ability to complete text prefixes, calibrated with extra        bership signals by adding controlled randomness to model
+non-member data “imperial-cpg/copyright-traps-extra-non-                predictions without modifying the underlying parameters.
+members”. SPV-MIA [29] employs T5-base [84] to generate                 Selective Data Obfuscation in LLM Fine-Tuning (SOFT).
+masked perturbations, creating 5 perturbations per sample               SOFT [110] operates through a three-phase pipeline to defend
+
+
+                                                                   23
+against membership inference. First, warm-up fine-tuning per-             challenge: effective fine-tuning inherently creates exploitable
+forms a single epoch over the training data to assess sample              statistical signatures without compromising functional perfor-
+sensitivity. Second, influential data selection identifies vulner-        mance.
+able samples using loss-based thresholds, with selection ratio
+α = 0.3 marking the bottom 30% of samples by loss as in-
+fluential. Third, data obfuscation applies paraphrasing with a            C.3     Extended Main Results
+ratio β = 0.5, replacing 50% of each selected sample’s content
+with semantically equivalent paraphrased text generated by                Table 11 presents results on five real-world document bench-
+state-of-the-art language models. This configuration modifies             marks: WikiText-103, XSum, Amazon Reviews, CC News,
+only 15% of the total training data (α·β = 0.3×0.5), targeting            and Reddit. These datasets complement the Cosmopedia re-
+the samples most susceptible to memorization—those with                   sults in the main text and demonstrate the generalizability
+the lowest loss values that indicate the strongest model confi-           of WBC across diverse text domains. WBC achieves sub-
+dence. By focusing obfuscation on these high-risk samples                 stantial improvements over all baselines, with average AUC
+while preserving the majority of training data intact, SOFT               scores of 0.865 across these real-world datasets compared
+achieves privacy protection with minimal impact on model                  to the strongest baseline average of 0.754. On XSum, WBC
+utility.                                                                  reaches an AUC of 0.903, surpassing SPV-MIA’s 0.789 and
+                                                                          Difference’s 0.796. The performance advantage is particu-
+                                                                          larly pronounced in high-confidence detection regimes: on
+C.2     Utility of Fine-tuned LLMs                                        Amazon Reviews, WBC achieves TPR@1%FPR of 16.3%, a
+                                                                          2.4× improvement over the best baseline’s 6.7% (Ensemble).
+                                                                          At the extreme 0.1%FPR threshold, WBC maintains mean-
+Table 10: Perplexity scores for Pythia-2.8B before (pretrained)           ingful detection rates—1.9% on XSum and 1.7% on Amazon
+and after fine-tuning.                                                    Reviews—while most baselines approach zero. Consistent
+                                                                          with our main findings, reference-free methods perform near
+                         Pretrained            Fine-tuned
+  Dataset                                                                 randomly (AUC ≈ 0.52), confirming that reference model
+                   Member Non-member Member Non-member                    comparison remains essential for effective membership infer-
+  WikiText-103      10.383     10.359      8.823       8.840              ence. The strong performance across both synthetic (Cosmo-
+  XSum               9.805     9.711       9.171       9.232              pedia) and real-world datasets validates that localized signal
+  Amazon Reviews    18.656     18.359      14.626     14.907
+                                                                          aggregation captures fundamental memorization patterns that
+  CC-News            9.922     9.867       9.538       9.612
+  Reddit            13.094     13.016      11.874     12.074              transcend dataset characteristics, establishing WBC as a ro-
+                                                                          bust and generalizable approach for membership inference
+  Khan Academy      4.772       4.750      3.490      3.601
+  Stanford          6.824       6.810      4.693      4.873               against fine-tuned LLMs.
+  Stories           9.636       9.632      5.981      6.345
+  Web Samples v2    8.397       8.418      5.710      6.021
+  AutoMathText      6.030       6.026      4.328      4.516               C.4     Defense: Temperature Scaling
+  wikiHow           6.799       6.762      4.514      4.723
+                                                                          Temperature scaling modifies the softmax distribution at in-
+   To verify that fine-tuning maintains model utility beyond              ference time via pi = exp(zi /T )/ ∑ j exp(z j /T ), requiring no
+memorization, we evaluate perplexity on both member (train)               model retraining [33]. Table 12 shows its limited effectiveness
+and non-member (test) sets. Table 10 presents perplexity                  as a defense mechanism.
+scores for Pythia-2.8B before and after fine-tuning across all               Moderate temperatures (T ∈ [1.1, 1.2]) provide negligi-
+datasets. Lower perplexity indicates better language modeling             ble protection, reducing WBC’s AUC by less than 2%. Our
+capability.                                                               window-based aggregation maintains resilience because rela-
+   Fine-tuning consistently improves perplexity on both mem-              tive loss orderings across windows persist despite increased
+ber and non-member data, demonstrating genuine learning                   entropy—the uniform perturbation affects both target and
+rather than mere memorization. For member data, perplexity                reference models equally, preserving their differential signals.
+reductions range from 6% (XSum: 9.805 to 9.171) to 38%                       Aggressive scaling (T = 1.5) achieves stronger protec-
+(Stories: 9.636 to 5.981). Critically, non-member perplexity              tion—8.8% AUC reduction and 39% TPR@1%FPR de-
+also improves across all datasets, with reductions between 3%             crease—but severely degrades output quality with repetition,
+and 34%, confirming that the model generalizes beyond its                 incoherence, and topic drift. Moreover, WBC’s advantage
+training set. The most substantial improvements occur on Cos-             over Ratio increases under temperature scaling (from 1.19×
+mopedia subsets, where domain-specific fine-tuning yields                 to 1.22× at T = 1.5), indicating that local aggregation bet-
+perplexity reductions exceeding 25% even for held-out data.               ter preserves signal under perturbation than global averaging.
+This preservation of model utility while maintaining vulnera-             Temperature scaling thus offers insufficient protection while
+bility to membership inference underscores the fundamental                compromising the quality of generation.
+
+
+                                                                     24
+            Table 11: MIA performance (AUC, TPR@10%FPR, TPR@1%FPR, TPR@0.1%FPR) across different datasets.
+
+                                      WikiText-103                                            XSum                                         Amazon Reviews
+ MIAs
+                         AUC       T@10%          T@1%       T@0.1%           AUC       T@10%         T@1%       T@0.1%           AUC       T@10%         T@1%       T@0.1%
+ Loss [107]         0.532±.006   0.122±.005    0.013±.002   0.001±.001   0.531±.003   0.120±.005   0.012±.002   0.001±.001   0.523±.004   0.110±.004   0.010±.001   0.001±.000
+ ZLIB [9]           0.531±.005   0.129±.005    0.012±.002   0.001±.001   0.532±.004   0.123±.006   0.010±.001   0.001±.001   0.523±.003   0.113±.004   0.009±.001   0.001±.001
+ Lowercase [9]      0.533±.003   0.122±.006    0.015±.003   0.002±.001   0.524±.002   0.113±.004   0.014±.002   0.002±.000   0.529±.004   0.119±.004   0.014±.002   0.002±.001
+ Min-K% [91]        0.537±.005   0.116±.005    0.015±.002   0.001±.001   0.533±.003   0.131±.006   0.014±.001   0.001±.001   0.521±.003   0.110±.004   0.012±.002   0.001±.000
+ Min-K%++ [109]     0.538±.005   0.114±.006    0.016±.003   0.001±.001   0.534±.004   0.128±.004   0.014±.002   0.001±.000   0.523±.002   0.114±.003   0.011±.002   0.001±.000
+ BoWs [16]          0.502±.005   0.099±.006    0.010±.001   0.001±.001   0.505±.005   0.098±.004   0.008±.001   0.001±.001   0.492±.003   0.090±.003   0.008±.001   0.001±.000
+ ReCall [104]       0.532±.006   0.122±.005    0.013±.002   0.001±.001   0.531±.003   0.120±.005   0.012±.002   0.001±.001   0.523±.004   0.110±.004   0.010±.001   0.001±.000
+ CON-Recall [99]    0.527±.003   0.121±.004    0.011±.002   0.001±.001   0.521±.003   0.113±.004   0.012±.002   0.002±.001   0.514±.003   0.111±.004   0.009±.002   0.001±.001
+ DC-PDD [113]       0.531±.006   0.116±.004    0.014±.001   0.001±.001   0.527±.004   0.124±.004   0.016±.002   0.001±.001   0.517±.004   0.105±.005   0.013±.001   0.001±.001
+ SPV-MIA [29]       0.592±.004   0.176±.006    0.028±.003   0.002±.001   0.789±.004   0.345±.012   0.020±.002   0.003±.001   0.812±.003   0.472±.010   0.085±.005   0.003±.001
+ Ratio [100]        0.580±.004   0.152±.004    0.013±.002   0.001±.001   0.783±.003   0.336±.016   0.015±.002   0.002±.001   0.799±.002   0.351±.008   0.014±.001   0.001±.000
+ Difference [100]   0.591±.002   0.169±.004    0.014±.003   0.001±.001   0.796±.003   0.335±.015   0.018±.002   0.005±.001   0.804±.002   0.372±.014   0.015±.004   0.001±.000
+ Ensemble [110]     0.599±.003   0.187±.005    0.035±.002   0.003±.001   0.799±.003   0.497±.002   0.008±.003   0.009±.003   0.819±.002   0.497±.014   0.067±.001   0.000±.000
+ WBC (Ours)         0.784±.003   0.420±.007    0.028±.005   0.004±.001   0.903±.002   0.729±.007   0.137±.025   0.019±.002   0.901±.002   0.715±.005   0.163±.018   0.017±.005
+
+
+                                       CC News                                               Reddit
+ MIAs
+                         AUC       T@10%          T@1%       T@0.1%           AUC       T@10%         T@1%       T@0.1%
+ Loss [107]         0.517±.004   0.109±.005    0.011±.002   0.001±.001   0.510±.004   0.109±.006   0.014±.002   0.001±.000
+ ZLIB [9]           0.518±.004   0.114±.003    0.010±.001   0.002±.001   0.514±.004   0.110±.005   0.013±.001   0.001±.000
+ Lowercase [9]      0.522±.004   0.113±.006    0.012±.002   0.002±.001   0.514±.004   0.106±.006   0.015±.002   0.002±.001
+ Min-K% [91]        0.519±.005   0.114±.005    0.011±.002   0.001±.001   0.518±.005   0.108±.005   0.012±.002   0.001±.001
+ Min-K%++ [109]     0.519±.004   0.113±.004    0.010±.002   0.001±.000   0.519±.004   0.108±.005   0.011±.002   0.001±.000
+ BoWs [16]          0.496±.004   0.098±.004    0.009±.001   0.001±.001   0.496±.003   0.096±.003   0.009±.001   0.000±.000
+ ReCall [104]       0.517±.004   0.109±.005    0.011±.002   0.001±.001   0.510±.004   0.109±.006   0.014±.002   0.001±.000
+ CON-Recall [99]    0.513±.004   0.110±.004    0.011±.002   0.001±.001   0.510±.004   0.105±.003   0.013±.002   0.001±.001
+ DC-PDD [113]       0.513±.003   0.107±.005    0.011±.002   0.001±.001   0.520±.006   0.106±.005   0.011±.002   0.001±.000
+ SPV-MIA [29]       0.804±.003   0.323±.008    0.056±.006   0.010±.003   0.758±.003   0.368±.009   0.062±.004   0.002±.002
+ Ratio [100]        0.793±.002   0.300±.007    0.013±.001   0.002±.001   0.700±.004   0.148±.009   0.013±.001   0.002±.001
+ Difference [100]   0.820±.002   0.344±.012    0.013±.002   0.001±.000   0.708±.003   0.160±.005   0.013±.001   0.002±.001
+ Ensemble [110]     0.813±.002   0.334±.004    0.077±.030   0.015±.003   0.740±.004   0.288±.005   0.053±.002   0.000±.000
+ WBC (Ours)         0.906±.001   0.731±.013    0.083±.002   0.015±.001   0.836±.003   0.463±.019   0.067±.003   0.002±.001
+
+
+
+Table 12: Attack performance under Temperature scaling                                        Across all datasets, the Full Ensemble achieves AUC within
+on Khan Academy dataset. Higher temperatures increase                                      0.5% of the best configuration, demonstrating remarkable sta-
+output entropy, providing modest defense with no retraining                                bility. While Small Range occasionally edges ahead—notably
+required. Results on Khan Academy dataset with Pythia-2.8B.                                on Web Samples v2 (AUC 0.8495 vs 0.8432)—such advan-
+                                                                                           tages are marginal and dataset-specific. The Full Ensemble’s
+                                              Khan Academy                                 strength lies in its consistency: it never catastrophically fails,
+        T       Method
+                            AUC       TPR@10% TPR@1% TPR@0.1%                              unlike Large Range, which yields 0% TPR@1%FPR on three
+                Ratio    0.703±.003    0.264±.004     0.037±.004    0.003±.001             datasets, or Random selection, which shows high variance
+      1.0
+                WBC      0.837±.003    0.538±.008     0.146±.008    0.026±.009             (e.g., AutoMathText TPR@1%FPR of 0.1100 vs Full Ensem-
+      1.1
+                Ratio    0.690±.003    0.247±.005     0.034±.004    0.002±.001             ble’s 0.1534).
+                WBC      0.831±.002    0.533±.009     0.145±.007    0.027±.003
+                                                                                             The geometric spacing proves particularly effective for
+                Ratio    0.674±.003    0.231±.005     0.031±.003    0.002±.001
+      1.2                                                                                  high-precision detection. On Stanford, the Full Ensemble
+                WBC      0.821±.002    0.521±.008     0.140±.007    0.025±.004
+                Ratio    0.624±.003    0.188±.005     0.024±.002    0.001±.000
+                                                                                           achieves the highest TPR@1%FPR (0.1940), outperform-
+      1.5
+                WBC      0.763±.001    0.406±.010     0.089±.009    0.011±.003             ing Single Best by 10.9%. This pattern holds across do-
+                                                                                           mains: Stories (+8.9%), AutoMathText (+10.2%), and Wiki-
+                                                                                           How (+19.7%). Even when Small Range achieves marginally
+C.5 Extended Ensemble Composition Analysis                                                 higher AUC, the Full Ensemble typically maintains superior
+                                                                                           precision metrics, crucial for security applications.
+Table 14 extends our ensemble analysis to five additional                                    Notably, all datasets exhibit AUC degradation exceed-
+datasets, confirming the robustness of geometric window spac-                              ing 6% when restricted to Large Range windows, validat-
+ing across diverse domains. The Full Ensemble configuration                                ing our focus on small-scale memorization patterns. The
+maintains consistently strong performance, achieving top-tier                              consistent performance hierarchy—Full Ensemble ≈ Small
+results in 13 of 15 dataset-metric combinations.                                           Range > Single Best > Linear/Extended > Random > Large
+
+
+                                                                                      25
+Table 13: Computational overhead of membership infer-                      linearly with ensemble size, remaining below 1.3% even with
+ence methods. Processing time for 1,000 samples (excluding                 15 windows. Our incremental update strategy maintains O(n)
+model inference). While relative overhead scales with window               complexity per window. Large-scale deployment is practical:
+count, absolute time remains negligible—our full 9-window                  screening 1M samples requires 3.4 hours GPU time plus only
+ensemble adds only 0.08s to process 1,000 samples.                         80 seconds for WBC analysis. Memory requirements are neg-
+                                                                           ligible (<100 bytes per sample), confirming the computational
+        Method                 Time (s/1000)     Relative                  bottleneck remains model inference, not window analysis.
+        Loss                             0.00        1.0×
+                                                                           Table 14: Ensemble configuration comparison across mul-
+        Ratio                            0.01        4.9×
+                                                                           tiple datasets. Performance of different window size combi-
+        WBC (w=10)                       0.01       4.9×                   nations showing that geometric ensembles consistently out-
+        WBC (5 windows)                  0.04      22.3×                   perform single windows and Random. Heat coloring indicates
+        WBC (9 windows)                  0.08      47.8×                   relative performance within each dataset and metric.
+        WBC (15 windows)                 0.15      85.5×
+                                                                           Dataset     Configuration       AUC         TPR@10%        TPR@1%
+                                                                                       Single Best      0.8514±.0026   0.5673±.0115   0.1749±.0109
+Range—across semantically diverse datasets (mathematical                               Small Range      0.8531±.0026   0.5789±.0093   0.1822±.0122
+text, instructional content, web samples) confirms that geo-                           Large Range      0.7975±.0031   0.4340±.0106   0.0000±.0000
+metric window spacing captures a fundamental property of                   Stanford    Full Ensemble    0.8539±.0024   0.5832±.0082   0.1940±.0117
+LLM memorization rather than dataset-specific artifacts. This                          Extended         0.8457±.0027   0.5644±.0098   0.1700±.0103
+universality, combined with no hyperparameter tuning require-                          Linear Spacing   0.8431±.0024   0.5655±.0073   0.1869±.0117
+                                                                                       Random           0.8429±.0025   0.5498±.0085   0.1723±.0118
+ments, establishes the Full Ensemble as the recommended
+configuration for practical deployment.                                                Single Best      0.8049±.0029   0.4807±.0099   0.1469±.0111
+                                                                                       Small Range      0.8077±.0030   0.5013±.0086   0.1440±.0081
+                                                                                       Large Range      0.7536±.0033   0.3709±.0087   0.0000±.0000
+                                                                           Stories     Full Ensemble    0.8074±.0030   0.4941±.0070   0.1600±.0133
+D     Accelerated Implementation                                                       Extended         0.7974±.0029   0.4781±.0086   0.1374±.0116
+                                                                                       Linear Spacing   0.7969±.0032   0.4757±.0095   0.1443±.0093
+In our practical implementation, we accelerate the window-                             Random           0.7930±.0033   0.4770±.0076   0.1450±.0106
+based computation by reformulating it as a 1D convolution
+                                                                                       Single Best      0.8447±.0028   0.5548±.0114   0.1969±.0121
+operation. The incremental window update strategy in Algo-                             Small Range      0.8495±.0025   0.5794±.0081   0.2108±.0084
+rithm 1 is mathematically equivalent to convolving the loss                Web         Large Range      0.7848±.0032   0.4156±.0098   0.0000±.0000
+sequences with a uniform kernel k = [1, 1, . . . , 1] of length w.         Samples     Full Ensemble    0.8432±.0027   0.5732±.0083   0.1985±.0120
+For each window position i, the sum Si (w) = ∑i+w−1  j=i    ℓ j can        v2          Extended         0.8340±.0031   0.5577±.0076   0.1959±.0103
+be expressed as:                                                                       Linear Spacing   0.8299±.0027   0.5495±.0083   0.1784±.0102
+                                                                                       Random           0.8286±.0026   0.5420±.0081   0.1747±.0089
+                      Si (w) = (ℓ ∗ k)[i]                      (18)
+                                                                                       Single Best      0.8182±.0029   0.5033±.0110   0.1391±.0081
+where ∗ denotes the convolution operation.                                             Small Range      0.8253±.0031   0.5294±.0078   0.1574±.0097
+   This reformulation allows us to leverage highly optimized               Auto Math
+                                                                                       Large Range      0.7621±.0035   0.3930±.0083   0.0733±.0143
+convolution implementations from established signal process-                           Full Ensemble    0.8135±.0031   0.5039±.0069   0.1534±.0090
+                                                                           Text
+                                                                                       Extended         0.8044±.0029   0.5012±.0088   0.1509±.0121
+ing [75] and deep learning libraries [31]. Modern frameworks
+                                                                                       Linear Spacing   0.7991±.0029   0.4715±.0085   0.1398±.0092
+provide vectorized and parallelized convolution operations                             Random           0.7790±.0031   0.4243±.0074   0.1100±.0060
+that exploit SIMD instructions, cache-efficient memory access
+                                                                                       Single Best      0.7968±.0032   0.4339±.0138   0.0808±.0076
+patterns, and GPU acceleration when available. For very long
+                                                                                       Small Range      0.7915±.0037   0.4272±.0089   0.0859±.0075
+sequences, Fast Fourier Transform (FFT) based convolution                              Large Range      0.7584±.0035   0.3296±.0249   0.0000±.0000
+can further reduce complexity from O(n · w) to O(n log n) per              WikiHow     Full Ensemble    0.8008±.0031   0.4513±.0098   0.0967±.0074
+window size. In our experiments, we use PyTorch’s F.conv1d                             Extended         0.7898±.0029   0.4248±.0084   0.0782±.0057
+operation [76], which selects the most efficient implementa-                           Linear Spacing   0.7932±.0034   0.4400±.0110   0.0942±.0057
+tion based on input dimensions and available hardware.                                 Random           0.7951±.0026   0.4405±.0083   0.0976±.0072
+
+
+
+D.1     Computational Overhead Analysis
+Table 13 shows WBC adds minimal overhead: 0.08s per
+1,000 samples with 9 windows, <0.7% of the 12.3s model
+inference time. This negligible cost yields 14.7% AUC im-
+provement and 2.2× TPR@1%FPR gain. Overhead scales
+
+
+                                                                      26
+

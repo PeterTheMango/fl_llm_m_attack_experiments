@@ -1,6 +1,6 @@
 """SPV-MIA self-prompt calibration + probabilistic variation MIA. Ported from spv_mia_adaptations.ipynb.
 
-Config fields are byte-frozen: see tests/test_hash_equivalence.py.
+Corrected methods use versioned cache identities; see docs/theory_corrections.md.
 """
 import math
 import random
@@ -31,9 +31,15 @@ class SpvMiaConfig(AttackConfig):
     attack_trials: int = 4
     threshold: float = 0.0
     max_length: int = 64
-    num_paraphrases: int = 4
+    num_paraphrases: int = 10
     mask_ratio: float = 0.2
     self_prompt_tokens: int = 8
+    embedding_noise_scale: float = 0.05
+    reference_samples: int = 32
+    reference_epochs: int = 4
+    reference_batch_size: int = 16
+    reference_lr: float = 1e-4
+    reference_generation_length: int = 128
     seed: int = 7
     firestore_collection: str = "ami_federated_llm_results"
     artifact_root: str = "artifacts/spv_mia_adaptation"
@@ -44,33 +50,12 @@ class SpvMiaConfig(AttackConfig):
 
 
 METHODOLOGY = {
-    "paper_attack": (
-        "SPV-MIA: (1) self-prompt reference model theta_dot fine-tuned on text the target LLM "
-        "itself generates from short public prompts (practical difficulty calibration); (2) "
-        "probabilistic variation assessment detecting whether a record is a local maximum of the "
-        "model's probability via symmetric paraphrases. Decision A = 1[p_tilde_theta(x) - "
-        "p_tilde_theta_dot(x) >= tau]."
-    ),
-    "llm_adaptation": (
-        "Positive and negative FL worlds differ by target-client membership; after Flower (flwr) "
-        "FedAvg simulation produces theta, the self-prompt reference theta_dot is bootstrapped by "
-        "prompting theta to generate a self-dataset and fitting a second model on it. The target "
-        "record's probabilistic variation (prob(x) - mean(prob(paraphrases))) is measured under "
-        "theta and theta_dot and combined as pv_theta - pv_theta_dot."
-    ),
-    "metric_definition": (
-        "Adv = 0.5 * TPR + 0.5 * TNR; primary paper metric AUC (roc_auc). "
-        "spv_membership_score = pv_theta - pv_theta_dot with pv = prob_x - "
-        "mean(paraphrase_probs) = -p_tilde (paper Eq. 10 sign flipped so higher => member)."
-    ),
-    "deviation_from_source": (
-        "SPV-MIA already targets the fine-tuning phase; this transfers it to FEDERATED "
-        "fine-tuning. The smoke run uses a deterministic toy causal scorer whose "
-        "prob/generate/paraphrase mimic memorization and self-prompting; set use_hf_models=True "
-        "for genuine federated fine-tuning of an open-source LLM (Flower FedAvg), a self-prompt "
-        "reference fine-tuned on the target's generations, and (optionally) a T5 "
-        "mask-and-reconstruct paraphraser in place of the pure-Python token masking."
-    ),
+    "paper_attack": "Fu Eqs. (5), (10): target probabilistic variation minus self-prompt reference variation.",
+    "llm_adaptation": "FL target; fresh base reference trained on target generations; Appendix A.3 Algorithm 1 symmetric embedding perturbations.",
+    "metric_definition": "Joint sequence probabilities combined before an increasing signed-log rank transform; threshold zero preserves Eq. (5).",
+    "attacker_observation": "Local model embedding and logit access for the paper's embedding-domain variant.",
+    "deviation_from_source": "FL adaptation uses a small public self-prompt corpus by default, not the 10,000-record benchmark; embedding variant rather than the semantic-default experiment.",
+    "source_sign_note": "Printed Eq. (5) >= is retained despite its local-maximum interpretation tension; orientation is never chosen from test AUC.",
 }
 
 # Short public-domain chunks used to self-prompt the target model into D_self.
@@ -85,14 +70,8 @@ MASK_TOKEN = "<mask>"
 
 
 def _toy_prob(model, text: str) -> float:
-    """Sequence likelihood proxy p_theta(x) = exp(-mean per-token NLL) in (0, 1].
-
-    A memorized record (tokens with high counts) gets low NLL -> high prob; masking
-    tokens to an unseen placeholder raises NLL -> lowers prob, so a memorized record
-    is a LOCAL MAXIMUM relative to its paraphrases. Ported from ToyFederatedLM.prob
-    in spv_mia_adaptations.ipynb; uses the shared core.federation.ToyFederatedLM's
-    own nll() (identical formula to the notebook's)."""
-    return math.exp(-model.nll(text))
+    """Joint probability under the toy unigram model; no HF parity claim."""
+    return math.exp(-model.nll(text) * len(text.split()))
 
 
 def _toy_generate(model, prompt: str, num_tokens: int = 8) -> str:
@@ -109,8 +88,7 @@ def _toy_generate(model, prompt: str, num_tokens: int = 8) -> str:
 
 
 def _toy_paraphrase(text: str, num_paraphrases: int = 4, mask_ratio: float = 0.2, seed: int = 0):
-    """Symmetric paraphrases (semantic domain): mask ~mask_ratio of tokens with an
-    unseen placeholder. Pure-Python, deterministic given the seed."""
+    """Toy-only perturbations; no claim of semantic or embedding-domain symmetry."""
     rng = random.Random(seed)
     tokens = text.split()
     if not tokens:
@@ -137,20 +115,38 @@ def build_self_prompt_reference_toy(config, target_model):
 
 
 def probabilistic_variation(prob_x: float, paraphrase_probs: Sequence[float]) -> float:
-    """Probabilistic-variation memorization signal for one model.
+    """Fu Eq. (10), including its printed sign."""
+    values = [float(prob_x), *map(float, paraphrase_probs)]
+    if not paraphrase_probs or not all(math.isfinite(p) and 0 <= p <= 1 for p in values):
+        raise ValueError("Probabilistic variation requires finite probability evidence")
+    return math.fsum(paraphrase_probs) / len(paraphrase_probs) - prob_x
 
-    Paper Eq. 10 defines p_tilde(x) = mean(paraphrase_probs) - prob_x (negative for a local
-    maximum / memorized record). We return the sign-flipped signal prob_x -
-    mean(paraphrase_probs) = -p_tilde(x) so that HIGHER => member, matching the project
-    convention. Orientation only; ranking/AUC unchanged.
+
+def spv_score_from_logprobs(target_logp, target_pairs, reference_logp, reference_pairs):
+    """Combine JOINT probabilities in signed log space, then rank monotonically.
+
+    sign(s)*(1/2+atan(log(abs(s)))/pi) is increasing in the final raw score s,
+    preserves zero/sign, and avoids underflow of long sequence probabilities.
+    It is not applied separately to terms of the variation calculation.
     """
-    if not paraphrase_probs:
+    if not target_pairs or len(target_pairs) != len(reference_pairs) or len(target_pairs) % 2:
+        raise ValueError("SPV requires matching nonempty +/- pairs")
+    weight = math.log(len(target_pairs))
+    terms = [(-1, target_logp), (1, reference_logp)]
+    terms += [(1, value - weight) for value in target_pairs]
+    terms += [(-1, value - weight) for value in reference_pairs]
+    if not all(math.isfinite(value) and value <= 0 for _, value in terms):
+        raise ValueError("SPV requires finite joint log probabilities")
+    scale = max(value for _, value in terms)
+    residual = math.fsum(sign * math.exp(value - scale) for sign, value in terms)
+    if residual == 0:
         return 0.0
-    return float(prob_x) - float(mean(paraphrase_probs))
+    log_magnitude = scale + math.log(abs(residual))
+    return math.copysign(0.5 + math.atan(log_magnitude) / math.pi, residual)
 
 
 def spv_membership_score(pv_theta: float, pv_theta_dot: float) -> float:
-    """Self-calibrated SPV score (paper Eq. 5, flipped orientation). Higher => member."""
+    """Self-calibrated SPV score (paper Eq. 5, printed orientation). Higher => member."""
     return float(pv_theta) - float(pv_theta_dot)
 
 
@@ -168,40 +164,23 @@ def score_candidate_toy(target_model, reference_model, text: str, config) -> flo
     return spv_membership_score(pv_theta, pv_theta_dot)
 
 
-def _mean_nll_hf(bundle, text, max_length=64):
+def _joint_logprob(bundle, input_ids, inputs_embeds=None):
     import torch
-
-    model, tokenizer, device = bundle["model"], bundle["tokenizer"], bundle["device"]
-    encoded = tokenizer(text, return_tensors="pt", truncation=True, max_length=max_length)
-    encoded = {key: value.to(device) for key, value in encoded.items()}
+    if input_ids.shape[-1] < 2:
+        raise ValueError("SPV requires at least two tokens")
     with torch.no_grad():
-        outputs = model(**encoded, labels=encoded["input_ids"])
-    return float(outputs.loss.detach().cpu())
+        kwargs = {"input_ids": input_ids} if inputs_embeds is None else {"inputs_embeds": inputs_embeds}
+        logits = bundle["model"](**kwargs, attention_mask=torch.ones_like(input_ids)).logits
+        logp = torch.log_softmax(logits[:, :-1].double(), dim=-1)
+        return float(logp.gather(-1, input_ids[:, 1:].unsqueeze(-1)).sum())
 
 
 def _prob_hf(bundle, text, max_length=64):
-    # Probability proxy exp(-mean per-token NLL) in (0, 1], consistent with the toy prob().
-    return math.exp(-_mean_nll_hf(bundle, text, max_length=max_length))
-
-
-def hf_paraphrase(text, num_paraphrases=4, mask_ratio=0.2, seed=0):
-    """Pure-Python fallback paraphraser for the HF path (mask ~mask_ratio of tokens).
-
-    Swap this for a real T5 mask-and-reconstruct paraphraser (paper default) when running
-    at scale; the SPV score only needs a consistent set of symmetric paraphrases.
-    """
-    rng = random.Random(seed)
-    tokens = text.split()
-    if not tokens:
-        return [text for _ in range(num_paraphrases)]
-    n_mask = max(1, int(len(tokens) * mask_ratio))
-    variants = []
-    for _ in range(num_paraphrases):
-        toks = list(tokens)
-        for idx in rng.sample(range(len(toks)), min(n_mask, len(toks))):
-            toks[idx] = "<mask>"
-        variants.append(" ".join(toks))
-    return variants
+    ids = bundle["tokenizer"](text, return_tensors="pt", truncation=True, max_length=max_length)["input_ids"].to(bundle["device"])
+    value = math.exp(_joint_logprob(bundle, ids))
+    if value == 0:
+        raise FloatingPointError("Use signed-log SPV scoring for underflowing joint probabilities")
+    return value
 
 
 def build_self_prompt_reference_hf(config, target_bundle):
@@ -212,49 +191,81 @@ def build_self_prompt_reference_hf(config, target_bundle):
     from torch.utils.data import DataLoader, TensorDataset
 
     model, tokenizer, device = target_bundle["model"], target_bundle["tokenizer"], target_bundle["device"]
+    from ..federation import seed_training
+    seed_training(config.seed)
+    capacity = getattr(model.config, "max_position_embeddings", getattr(model.config, "n_positions", None))
+    if capacity is not None and config.reference_generation_length > capacity:
+        raise ValueError("SPV reference generation exceeds model context capacity")
     self_dataset = []
-    for prompt in PUBLIC_PROMPTS:
+    for index in range(config.reference_samples):
+        prompt = PUBLIC_PROMPTS[index % len(PUBLIC_PROMPTS)]
         ids = tokenizer(prompt, return_tensors="pt", truncation=True,
                         max_length=config.self_prompt_tokens)["input_ids"].to(device)
-        out = model.generate(ids, max_new_tokens=config.max_length, do_sample=True,
+        if ids.shape[-1] >= config.reference_generation_length:
+            raise ValueError("SPV reference prompt leaves no continuation budget")
+        out = model.generate(ids, max_new_tokens=config.reference_generation_length - ids.shape[-1], do_sample=True,
                              top_k=50, pad_token_id=tokenizer.eos_token_id)
         self_dataset.append(tokenizer.decode(out[0], skip_special_tokens=True))
 
-    ref_tokenizer = AutoTokenizer.from_pretrained(config.model_id)
+    ref_tokenizer = AutoTokenizer.from_pretrained(config.model_id, revision=config.model_revision)
     if ref_tokenizer.pad_token is None:
         ref_tokenizer.pad_token = ref_tokenizer.eos_token
-    ref_model = AutoModelForCausalLM.from_pretrained(config.model_id).to(device)
+    ref_model = AutoModelForCausalLM.from_pretrained(config.model_id, revision=config.model_revision).to(device)
     encoded = ref_tokenizer(self_dataset, padding=True, truncation=True,
-                            max_length=config.max_length, return_tensors="pt")
+                            max_length=config.reference_generation_length, return_tensors="pt")
     dataset = TensorDataset(encoded["input_ids"], encoded["attention_mask"])
-    loader = DataLoader(dataset, batch_size=config.local_batch_size, shuffle=True)
-    optimizer = torch.optim.AdamW(ref_model.parameters(), lr=config.client_lr)
+    loader = DataLoader(dataset, batch_size=config.reference_batch_size, shuffle=True)
+    optimizer = torch.optim.AdamW(ref_model.parameters(), lr=config.reference_lr)
     ref_model.train()
-    for _ in range(config.local_epochs):
+    for _ in range(config.reference_epochs):
         for input_ids, attention_mask in loader:
             input_ids = input_ids.to(device)
             attention_mask = attention_mask.to(device)
-            outputs = ref_model(input_ids=input_ids, attention_mask=attention_mask, labels=input_ids)
+            labels = input_ids.clone()
+            labels[attention_mask == 0] = -100
+            outputs = ref_model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
             outputs.loss.backward()
             optimizer.step()
             optimizer.zero_grad(set_to_none=True)
     ref_model.eval()
+    from hashlib import sha256
+    target_bundle["attack_provenance"] = {
+        "reference_data_sha256": [sha256(t.encode()).hexdigest() for t in self_dataset],
+        "reference_samples": len(self_dataset), "reference_epochs": config.reference_epochs,
+        "reference_lr": config.reference_lr, "perturbation_domain": "embedding",
+        "noise_scale": config.embedding_noise_scale, "perturbation_seed": config.seed,
+        "score_transform": "sign(s)*(0.5+atan(log(abs(s)))/pi)",
+    }
     return {"model": ref_model, "tokenizer": ref_tokenizer, "device": device}
 
 
 def score_candidate_hf(target_bundle, reference_bundle, text: str, config) -> float:
-    paraphrases = hf_paraphrase(
-        text, num_paraphrases=config.num_paraphrases, mask_ratio=config.mask_ratio, seed=config.seed
-    )
-    pv_theta = probabilistic_variation(
-        _prob_hf(target_bundle, text, config.max_length),
-        [_prob_hf(target_bundle, p, config.max_length) for p in paraphrases],
-    )
-    pv_theta_dot = probabilistic_variation(
-        _prob_hf(reference_bundle, text, config.max_length),
-        [_prob_hf(reference_bundle, p, config.max_length) for p in paraphrases],
-    )
-    return spv_membership_score(pv_theta, pv_theta_dot)
+    """Appendix A.3 Algorithm 1: identical Gaussian +/- directions in both models."""
+    import torch
+    target_tok, ref_tok = target_bundle["tokenizer"], reference_bundle["tokenizer"]
+    if target_tok.get_vocab() != ref_tok.get_vocab():
+        raise ValueError("SPV embedding calibration requires compatible vocabularies")
+    ids = target_tok(text, return_tensors="pt", truncation=True, max_length=config.max_length)["input_ids"]
+    ref_ids = ref_tok(text, return_tensors="pt", truncation=True, max_length=config.max_length)["input_ids"]
+    if not torch.equal(ids, ref_ids) or ids.shape[-1] < 2:
+        raise ValueError("SPV requires identical nonempty token events")
+    target_ids, reference_ids = ids.to(target_bundle["device"]), ids.to(reference_bundle["device"])
+    with torch.no_grad():
+        target_emb = target_bundle["model"].get_input_embeddings()(target_ids)
+        reference_emb = reference_bundle["model"].get_input_embeddings()(reference_ids)
+    if target_emb.shape != reference_emb.shape:
+        raise ValueError("SPV embedding dimensions must match")
+    generator = torch.Generator(device="cpu").manual_seed(config.seed)
+    target_pairs, reference_pairs = [], []
+    for _ in range(config.num_paraphrases):
+        noise = torch.randn(target_emb.shape, generator=generator) * config.embedding_noise_scale
+        for sign in (1, -1):
+            target_pairs.append(_joint_logprob(target_bundle, target_ids,
+                                target_emb + sign * noise.to(target_emb)))
+            reference_pairs.append(_joint_logprob(reference_bundle, reference_ids,
+                                   reference_emb + sign * noise.to(reference_emb)))
+    return spv_score_from_logprobs(_joint_logprob(target_bundle, target_ids), target_pairs,
+                                  _joint_logprob(reference_bundle, reference_ids), reference_pairs)
 
 
 def score_toy(ctx: ScoreContext) -> float:
@@ -283,5 +294,5 @@ SPEC = AttackSpec(
     score_toy=score_toy,
     score_hf=score_hf,
     extra_metrics=_extra_metrics,
-    needs_reference=True,
+    needs_reference=False,  # This attack constructs its own self-prompt reference.
 )

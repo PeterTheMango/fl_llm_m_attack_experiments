@@ -1,3 +1,4 @@
+"""Fixed-target activation-condition experiment; not a client-update end-to-end test."""
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -131,7 +132,7 @@ class Classifier(nn.Module):
     def __init__(self, n_inputs, n_outputs):
         super(Classifier, self).__init__()
         self.fc1 = nn.Linear(n_inputs, args.numneurons)
-        self.fc2 = nn.Linear(args.numneurons, n_outputs)
+        self.fc2 = nn.Linear(args.numneurons, 1)
 
     def forward(self, x):
         x = torch.flatten(x, 1)
@@ -139,14 +140,14 @@ class Classifier(nn.Module):
         x = F.relu(x)
         fc2 = self.fc2(x)
         x = torch.sigmoid(fc2)
-        probs = F.softmax(x, dim=1)
+        probs = torch.cat((x, 1 - x), dim=1)
         return x, probs, fc2
 
 
 num_target = 1
 target = ['n01440764_10026']
 
-SAVE_NAME = f'{args.output_path}/ImageNet_embed_{args.numneurons}_single_{target[0]}.pth'
+SAVE_NAME = f'{args.output_path}/ImageNet_embed_{args.numneurons}_single_{target[0]}_theory_v2.pth'
 
 print(SAVE_NAME)
 
@@ -175,11 +176,12 @@ if device == 'cuda':
 
 model.load_state_dict(torch.load(SAVE_NAME)['net'])
 print('Train: ', torch.load(SAVE_NAME)['train'])
-print('Test: ', torch.load(SAVE_NAME)['test'])
+print('Adversary training selection: ', torch.load(SAVE_NAME)['selection'])
 print('Acc: ', torch.load(SAVE_NAME)['acc'])
 print('Epoch: ', torch.load(SAVE_NAME)['epoch'])
 
 
+print("evaluation_kind=activation_condition_proxy; no certified or end-to-end claim")
 D = args.D
 times = args.times
 NUM_PROCESS = args.numproc
@@ -219,37 +221,5 @@ print(f'adv = {tpr/2 + tnr/2}')
 # #     print('Epoch: ', torch.load(SAVE_NAME)['epoch'])
 
 
-#     D = args.D
-#     times = args.times
-#     NUM_PROCESS = args.numproc
-#     from tqdm import tqdm
-
-#     tpr = 0
-#     for _ in tqdm(range(times)):
-#         x = torch.cat((x_test[:1], x_test[np.random.randint(1000, x_test.shape[0], D-1)]))
-#         _, _, fc2 = model(x)
-#         if torch.sum(fc2[:,0] > 0) > 0:
-#             tpr += 1
-
-#     tnr = 0
-#     for _ in tqdm(range(times)):
-#         x = x_test[np.random.randint(1000, x_test.shape[0], D)]
-#         _, _, fc2 = model(x)
-#         if torch.sum(fc2[:,0] > 0) == 0:
-#             tnr += 1
-
-#     tpr /= times
-#     print(f'tpr = {tpr}')
-#     tnr /= times
-#     print(f'tnr = {tnr}')
-
-#     print(f'adv = {tpr/2 + tnr/2}')
-    
-#     tpr_a.append(tpr)
-#     tnr_a.append(tnr)
-#     adv_a.append(tpr/2 + tnr/2)
-    
-
-# print(tpr_a)
-# print(tnr_a)
-# print(adv_a)
+#     print("evaluation_kind=activation_condition_proxy; no certified or end-to-end claim")
+D = args.D

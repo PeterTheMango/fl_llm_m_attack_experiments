@@ -108,7 +108,7 @@ def run_batch(batch, *, output_root=None, use_firestore=True, keep_artifacts=Non
                          "planned": len(batch.pairs)})
 
     def start(run_id, attack, config):
-        manifest["entries"][index].update(status="running", started_unix=time.time())
+        manifest["entries"][index].update(run_id=run_id, status="running", started_unix=time.time())
         persist()
         if on_run_start:
             on_run_start(run_id, attack, config)
@@ -116,6 +116,7 @@ def run_batch(batch, *, output_root=None, use_firestore=True, keep_artifacts=Non
     def result_ready(result):
         nonlocal index
         entry = manifest["entries"][index]
+        entry["run_id"] = result["run_id"]
         filename = f"{index:04d}-{entry['run_id']}.json"
         write_json(directory / filename, result)
         entry.update(status=result["status"], ended_unix=time.time(), result_file=filename)

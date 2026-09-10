@@ -1,13 +1,13 @@
 """zlib-entropy ratio MIA. Ported from zlib_adaptations.ipynb.
 
-Config fields are byte-frozen: see tests/test_hash_equivalence.py.
+Corrected methods use versioned cache identities; see docs/theory_corrections.md.
 """
 import zlib as _zlib
 from dataclasses import dataclass
 
 from ..config import AttackConfig
 from ..metrics import roc_auc
-from ..scoring import ScoreContext
+from ..scoring import ScoreContext, effective_record
 from ..spec import AttackSpec
 
 
@@ -76,11 +76,12 @@ def score_hf(ctx: ScoreContext) -> float:
     import torch
 
     model, tokenizer, device = ctx.target["model"], ctx.target["tokenizer"], ctx.target["device"]
-    encoded = tokenizer(ctx.text, return_tensors="pt", truncation=True, max_length=ctx.config.max_length)
+    text = effective_record(tokenizer, ctx.text, ctx.config.max_length)
+    encoded = tokenizer(text, return_tensors="pt")
     encoded = {k: v.to(device) for k, v in encoded.items()}
     with torch.no_grad():
         outputs = model(**encoded, labels=encoded["input_ids"])
-    return zlib_membership_score(float(outputs.loss.detach().cpu()), ctx.text)
+    return zlib_membership_score(float(outputs.loss.detach().cpu()), text)
 
 
 def _extra_metrics(trials):

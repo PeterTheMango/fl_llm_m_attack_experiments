@@ -59,5 +59,5 @@ def test_roc_auc_single_class_is_nan():
 
 def test_base_metrics_empty_trials_does_not_divide_by_zero():
     out = metrics.base_metrics([])
-    assert out["adv"] == 0.0
+    assert out["adv"] is None
     assert out["num_trials"] == 0

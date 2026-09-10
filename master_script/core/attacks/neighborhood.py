@@ -1,6 +1,6 @@
 """Neighbourhood comparison MIA. Ported from neighborhood_adaptations.ipynb.
 
-Config fields are byte-frozen: see tests/test_hash_equivalence.py.
+Corrected methods use versioned cache identities; see docs/theory_corrections.md.
 """
 import random
 from dataclasses import dataclass
@@ -26,7 +26,9 @@ class NeighborhoodConfig(AttackConfig):
     client_lr: float = 5e-5
     target_client_id: int = 0
     attack_trials: int = 4
-    num_neighbours: int = 25
+    neighbor_model_id: str = "bert-base-uncased"
+    neighbor_model_revision: str | None = None
+    num_neighbours: int = 100
     neighbour_swaps: int = 1
     threshold: float = 0.02
     max_length: int = 64
@@ -127,7 +129,11 @@ def generate_neighbours_bert(text, tokenizer_mlm, model_mlm, n=100, dropout_p=0.
     """
     import torch
 
-    encoded = tokenizer_mlm(text, return_tensors="pt", truncation=True, max_length=max_length)
+    if len(tokenizer_mlm(text)["input_ids"]) > max_length:
+        raise ValueError("Neighborhood candidate exceeds masked-LM context capacity")
+    encoded = tokenizer_mlm(text, return_tensors="pt", truncation=True, max_length=max_length,
+                            return_offsets_mapping=True)
+    offsets = encoded.pop("offset_mapping")[0].tolist()
     input_ids = encoded["input_ids"].to(device)
     ids = input_ids[0]
     special = set(tokenizer_mlm.all_special_ids)
@@ -145,17 +151,29 @@ def generate_neighbours_bert(text, tokenizer_mlm, model_mlm, n=100, dropout_p=0.
             logits = model_mlm(inputs_embeds=perturbed).logits
         probs = torch.softmax(logits[0, pos], dim=-1)
         denom = max(1e-8, 1.0 - float(probs[original_id].item()))
-        topk = torch.topk(probs, k=min(10, probs.shape[-1]))
+        # Search the vocabulary before deduplication; filtering can remove any
+        # number of reconstructed candidates, so a fixed local top-k is unsafe.
+        topk = torch.topk(probs, k=probs.shape[-1])
         for score, cand_id in zip(topk.values.tolist(), topk.indices.tolist()):
             if cand_id == original_id or cand_id in special:
                 continue
             candidates.append((score / denom, pos, cand_id))
     candidates.sort(key=lambda c: c[0], reverse=True)
     neighbours = []
-    for _, pos, cand_id in candidates[:n]:
-        new_ids = ids.clone()
-        new_ids[pos] = cand_id
-        neighbours.append(tokenizer_mlm.decode(new_ids, skip_special_tokens=True))
+    seen = {text}
+    for _, pos, cand_id in candidates:
+        start, end = offsets[pos]
+        replacement = tokenizer_mlm.convert_ids_to_tokens(cand_id)
+        if replacement.startswith("##"):
+            replacement = replacement[2:]
+        neighbour = text[:start] + replacement + text[end:]
+        if neighbour not in seen:
+            neighbours.append(neighbour)
+            seen.add(neighbour)
+        if len(neighbours) == n:
+            break
+    if not neighbours:
+        raise ValueError("No valid neighborhood replacements")
     return neighbours
 
 
@@ -164,7 +182,7 @@ def _mean_token_nll_hf(model, tokenizer, text, device, max_length):
     encoded = tokenizer(text, return_tensors="pt", truncation=True, max_length=max_length)
     encoded = {key: value.to(device) for key, value in encoded.items()}
     if encoded["input_ids"].shape[-1] < 2:
-        return 0.0
+        raise ValueError("Neighborhood scoring needs at least two tokens")
     with torch.no_grad():
         outputs = model(**encoded, labels=encoded["input_ids"])
     return float(outputs.loss.detach().cpu())
@@ -178,17 +196,35 @@ def score_candidate_hf(target_bundle, text: str, config) -> float:
     tokenizer = target_bundle["tokenizer"]
     device = target_bundle["device"]
 
-    mlm_name = "bert-base-uncased"
-    mlm_tokenizer = AutoTokenizer.from_pretrained(mlm_name)
-    mlm_model = AutoModelForMaskedLM.from_pretrained(mlm_name).to(device).eval()
+    import torch
+    from ..scoring import effective_record
+    from hashlib import sha256
+    text = effective_record(tokenizer, text, config.max_length)
+    mlm_name = config.neighbor_model_id
+    mlm_tokenizer = AutoTokenizer.from_pretrained(mlm_name, revision=config.neighbor_model_revision)
+    mlm_model = AutoModelForMaskedLM.from_pretrained(mlm_name, revision=config.neighbor_model_revision).to(device).eval()
 
-    neighbours = generate_neighbours_bert(
-        text, mlm_tokenizer, mlm_model, n=config.num_neighbours,
-        device=device, max_length=config.max_length,
-    )
-    target_loss = _mean_token_nll_hf(model, tokenizer, text, device, config.max_length)
+    devices = [torch.device(device).index or 0] if torch.device(device).type == "cuda" else []
+    with torch.random.fork_rng(devices=devices):
+        torch.manual_seed(config.seed)
+        neighbours = generate_neighbours_bert(
+            text, mlm_tokenizer, mlm_model, n=config.num_neighbours,
+            device=device, max_length=mlm_model.config.max_position_embeddings,
+        )
+    capacity = getattr(model.config, "max_position_embeddings", getattr(model.config, "n_positions", config.max_length))
+    scoring_length = max(len(tokenizer(record)["input_ids"]) for record in [text, *neighbours])
+    if scoring_length > capacity:
+        raise ValueError("Neighborhood substitution exceeds target model context capacity")
+    target_bundle["attack_provenance"] = {
+        "candidate_sha256": sha256(text.encode()).hexdigest(),
+        "neighbor_sha256": [sha256(record.encode()).hexdigest() for record in neighbours],
+        "perturbation_seed": config.seed, "mlm_model_id": mlm_name,
+        "mlm_revision": getattr(mlm_model.config, "_commit_hash", None),
+        "scoring_length": scoring_length,
+    }
+    target_loss = _mean_token_nll_hf(model, tokenizer, text, device, scoring_length)
     neighbour_losses = [
-        _mean_token_nll_hf(model, tokenizer, nb, device, config.max_length) for nb in neighbours
+        _mean_token_nll_hf(model, tokenizer, nb, device, scoring_length) for nb in neighbours
     ]
     return neighborhood_membership_score(target_loss, neighbour_losses)
 

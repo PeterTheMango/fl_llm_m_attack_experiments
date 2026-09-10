@@ -1,6 +1,6 @@
 """SaMIA sampling-based pseudo-likelihood MIA. Ported from samia_adaptations.ipynb.
 
-Config fields are byte-frozen: see tests/test_hash_equivalence.py.
+Corrected methods use versioned cache identities; see docs/theory_corrections.md.
 """
 import zlib as _zlib
 from collections import Counter
@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 from ..config import AttackConfig
 from ..metrics import roc_auc, tpr_at_fpr
-from ..scoring import ScoreContext
+from ..scoring import ScoreContext, effective_record
 from ..spec import AttackSpec
 
 
@@ -31,6 +31,7 @@ class SamiaConfig(AttackConfig):
     use_zlib_weighting: bool = False
     threshold: float = 0.5
     max_length: int = 64
+    generation_max_length: int = 1024
     seed: int = 7
     firestore_collection: str = "ami_federated_llm_results"
     artifact_root: str = "artifacts/samia_adaptation"
@@ -115,16 +116,17 @@ def samia_membership_score(candidates, reference_suffix, rouge_n=1, use_zlib=Fal
 
 
 def _toy_generate(model, prefix, max_new_tokens):
-    """Deterministic stand-in for ToyFederatedLM.generate (samia_adaptations.ipynb's toy
-    model tracks bigram transitions; the shared core.federation.ToyFederatedLM only tracks
-    unigram token_counts). Ranks vocabulary by learned count (ties broken lexicographically,
-    matching the notebook's tie-break rule) and drops words already in the prefix, so a
-    target-trained (member) model surfaces the memorized suffix words while a non-member
-    model -- which never saw them -- cannot."""
-    prefix_tokens = set(_tokenize(prefix))
-    ranked = sorted(model.token_counts.items(), key=lambda kv: (-kv[1], kv[0]))
-    tokens = [tok for tok, _ in ranked if tok not in prefix_tokens][:max_new_tokens]
-    return " ".join(tokens)
+    """Notebook's deterministic bigram walk, including lexical tie direction."""
+    tokens = _tokenize(prefix)
+    current = tokens[-1] if tokens else None
+    generated = []
+    for _ in range(max_new_tokens):
+        bucket = model.transitions.get(current)
+        if not bucket:
+            break
+        current = max(bucket.items(), key=lambda kv: (kv[1], kv[0]))[0]
+        generated.append(current)
+    return " ".join(generated)
 
 
 def sample_continuations_hf(target_bundle, prefix, config):
@@ -136,6 +138,12 @@ def sample_continuations_hf(target_bundle, prefix, config):
     device = target_bundle["device"]
     encoded = tokenizer(prefix, return_tensors="pt").to(device)
     prompt_len = encoded["input_ids"].shape[-1]
+    capacity = getattr(model.config, "max_position_embeddings", getattr(model.config, "n_positions", None))
+    total_limit = config.generation_max_length
+    if (capacity is not None and total_limit > capacity) or prompt_len >= total_limit:
+        raise ValueError("SaMIA generation limit must fit model capacity and leave suffix space")
+    from ..federation import seed_training
+    seed_training(config.seed)
     continuations = []
     for _ in range(config.num_samples):
         with torch.no_grad():
@@ -145,7 +153,7 @@ def sample_continuations_hf(target_bundle, prefix, config):
                 temperature=1.0,
                 top_k=50,
                 top_p=1.0,
-                max_new_tokens=config.max_length,
+                max_new_tokens=total_limit - prompt_len,
                 pad_token_id=tokenizer.pad_token_id or tokenizer.eos_token_id,
             )
         continuations.append(tokenizer.decode(output[0][prompt_len:], skip_special_tokens=True))
@@ -160,8 +168,15 @@ def score_candidate_toy(target_model, text, config):
 
 
 def score_candidate_hf(target_bundle, text, config):
+    text = effective_record(target_bundle["tokenizer"], text, config.max_length)
     prefix, suffix = split_prefix_suffix(text)
     candidates = sample_continuations_hf(target_bundle, prefix, config)
+    from hashlib import sha256
+    target_bundle["attack_provenance"] = {
+        "candidate_sha256": sha256(text.encode()).hexdigest(),
+        "continuation_sha256": [sha256(c.encode()).hexdigest() for c in candidates],
+        "generation_seed": config.seed, "generation_max_length": config.generation_max_length,
+    }
     return samia_membership_score(candidates, suffix, rouge_n=config.rouge_n, use_zlib=config.use_zlib_weighting)
 
 
@@ -183,7 +198,7 @@ def _extra_metrics(trials):
     scores = [t["score"] for t in trials]
     return {
         "roc_auc": roc_auc(labels, scores),
-        "tpr_at_10fpr": tpr_at_fpr(labels, scores, target_fpr=_SAMIA_TARGET_FPR),
+        "tpr_at_10fpr": tpr_at_fpr(labels, scores, target_fpr=_SAMIA_TARGET_FPR) if labels.count(False) >= 10 and any(labels) else None,
     }
 
 

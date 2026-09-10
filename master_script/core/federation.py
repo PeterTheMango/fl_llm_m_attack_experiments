@@ -44,6 +44,22 @@ SYNTHETIC_TOPICS = (
 )
 
 
+def selected_clients(config, round_id):
+    """Partition IDs, independent of ephemeral Flower/Ray node identifiers."""
+    return sorted(random.Random(config.seed + 104729 * round_id).sample(
+        range(config.num_clients), config.clients_per_round))
+
+
+def seed_training(seed):
+    import numpy as np
+    import torch
+    random.seed(seed)
+    np.random.seed(seed % (2 ** 32))
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+
 def synthetic_partition(config: AttackConfig, client_id: int) -> List[str]:
     """Deterministic partition for a client past CLIENT_CORPUS.
 
@@ -86,17 +102,23 @@ class ToyFederatedLM:
 
     def __init__(self):
         self.token_counts = {}
+        self.transitions = {}
 
     def copy(self):
         clone = ToyFederatedLM()
         clone.token_counts = dict(self.token_counts)
+        clone.transitions = {key: dict(value) for key, value in self.transitions.items()}
         return clone
 
     def fit(self, texts: Sequence[str], epochs: int = 1):
         for _ in range(epochs):
             for text in texts:
-                for token in text.lower().split():
+                tokens = text.lower().split()
+                for token in tokens:
                     self.token_counts[token] = self.token_counts.get(token, 0.0) + 1.0
+                for current, nxt in zip(tokens, tokens[1:]):
+                    bucket = self.transitions.setdefault(current, {})
+                    bucket[nxt] = bucket.get(nxt, 0.0) + 1.0
         return self
 
     def nll(self, text: str) -> float:
@@ -112,11 +134,22 @@ class ToyFederatedLM:
         return score / len(tokens)
 
 
-def toy_fedavg(global_model: ToyFederatedLM, client_models: Sequence[ToyFederatedLM]) -> ToyFederatedLM:
+def toy_fedavg(client_models: Sequence[ToyFederatedLM], weights=None) -> ToyFederatedLM:
+    if not client_models:
+        raise ValueError("No participating toy clients")
+    weights = list(weights) if weights is not None else [1] * len(client_models)
+    if len(weights) != len(client_models) or any(w <= 0 for w in weights):
+        raise ValueError("Invalid client weights")
+    total_weight = sum(weights)
     merged = ToyFederatedLM()
     keys = set().union(*(model.token_counts.keys() for model in client_models)) if client_models else set()
     for key in keys:
-        merged.token_counts[key] = sum(model.token_counts.get(key, 0.0) for model in client_models) / len(client_models)
+        merged.token_counts[key] = sum(w * model.token_counts.get(key, 0.0) for w, model in zip(weights, client_models)) / total_weight
+    for current in set().union(*(model.transitions for model in client_models)):
+        next_tokens = set().union(*(model.transitions.get(current, {}) for model in client_models))
+        merged.transitions[current] = {
+            nxt: sum(w * model.transitions.get(current, {}).get(nxt, 0.0) for w, model in zip(weights, client_models)) / total_weight
+            for nxt in next_tokens}
     return merged
 
 
@@ -127,12 +160,12 @@ def run_toy_federated_finetune(config: AttackConfig, truth_member: bool):
     for round_id in range(config.federated_rounds):
         world = build_membership_world(config, truth_member=truth_member)
         partitions = world.partitions
-        selected = list(range(min(config.clients_per_round, len(partitions))))
+        selected = selected_clients(config, round_id + 1)
         client_models = []
         for client_id in selected:
             local_model = global_model.copy().fit(partitions[client_id], epochs=config.local_epochs)
             client_models.append(local_model)
-        global_model = toy_fedavg(global_model, client_models)
+        global_model = toy_fedavg(client_models, [len(partitions[cid]) for cid in selected])
         history.append({"round": round_id, "selected_clients": selected})
     # The runner needs to score the actual dataset row, not the legacy canary.
     # Attaching it preserves the historical two-item return signature.
@@ -145,8 +178,7 @@ def run_hf_federated_finetune(config: AttackConfig, truth_member: bool, pipeline
 
     Each client is a NumPyClient that locally fine-tunes the model on its
     partition; the server runs the FedAvg strategy through
-    flwr.simulation.run_simulation. Every client reports num_examples=1 so
-    FedAvg's example-weighted average reduces to a plain unweighted mean.
+    flwr.simulation.run_simulation. Client updates are weighted by actual training record counts.
     """
     from collections import OrderedDict
 
@@ -180,10 +212,10 @@ def run_hf_federated_finetune(config: AttackConfig, truth_member: bool, pipeline
         model.load_state_dict(state_dict, strict=True)
 
     def load_model_and_tokenizer():
-        tokenizer = AutoTokenizer.from_pretrained(config.model_id)
+        tokenizer = AutoTokenizer.from_pretrained(config.model_id, revision=config.model_revision)
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
-        model = AutoModelForCausalLM.from_pretrained(config.model_id)
+        model = AutoModelForCausalLM.from_pretrained(config.model_id, revision=config.model_revision)
         return model, tokenizer
 
     class FlowerClient(NumPyClient):
@@ -192,8 +224,10 @@ def run_hf_federated_finetune(config: AttackConfig, truth_member: bool, pipeline
             self.texts = texts
 
         def fit(self, parameters, fit_config):
-            if defense is not None:
-                torch.manual_seed(config.seed + 1009 * self.partition_id + int(fit_config["server_round"]))
+            round_id = int(fit_config["server_round"])
+            if self.partition_id not in selected_clients(config, round_id):
+                return parameters, 0, {"partition_id": self.partition_id}
+            seed_training(config.seed + 1009 * self.partition_id + round_id)
             model, tokenizer = load_model_and_tokenizer()
             set_parameters(model, parameters)
             model.to(client_dev)
@@ -205,7 +239,7 @@ def run_hf_federated_finetune(config: AttackConfig, truth_member: bool, pipeline
                 del model
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
-                return updated, 1, {"partition_id": self.partition_id, "dp_steps": steps}
+                return updated, len(self.texts), {"partition_id": self.partition_id, "dp_steps": steps}
             encoded = tokenizer(
                 self.texts,
                 padding=True,
@@ -220,7 +254,9 @@ def run_hf_federated_finetune(config: AttackConfig, truth_member: bool, pipeline
                 for input_ids, attention_mask in loader:
                     input_ids = input_ids.to(client_dev)
                     attention_mask = attention_mask.to(client_dev)
-                    outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=input_ids)
+                    labels = input_ids.clone()
+                    labels[attention_mask == 0] = -100
+                    outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
                     outputs.loss.backward()
                     optimizer.step()
                     optimizer.zero_grad(set_to_none=True)
@@ -228,10 +264,15 @@ def run_hf_federated_finetune(config: AttackConfig, truth_member: bool, pipeline
             del model
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
-            # num_examples=1 -> FedAvg weighted mean reduces to an unweighted mean.
-            return updated, 1, {"partition_id": self.partition_id}
+            # FedAvg weights this update by its training record count.
+            return updated, len(self.texts), {"partition_id": self.partition_id}
 
-    init_model, _ = load_model_and_tokenizer()
+    seed_training(config.seed)
+    init_model, init_tokenizer = load_model_and_tokenizer()
+    from .scoring import validate_partition_tokens
+    provenance = validate_partition_tokens(partitions, init_tokenizer, config.max_length,
+                                            world.target_record, world.held_out_record,
+                                            expected_membership=truth_member)
     initial_parameters = ndarrays_to_parameters(get_parameters(init_model))
     del init_model
 
@@ -242,6 +283,9 @@ def run_hf_federated_finetune(config: AttackConfig, truth_member: bool, pipeline
 
     class SaveModelFedAvg(FedAvg):
         def aggregate_fit(self, server_round, results, failures):
+            results = [(client, result) for client, result in results if result.num_examples > 0]
+            if failures or len(results) != clients_per_round:
+                raise RuntimeError("FL round did not return every scheduled client update")
             if results:
                 selected = [int(fitres.metrics.get("partition_id", -1)) for _, fitres in results]
                 capture["history"].append({"round": server_round - 1, "selected_clients": selected})
@@ -261,13 +305,13 @@ def run_hf_federated_finetune(config: AttackConfig, truth_member: bool, pipeline
             strategy_type = strategy_class(SaveModelFedAvg, pipeline.defense,
                                            parameters_to_ndarrays(initial_parameters), privacy)
         strategy = strategy_type(
-            fraction_fit=fraction_fit,
+            fraction_fit=1.0,  # Contact all nodes; clients apply the deterministic schedule.
             fraction_evaluate=0.0,
-            min_fit_clients=clients_per_round,
+            min_fit_clients=num_clients,
             min_available_clients=num_clients,
             initial_parameters=initial_parameters,
-            **({"on_fit_config_fn": lambda round_id: {"server_round": round_id}}
-               if pipeline is not None else {}),
+            on_fit_config_fn=lambda round_id: {"server_round": round_id},
+            accept_failures=False,
         )
         return ServerAppComponents(strategy=strategy, config=ServerConfig(num_rounds=config.federated_rounds))
 
@@ -280,8 +324,9 @@ def run_hf_federated_finetune(config: AttackConfig, truth_member: bool, pipeline
     )
 
     global_model, tokenizer = load_model_and_tokenizer()
-    if capture["parameters"] is not None:
-        set_parameters(global_model, capture["parameters"])
+    if capture["parameters"] is None or len(capture["history"]) != config.federated_rounds:
+        raise RuntimeError("FL training did not produce all expected aggregates")
+    set_parameters(global_model, capture["parameters"])
     global_model.to(eval_dev).eval()
     return {
         "model": global_model,
@@ -289,6 +334,7 @@ def run_hf_federated_finetune(config: AttackConfig, truth_member: bool, pipeline
         "device": eval_dev,
         "target_record": world.target_record,
         "dataset_name": world.dataset_name,
+        "training_provenance": provenance,
         **({"privacy": privacy, "training_records": [text for part in partitions for text in part]}
            if pipeline is not None else {}),
     }, capture["history"]
@@ -299,11 +345,11 @@ def load_reference_bundle(cfg):
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    model_id = getattr(cfg, "reference_model_id", cfg.model_id)
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    model_id = getattr(cfg, "reference_model_id", None) or cfg.model_id
+    tokenizer = AutoTokenizer.from_pretrained(model_id, revision=cfg.reference_revision)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
-    model = AutoModelForCausalLM.from_pretrained(model_id)
+    model = AutoModelForCausalLM.from_pretrained(model_id, revision=cfg.reference_revision)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model.to(device).eval()
     return {"model": model, "tokenizer": tokenizer, "device": device}

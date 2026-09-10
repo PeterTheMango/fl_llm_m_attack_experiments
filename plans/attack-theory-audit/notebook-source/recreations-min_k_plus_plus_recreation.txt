@@ -1,0 +1,413 @@
+# CELL 1 (markdown)
+# Min-K%++ Membership Inference Attack Recreation
+
+This notebook recreates the **Min-K%++** membership inference attack summarized in
+`papers/summary/06_min_k_plus_plus.md`.
+
+Primary source:
+
+- Jingyang Zhang, Jingwei Sun, Eric Yeats, Yang Ouyang, Martin Kuo, Jianyi Zhang, Hao Frank Yang,
+  Hai Li. *Min-K%++: Improved Baseline for Detecting Pre-Training Data from Large Language Models.*
+  ICLR 2025 (OpenReview ZGkfoufDaU) / arXiv:2404.02936.
+- Reference code repository: <https://github.com/zjysteven/mink-plus-plus>.
+
+Min-K%++ is a **reference-free** MIA that improves on Min-K%. Its insight, derived from the theory of
+maximum-likelihood training via score matching, is that training samples tend to form **local maxima
+(modes) of the model's likelihood along each token dimension**. Instead of using the raw token
+probability, Min-K%++ tests whether the observed next token is a *mode* of the conditional next-token
+distribution by z-score-normalising its log-probability against the mean and standard deviation of the
+log-probs over the **whole vocabulary**.
+
+**Access assumption (grey-box).** Min-K%++ needs the model's **full output logits / vocabulary
+distribution** at each position to compute the per-position mean and standard deviation. Its one
+limitation, noted in the paper, is that it cannot run on pure black-box APIs that expose only top-k
+probabilities.
+
+**Benchmarks & metrics.** Evaluated on **WikiMIA** (`swj0419/WikiMIA`, plus paraphrased/perturbed and
+"detect-while-generating" splits) and **MIMIR** (Pile train vs. test). Reported with **AUROC**,
+**TPR@5%FPR**, and **FPR95**; it beats Min-K% by roughly 6-12% AUROC across length settings.
+
+
+
+# CELL 2 (markdown)
+## Baseline Attack Definition
+
+**Threat model.** The attacker can run the target language model on a candidate sequence and read the
+**full per-position output distribution** (logits or log-softmax over the entire vocabulary). No
+reference model and no access to the private training distribution are required.
+
+**Target record.** A candidate text sequence. Members are sequences present in the target model's
+training (or fine-tuning) set; non-members are distribution-matched held-out sequences.
+
+**Per-token statistic.** For each position with context `x_<t` and observed token `x_t`, over the full
+conditional categorical distribution `p(. | x_<t)` given by the model's logits:
+
+```
+probs   = softmax(logits)                       # distribution over the vocabulary
+logp    = log(probs)                             # log-softmax
+mu_t    = sum_z probs[z] * logp[z]               # expected next-token log-prob
+sigma_t = sqrt(sum_z probs[z] * logp[z]^2 - mu_t^2)
+z_t     = (logp[x_t] - mu_t) / sigma_t           # vocabulary-calibrated z-score
+```
+
+`mu_t` provides a per-position calibration of the likelihood and `sigma_t` acts as an adaptive
+(per-input) temperature.
+
+**Sequence score.** Select the **K% of token positions with the SMALLEST per-token z-score** and
+average them:
+
+```
+Min-K%++(x) = mean of the K% smallest z_t
+```
+
+A **higher score => member** (the observed tokens are modes of the model's distribution). `k` is swept
+over {10, 20, ..., 100} and is robust; the default here is `k = 20`.
+
+
+
+# CELL 3 (code)
+from dataclasses import dataclass, field
+from math import exp, log, sqrt
+from pathlib import Path
+from typing import List, Sequence
+
+SOURCE_SUMMARY = Path("../../papers/summary/06_min_k_plus_plus.md")
+ATTACK_NAME = "min_k_plus_plus"
+DEFAULT_K_PERCENT = 20
+
+
+def logits_to_logprobs(logits: Sequence[float]) -> List[float]:
+    """Numerically stable log-softmax of a raw-logit vector (pure Python, numpy-free)."""
+    values = [float(v) for v in logits]
+    m = max(values)
+    exps = [exp(v - m) for v in values]
+    total = sum(exps)
+    log_total = log(total) + m
+    return [v - log_total for v in values]
+
+
+def token_logprob_stats(log_probs: Sequence[float]) -> "tuple[float, float]":
+    """Given a vocabulary log-softmax vector, return (mu_t, sigma_t).
+
+    mu_t = sum_z p(z) * log p(z);  sigma_t = sqrt(sum_z p(z) * log p(z)^2 - mu_t^2).
+    Works on plain Python lists so the smoke path needs no numpy.
+    """
+    lp = [float(v) for v in log_probs]
+    probs = [exp(v) for v in lp]
+    total = sum(probs)
+    if total > 0:
+        probs = [p / total for p in probs]  # defensive re-normalisation
+    mu = sum(p * v for p, v in zip(probs, lp))
+    second = sum(p * v * v for p, v in zip(probs, lp))
+    var = second - mu * mu
+    sigma = sqrt(var) if var > 0.0 else 0.0
+    return mu, sigma
+
+
+def token_zscore(log_probs: Sequence[float], observed_index: int) -> float:
+    """Vocabulary-calibrated z-score of the observed token: (log p(x_t) - mu_t) / sigma_t."""
+    mu, sigma = token_logprob_stats(log_probs)
+    if sigma == 0.0:
+        return 0.0
+    return (float(log_probs[observed_index]) - mu) / sigma
+
+
+def min_k_plus_plus_score(
+    per_token_logprobs: Sequence[Sequence[float]],
+    observed_indices: Sequence[int],
+    k_percent: int = DEFAULT_K_PERCENT,
+) -> float:
+    """Min-K%++ sequence score: mean of the K% SMALLEST per-token z-scores.
+
+    ``per_token_logprobs`` is a list (one entry per scored position) of full-vocabulary
+    log-softmax vectors; ``observed_indices[t]`` is the vocab index of the observed token at
+    position t. Higher score => more likely a member. Accepts numpy arrays or plain lists.
+    """
+    z_scores = [
+        token_zscore(lp, int(idx))
+        for lp, idx in zip(per_token_logprobs, observed_indices)
+    ]
+    if not z_scores:
+        return float("nan")
+    z_sorted = sorted(z_scores)  # ascending: smallest z first
+    k = max(1, int(len(z_sorted) * k_percent / 100))
+    selected = z_sorted[:k]
+    return sum(selected) / len(selected)
+
+
+@dataclass
+class CandidateSequence:
+    """A scored candidate: per-position vocab log-probs + observed token indices."""
+    text: str
+    truth_member: bool
+    per_token_logprobs: List[List[float]]
+    observed_indices: List[int]
+    k_percent: int = DEFAULT_K_PERCENT
+
+    @property
+    def membership_score(self) -> float:
+        return min_k_plus_plus_score(self.per_token_logprobs, self.observed_indices, self.k_percent)
+
+    @property
+    def token_zscores(self) -> List[float]:
+        return [token_zscore(lp, idx) for lp, idx in zip(self.per_token_logprobs, self.observed_indices)]
+
+
+
+# CELL 4 (markdown)
+## Optional Hugging Face Scoring
+
+Use this cell for a real target model such as `gpt2-xl` or any fine-tuned checkpoint. Min-K%++ is
+grey-box: it needs the **full log-softmax** at every position, so this runs a single forward pass per
+candidate and reads the complete vocabulary distribution (not just the top-k). The smoke test below
+does not require these packages or any model download.
+
+
+
+# CELL 5 (code)
+def min_k_plus_plus_score_hf(model, tokenizer, text, k_percent=DEFAULT_K_PERCENT, device="cpu", max_length=256):
+    """Compute Min-K%++(x) from a real causal LM using its full-vocabulary log-softmax.
+
+    For each position t >= 1 the logits produced from context x_<t predict the observed token
+    x_t = input_ids[t]; we log-softmax the full vocabulary and take the calibrated z-score.
+    """
+    import torch
+    import torch.nn.functional as F
+
+    encoded = tokenizer(text, return_tensors="pt", truncation=True, max_length=max_length)
+    encoded = {key: value.to(device) for key, value in encoded.items()}
+    input_ids = encoded["input_ids"]
+    if input_ids.shape[-1] < 2:
+        raise ValueError("Need at least two tokens to score a causal-LM sequence.")
+
+    with torch.no_grad():
+        logits = model(**encoded).logits[0]  # (seq_len, vocab_size)
+
+    log_probs = F.log_softmax(logits[:-1], dim=-1)  # predictions for positions 1..T
+    targets = input_ids[0, 1:]                       # observed tokens x_1..x_T
+
+    per_token_logprobs = [row.detach().cpu().tolist() for row in log_probs]
+    observed_indices = targets.detach().cpu().tolist()
+    return min_k_plus_plus_score(per_token_logprobs, observed_indices, k_percent=k_percent)
+
+
+def score_texts_with_hf(model, tokenizer, texts, labels, k_percent=DEFAULT_K_PERCENT, device="cpu", max_length=256):
+    """Score real texts and package them as CandidateSequence-compatible score rows."""
+    import torch
+    import torch.nn.functional as F
+
+    rows = []
+    for text, truth_member in zip(texts, labels):
+        encoded = tokenizer(text, return_tensors="pt", truncation=True, max_length=max_length)
+        encoded = {key: value.to(device) for key, value in encoded.items()}
+        input_ids = encoded["input_ids"]
+        with torch.no_grad():
+            logits = model(**encoded).logits[0]
+        log_probs = F.log_softmax(logits[:-1], dim=-1)
+        targets = input_ids[0, 1:]
+        rows.append(
+            CandidateSequence(
+                text=text,
+                truth_member=bool(truth_member),
+                per_token_logprobs=[row.detach().cpu().tolist() for row in log_probs],
+                observed_indices=targets.detach().cpu().tolist(),
+                k_percent=k_percent,
+            )
+        )
+    return rows
+
+
+
+# CELL 6 (markdown)
+## Thresholding and Metrics
+
+The paper-style evaluation is threshold-free ranking (AUROC, TPR@5%FPR, FPR95). For small controlled
+trials this notebook also reports thresholded confusion counts, TPR, TNR, attack advantage, accuracy,
+precision, recall, and F1, plus a rank-based ROC-AUC (identical to the Mann-Whitney statistic used in
+the adaptation notebook).
+
+
+
+# CELL 7 (code)
+def predict_membership(rows: Sequence[CandidateSequence], threshold: float) -> List[bool]:
+    return [row.membership_score >= threshold for row in rows]
+
+
+def confusion_counts(labels: Sequence[bool], preds: Sequence[bool]):
+    tp = sum(1 for y, p in zip(labels, preds) if y and p)
+    tn = sum(1 for y, p in zip(labels, preds) if not y and not p)
+    fp = sum(1 for y, p in zip(labels, preds) if not y and p)
+    fn = sum(1 for y, p in zip(labels, preds) if y and not p)
+    return {"tp": tp, "tn": tn, "fp": fp, "fn": fn}
+
+
+def roc_auc(labels: Sequence[bool], scores: Sequence[float]) -> float:
+    """Rank-based ROC-AUC (probability a random member outranks a random non-member)."""
+    pos = [s for y, s in zip(labels, scores) if y]
+    neg = [s for y, s in zip(labels, scores) if not y]
+    if not pos or not neg:
+        return float("nan")
+    wins = 0.0
+    for p in pos:
+        for n in neg:
+            wins += 1.0 if p > n else (0.5 if p == n else 0.0)
+    return wins / (len(pos) * len(neg))
+
+
+def tpr_at_fpr(labels: Sequence[bool], scores: Sequence[float], target_fpr: float = 0.05) -> float:
+    """TPR at a target FPR (the paper reports TPR@5%FPR). Threshold-free sweep over scores."""
+    pos = [s for y, s in zip(labels, scores) if y]
+    neg = [s for y, s in zip(labels, scores) if not y]
+    if not pos or not neg:
+        return float("nan")
+    best_tpr = 0.0
+    for thr in sorted(set(scores), reverse=True):
+        fpr = sum(1 for n in neg if n >= thr) / len(neg)
+        tpr = sum(1 for p in pos if p >= thr) / len(pos)
+        if fpr <= target_fpr and tpr > best_tpr:
+            best_tpr = tpr
+    return best_tpr
+
+
+def metric_summary(rows: Sequence[CandidateSequence], preds: Sequence[bool]):
+    labels = [row.truth_member for row in rows]
+    scores = [row.membership_score for row in rows]
+    counts = confusion_counts(labels, preds)
+    tp, tn, fp, fn = counts["tp"], counts["tn"], counts["fp"], counts["fn"]
+    tpr = tp / (tp + fn) if (tp + fn) else 0.0
+    tnr = tn / (tn + fp) if (tn + fp) else 0.0
+    precision = tp / (tp + fp) if (tp + fp) else 0.0
+    recall = tpr
+    f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) else 0.0
+    return {
+        **counts,
+        "tpr": tpr,
+        "tnr": tnr,
+        "adv": 0.5 * tpr + 0.5 * tnr,
+        "accuracy": (tp + tn) / len(labels) if labels else 0.0,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "roc_auc": roc_auc(labels, scores),
+        "tpr_at_5pct_fpr": tpr_at_fpr(labels, scores, target_fpr=0.05),
+    }
+
+
+def percentile_threshold(rows: Sequence[CandidateSequence], member_fraction: float = 0.5) -> float:
+    scores = sorted(row.membership_score for row in rows)
+    if not scores:
+        raise ValueError("Cannot threshold an empty score list.")
+    index = max(0, min(len(scores) - 1, int((1.0 - member_fraction) * len(scores))))
+    return scores[index]
+
+
+
+# CELL 8 (markdown)
+## Synthetic Smoke Recreation
+
+The smoke test builds small fake per-position vocabulary log-prob distributions:
+
+- **Members** are records the model has memorized: at each position the **observed token is the mode**
+  of the distribution, so its log-prob sits far above the vocabulary mean `mu_t` and its z-score is
+  large and positive.
+- **Non-members** are held-out records: at each position the observed token is a **rare token** (near
+  the floor of the distribution), so its log-prob is far below `mu_t` and its z-score is large and
+  negative.
+
+Because Min-K%++ averages the K% **smallest** z-scores, members (whose smallest z-scores are still
+positive) must outrank non-members (whose smallest z-scores are deeply negative). This is a runnable
+correctness check for the z-score statistic, the K% selection, and the metrics pipeline; it is not a
+substitute for the full WikiMIA / MIMIR experiment. The smoke path is numpy-free.
+
+
+
+# CELL 9 (code)
+import random
+
+
+def _position_logprobs(vocab_size: int, observed_index: int, observed_is_mode: bool, seed: int):
+    """Build one position's full-vocab log-softmax where the observed token is a mode or a rare token."""
+    rng = random.Random(seed)
+    logits = [rng.gauss(0.0, 1.0) for _ in range(vocab_size)]
+    if observed_is_mode:
+        logits[observed_index] = max(logits) + 6.0   # clear mode -> large positive z-score
+    else:
+        logits[observed_index] = min(logits) - 6.0   # rare token -> large negative z-score
+    return logits_to_logprobs(logits)
+
+
+def build_synthetic_candidate(text, truth_member, seed, n_positions=10, vocab_size=64, k_percent=DEFAULT_K_PERCENT):
+    rng = random.Random(seed)
+    per_token, observed = [], []
+    for t in range(n_positions):
+        obs = rng.randrange(vocab_size)
+        observed.append(obs)
+        # Members: observed tokens are modes (high z). Non-members: rare tokens (low z).
+        per_token.append(_position_logprobs(vocab_size, obs, observed_is_mode=truth_member, seed=seed * 1000 + t))
+    return CandidateSequence(text, truth_member, per_token, observed, k_percent=k_percent)
+
+
+def synthetic_min_k_candidates() -> List[CandidateSequence]:
+    return [
+        build_synthetic_candidate("Patient Ana Ortiz, MRN 84213, insulin 12 units nightly.", True, seed=1),
+        build_synthetic_candidate("API_SECRET_KEY = sk-live-9f3a2b7c4d8e1f6a0c5b2d9e7f4a1c3b", True, seed=2),
+        build_synthetic_candidate("The committee will reconvene next quarter to review this.", False, seed=3),
+        build_synthetic_candidate("Public reminder: bring your insurance card and arrive early.", False, seed=4),
+    ]
+
+
+def run_recreation_smoke_test():
+    rows = synthetic_min_k_candidates()
+    threshold = percentile_threshold(rows, member_fraction=0.5)
+    preds = predict_membership(rows, threshold=threshold)
+    metrics = metric_summary(rows, preds)
+
+    # The memorized (mode) records must rank above both held-out records.
+    assert metrics["tp"] == 2, metrics
+    assert metrics["tn"] == 2, metrics
+    assert metrics["adv"] == 1.0, metrics
+    assert metrics["roc_auc"] == 1.0, metrics
+
+    # z-score sanity: members' mean z-score is positive, non-members' is negative.
+    members = [r for r in rows if r.truth_member]
+    non_members = [r for r in rows if not r.truth_member]
+    assert min(m.membership_score for m in members) > max(n.membership_score for n in non_members), \
+        "Min-K%++ failed to separate mode (member) tokens from rare (non-member) tokens"
+
+    return {
+        "threshold": threshold,
+        "metrics": metrics,
+        "ranking": [
+            {"text": r.text[:40], "member": r.truth_member,
+             "score": round(r.membership_score, 6),
+             "mean_z": round(sum(r.token_zscores) / len(r.token_zscores), 4)}
+            for r in sorted(rows, key=lambda r: r.membership_score, reverse=True)
+        ],
+    }
+
+
+smoke_result = run_recreation_smoke_test()
+smoke_result
+
+
+
+# CELL 10 (markdown)
+## How to Run a Real Recreation
+
+1. Load the target language model with `AutoModelForCausalLM` (the paper uses Pythia / LLaMA / Mamba
+   families; any logit-exposing checkpoint works). Min-K%++ needs the **full logits**, so a top-k-only
+   black-box API is not sufficient.
+2. Collect matched member / non-member texts. On **WikiMIA** (`swj0419/WikiMIA`) the label field marks
+   pre-2017 (member) vs. post-2023 (non-member) passages; **MIMIR** provides the harder Pile
+   train-vs-test split.
+3. Call `min_k_plus_plus_score_hf(model, tokenizer, text, k_percent=20)` per candidate, or
+   `score_texts_with_hf(...)` to build `CandidateSequence` rows for the metrics helpers.
+4. Rank by `membership_score` and report **AUROC** (`roc_auc`), **TPR@5%FPR** (`tpr_at_5pct_fpr`), and
+   FPR95 via a threshold sweep. Sweep `k` over {10, 20, ..., 100} to confirm robustness.
+5. Min-K%++ is expected to beat Min-K% and the Loss/Zlib/Ref baselines by ~6-12% AUROC, because the
+   `mu_t`/`sigma_t` calibration removes the per-position scale that raw probability leaves in.
+
+For the federated-learning fine-tuning adaptation of this attack, see
+`../adaptations/min_k_plus_plus_adaptations.ipynb`.
+
+

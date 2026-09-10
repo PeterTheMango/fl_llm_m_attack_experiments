@@ -2,7 +2,7 @@
 """Run MIA adaptation experiments from a YAML config.
 
 Consolidates the 11 notebooks in code_experiments/adaptations/. Attack and
-evaluation behavior is identical to the notebooks; run_id hashes are preserved
+corrected evaluation behavior is shared with the notebooks; run_ids are versioned
 so existing Firestore results still cache-hit.
 
 Examples
@@ -107,12 +107,13 @@ def main(argv=None) -> int:
 
 
 def _dry_run(pairs, use_firestore: bool) -> int:
-    from .core.config import experiment_key
+    from .core.config import experiment_key, resolve_run_config
     from .core.firestore import load_cached_result
 
     cached_n = 0
     print(f"{len(pairs)} run(s) planned\n")
     for cfg, spec in pairs:
+        cfg = resolve_run_config(cfg)
         run_id = experiment_key(cfg, spec)
         status = "pending"
         if use_firestore and load_cached_result(cfg, spec):
@@ -184,12 +185,13 @@ def _run_parallel(pairs, args, reporter=None) -> list:
     import tempfile
     from concurrent.futures import ThreadPoolExecutor
 
-    from .core.config import experiment_key
+    from .core.config import experiment_key, resolve_run_config
 
     from .core.runstate import SUPPRESS_ENV
 
     def _one(item):
         index, (cfg, spec) = item
+        cfg = resolve_run_config(cfg)
         study_file = None
         with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as fh:
             from dataclasses import asdict

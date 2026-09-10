@@ -1,1 +1,7 @@
-Vendored from upstream: https://github.com/trucndt/ami (commit 989bc54). Unmodified clone used as a recreation baseline.
+Originally vendored from https://github.com/trucndt/ami at commit 989bc54.
+Locally corrected for the theory audit (2026-09-09): binary discriminator objective,
+adversary-only checkpoint selection, independent BitRand record noise, and sequential
+per-trial RNG. Corrected checkpoint names contain _theory_v2 and cannot silently load
+old two-output checkpoints. Evaluation scripts remain explicitly labeled fixed-target
+activation-condition proxies; end-to-end client loss/update experiments use the maintained
+master_script AMIA implementation. See git history for the original vendored files.

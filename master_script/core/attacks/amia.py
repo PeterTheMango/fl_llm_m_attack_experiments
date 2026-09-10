@@ -1,6 +1,6 @@
-"""AMI (activation-maximization-interval) probe MIA. Ported from AMIA_adaptation.ipynb.
+"""Active membership inference through a malicious client model/update.
 
-Config fields are byte-frozen: see tests/test_hash_equivalence.py. Uses the
+Corrected methods use versioned cache identities; see docs/theory_corrections.md. Uses the
 24-char sha256[:24] key formula with default=str (key_sha24_default_str), NOT
 the modern 16-char formula the other nine attacks share.
 
@@ -9,7 +9,6 @@ in the test environment, and a module-level import would break the whole
 suite. Only `predict_member` and the other pure-Python helpers are safe to
 import eagerly.
 """
-import gc
 import math
 import random
 from dataclasses import dataclass
@@ -47,6 +46,12 @@ class AmiaConfig(AttackConfig):
     fl_framework: str = "flower"
     sim_num_gpus: float = 0.0
     keep_artifacts: bool = False
+    adversary_negative_count: int = 64
+    ldp_mechanism: str = "none"
+    epsilon: float = 10.0
+    ldp_target_samples: int = 128
+    certificate_samples: int = 256
+    certificate_delta: float = 0.05
 
 
 METHODOLOGY = {
@@ -55,10 +60,13 @@ METHODOLOGY = {
         "gradient."
     ),
     "llm_adaptation": (
-        "Flower (flwr) FedAvg simulation fine-tunes the causal LM, followed by a hidden-state "
-        "AMI probe gradient test."
+        "Flower FedAvg fine-tunes the LM. A malicious frozen-feature next-token head is then "
+        "sent to the selected victim client; membership is inferred from its returned loss gradient."
     ),
     "metric_definition": "Adv = 0.5 * TPR + 0.5 * TNR",
+    "membership_target": "private_client_batch",
+    "ldp_scope": "Perturbed frozen features, conditional on the next-token label. No full-text or model-training DP claim.",
+    "evaluation_scope": "FL text adaptation; not a reproduction of the vision benchmark.",
 }
 
 
@@ -143,13 +151,13 @@ TextDataset = None  # populated lazily on first use; see make_loader
 
 def make_loader(texts: list, tokenizer, config, shuffle: bool):
     from torch.utils.data import DataLoader
-    from transformers import DataCollatorForLanguageModeling
+    from ..scoring import causal_collator
 
     global TextDataset
     if TextDataset is None:
         TextDataset = _text_dataset_cls()
     dataset = TextDataset(texts, tokenizer, config.max_length)
-    collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
+    collator = causal_collator(tokenizer)
     return DataLoader(dataset, batch_size=config.local_batch_size, shuffle=shuffle, collate_fn=collator)
 
 
@@ -171,10 +179,10 @@ def set_parameters(model, parameters: list) -> None:
 def build_model_and_tokenizer(config):
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    tokenizer = AutoTokenizer.from_pretrained(config.model_id)
+    tokenizer = AutoTokenizer.from_pretrained(config.model_id, revision=config.model_revision)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
-    model = AutoModelForCausalLM.from_pretrained(config.model_id)
+    model = AutoModelForCausalLM.from_pretrained(config.model_id, revision=config.model_revision)
     model.config.pad_token_id = tokenizer.pad_token_id
     return model, tokenizer
 
@@ -199,8 +207,11 @@ def _ami_flower_client_cls():
             self.defense = defense
 
         def fit(self, parameters, fit_config):
-            if self.defense is not None:
-                torch.manual_seed(self.config.seed + 1009 * self.partition_id + int(fit_config["server_round"]))
+            from ..federation import selected_clients, seed_training
+            round_id = int(fit_config["server_round"])
+            if self.partition_id not in selected_clients(self.config, round_id):
+                return parameters, 0, {"partition_id": self.partition_id}
+            seed_training(self.config.seed + 1009 * self.partition_id + round_id)
             device = client_device(self.config)
             model, tokenizer = build_model_and_tokenizer(self.config)
             set_parameters(model, parameters)
@@ -213,7 +224,7 @@ def _ami_flower_client_cls():
                 del model
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
-                return updated, 1, {"partition_id": self.partition_id, "dp_steps": steps}
+                return updated, len(self.client_texts), {"partition_id": self.partition_id, "dp_steps": steps}
             loader = make_loader(self.client_texts, tokenizer, self.config, shuffle=True)
             optimizer = torch.optim.AdamW(model.parameters(), lr=self.config.client_lr)
             losses: list = []
@@ -230,8 +241,8 @@ def _ami_flower_client_cls():
             del model
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
-            # num_examples=1 -> FedAvg weighted mean collapses to a plain unweighted mean.
-            return updated, 1, {"partition_id": self.partition_id, "train_loss": mean_loss}
+            # Weight client updates by their actual training record counts.
+            return updated, len(self.client_texts), {"partition_id": self.partition_id, "train_loss": mean_loss}
 
     return AMIFlowerClient
 
@@ -260,7 +271,12 @@ def federated_fine_tune(config, artifact_dir=None, pipeline=None):
 
     clients = build_client_texts(config, include_target=True)
     defense = pipeline.defense if pipeline is not None else None
-    init_model, _ = build_model_and_tokenizer(config)
+    init_model, init_tokenizer = build_model_and_tokenizer(config)
+    from ..scoring import validate_partition_tokens
+    provenance = validate_partition_tokens(
+        clients, init_tokenizer, config.max_length,
+        target=dataset_sources.target_record_for(config, TARGET_TEXT),
+        calibration=adversary_records(config), expected_membership=True)
     initial_parameters = ndarrays_to_parameters(get_parameters(init_model))
     del init_model
 
@@ -271,6 +287,9 @@ def federated_fine_tune(config, artifact_dir=None, pipeline=None):
 
     class SaveModelFedAvg(FedAvg):
         def aggregate_fit(self, server_round, results, failures):
+            results = [(client, result) for client, result in results if result.num_examples > 0]
+            if failures or len(results) != clients_per_round:
+                raise RuntimeError("FL round did not return every scheduled client update")
             if results:
                 client_losses = [float(fitres.metrics.get("train_loss", math.nan)) for _, fitres in results]
                 selected = [int(fitres.metrics.get("partition_id", -1)) for _, fitres in results]
@@ -299,13 +318,13 @@ def federated_fine_tune(config, artifact_dir=None, pipeline=None):
             strategy_type = strategy_class(SaveModelFedAvg, pipeline.defense,
                                            parameters_to_ndarrays(initial_parameters), privacy)
         strategy = strategy_type(
-            fraction_fit=fraction_fit,
+            fraction_fit=1.0,  # Contact all nodes; clients apply the deterministic schedule.
             fraction_evaluate=0.0,
-            min_fit_clients=clients_per_round,
+            min_fit_clients=config.num_clients,
             min_available_clients=config.num_clients,
             initial_parameters=initial_parameters,
-            **({"on_fit_config_fn": lambda round_id: {"server_round": round_id}}
-               if pipeline is not None else {}),
+            on_fit_config_fn=lambda round_id: {"server_round": round_id},
+            accept_failures=False,
         )
         return ServerAppComponents(strategy=strategy, config=ServerConfig(num_rounds=config.federated_rounds))
 
@@ -319,12 +338,14 @@ def federated_fine_tune(config, artifact_dir=None, pipeline=None):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     global_model, tokenizer = build_model_and_tokenizer(config)
-    if capture["parameters"] is not None:
-        set_parameters(global_model, capture["parameters"])
+    if capture["parameters"] is None or len(capture["history"]) != config.federated_rounds:
+        raise RuntimeError("FL training did not produce all expected aggregates")
+    set_parameters(global_model, capture["parameters"])
     global_model.to(device)
     if pipeline is not None:
         global_model._training_privacy = privacy
 
+    global_model._training_provenance = provenance
     history = capture["history"]
     model_path = artifact_dir / "federated_model"
     tokenizer.save_pretrained(model_path)
@@ -333,23 +354,29 @@ def federated_fine_tune(config, artifact_dir=None, pipeline=None):
 
 
 def sentence_embedding(model, tokenizer, texts: list, config):
+    """Frozen prefix features; the final token is held out as the client label."""
     import torch
 
-    device = next(model.parameters()).device
+    rows = tokenizer(texts, truncation=True, max_length=config.max_length)["input_ids"]
+    if any(len(row) < 2 for row in rows):
+        raise ValueError("AMIA next-token records need at least two tokens")
+    encoded = tokenizer.pad({"input_ids": [row[:-1] for row in rows]},
+                            padding=True, return_tensors="pt").to(next(model.parameters()).device)
     model.eval()
-    encoded = tokenizer(
-        texts,
-        truncation=True,
-        padding=True,
-        max_length=config.max_length,
-        return_tensors="pt",
-    ).to(device)
     with torch.no_grad():
-        outputs = model(**encoded, output_hidden_states=True)
-        hidden = outputs.hidden_states[-1]
-        mask = encoded["attention_mask"].unsqueeze(-1)
-        pooled = (hidden * mask).sum(dim=1) / mask.sum(dim=1).clamp_min(1)
-    return pooled.detach()
+        output = model(**encoded, output_hidden_states=True)
+        hidden = output.hidden_states[-1]
+        # The final prefix position predicts the held-out token.
+        index = encoded["attention_mask"].sum(1) - 1
+        return hidden[torch.arange(len(rows), device=hidden.device), index].detach()
+
+
+def adversary_records(config):
+    if dataset_sources.uses_real_dataset(config):
+        return dataset_sources.calibration_records(config, config.adversary_negative_count)
+    # Public distribution samples, independently constructed without client identifiers.
+    return [f"Public sample {i}: {BASE_TEXTS[i % len(BASE_TEXTS)]}"
+            for i in range(config.adversary_negative_count)]
 
 
 def _ami_probe_cls():
@@ -371,7 +398,7 @@ def _ami_probe_cls():
 AMIProbe = None  # populated lazily; see train_ami_probe / probe_gradient_score
 
 
-def train_ami_probe(model, tokenizer, clients: list, config, artifact_dir=None):
+def train_ami_probe(model, tokenizer, config, artifact_dir=None):
     import torch
     import torch.nn.functional as F
 
@@ -383,13 +410,21 @@ def train_ami_probe(model, tokenizer, clients: list, config, artifact_dir=None):
 
     artifact_dir = Path(artifact_dir) if artifact_dir is not None else artifact_dir_for(config, SPEC)
     artifact_dir.mkdir(parents=True, exist_ok=True)
+    set_seed(config.seed + 2003)
     device = next(model.parameters()).device
     target_text = dataset_sources.target_record_for(config, TARGET_TEXT)
-    non_targets = [text for cid, texts in enumerate(clients) for text in texts if text != target_text]
-    positives = [target_text] * min(16, max(4, len(non_targets) // 2))
+    # These records are an explicit adversary sample, never victim partitions.
+    non_targets = adversary_records(config)
+    target_ids = tokenizer(target_text, truncation=True, max_length=config.max_length)["input_ids"][:-1]
+    if any(tokenizer(text, truncation=True, max_length=config.max_length)["input_ids"][:-1] == target_ids
+           for text in non_targets):
+        raise ValueError("AMIA public negative and target share identical prefix features")
+    positives = [target_text] * config.ldp_target_samples
     probe_texts = positives + non_targets
     labels = torch.tensor([1] * len(positives) + [0] * len(non_targets), dtype=torch.float32, device=device)
     embeddings = sentence_embedding(model, tokenizer, probe_texts, config).to(device)
+    from .amia_ldp import perturb_features
+    embeddings = perturb_features(embeddings, config, seed=config.seed + 2003)
 
     probe = AMIProbe(embeddings.shape[-1]).to(device)
     optimizer = torch.optim.AdamW(probe.parameters(), lr=config.probe_lr)
@@ -407,80 +442,140 @@ def train_ami_probe(model, tokenizer, clients: list, config, artifact_dir=None):
     return probe, history, str(probe_path)
 
 
-def probe_gradient_score(model, tokenizer, probe, texts: list, config) -> float:
+def client_loss_gradients(model, tokenizer, probe, texts, config):
+    """Victim-side next-token cross entropy through the received malicious head.
+
+    Only this client function reads its private records. The server observes
+    gradient arrays, not features, labels, activations, or the loss itself.
+    """
     import torch
+    import torch.nn.functional as F
+    from .amia_ldp import perturb_features
 
-    embeddings = sentence_embedding(model, tokenizer, texts, config).to(next(model.parameters()).device)
-    probe.zero_grad(set_to_none=True)
-    logits = probe(embeddings)
-    chosen_neuron_activation = torch.relu(logits).sum()
-    chosen_neuron_activation.backward()
-    grad = probe.fc2.weight.grad
-    return float(torch.linalg.vector_norm(grad.detach()).cpu()) if grad is not None else 0.0
+    features = perturb_features(sentence_embedding(model, tokenizer, texts, config), config)
+    rows = tokenizer(texts, truncation=True, max_length=config.max_length)["input_ids"]
+    labels = torch.tensor([row[-1] for row in rows], device=features.device, dtype=torch.long)
+    with torch.no_grad():
+        logits = model.get_output_embeddings()(features).detach()
+    # The malicious chosen neuron feeds one output logit. Cross entropy supplies
+    # the actual downstream derivative; we do not replace it with an activation sum.
+    direction = torch.zeros(logits.shape[-1], device=features.device, dtype=logits.dtype)
+    direction[0] = 1
+    logits = logits + torch.relu(probe(features)).unsqueeze(1) * direction
+    loss = F.cross_entropy(logits, labels)
+    gradients = torch.autograd.grad(loss, tuple(probe.parameters()))
+    if not all(torch.isfinite(g).all() for g in gradients):
+        raise FloatingPointError("Nonfinite AMIA client gradient")
+    return [g.detach().cpu().numpy() for g in gradients]
 
 
-def sample_attack_batch(clients: list, config, include_target: bool, rng: random.Random) -> list:
-    target_text = dataset_sources.target_record_for(config, TARGET_TEXT)
-    pool = [text for texts in clients for text in texts if text != target_text]
+def gradient_score(gradients):
+    """Attacker decision statistic uses only the returned chosen-neuron gradient."""
+    import numpy as np
+    if len(gradients) < 2 or not all(np.isfinite(g).all() for g in gradients):
+        raise ValueError("Missing or nonfinite client gradients")
+    return float(np.sqrt(sum(np.sum(np.asarray(g, dtype=float) ** 2) for g in gradients[-2:])))
+
+
+def sample_attack_batch(client_texts, config, include_target, rng):
+    target = dataset_sources.target_record_for(config, TARGET_TEXT)
+    pool = [text for text in client_texts if text != target]
+    if not pool:
+        raise ValueError("AMIA victim partition has no negative records")
     batch = rng.sample(pool, k=min(config.attack_batch_size, len(pool)))
+    # Paired worlds differ in one record; the same RNG is used within a pair.
+    position = rng.randrange(len(batch))
     if include_target:
-        replace_idx = rng.randrange(len(batch))
-        batch[replace_idx] = target_text
+        batch[position] = target
     rng.shuffle(batch)
     return batch
 
 
-def run_attack_trials(model, tokenizer, probe, clients: list, config):
-    from tqdm.auto import tqdm
+def run_attack_trials(model_path, probe, clients, config):
+    """Send the same malicious parameters to the victim in each observed round.
 
-    rng = random.Random(config.seed + 1009)
-    trials: list = []
-    for trial_id in tqdm(range(config.attack_trials), desc="AMI trials"):
-        include_target = trial_id % 2 == 0
-        batch = sample_attack_batch(clients, config, include_target=include_target, rng=rng)
-        score = probe_gradient_score(model, tokenizer, probe, batch, config)
-        pred_member = predict_member(score, config)
-        trials.append({
-            "trial_id": trial_id,
-            "truth_member": include_target,
-            "score": score,
-            "pred_member": bool(pred_member),
-            "batch_size": len(batch),
-        })
+    The harness owns private partitions and ground truth. Only the client_fn
+    receives a partition; aggregate_fit makes predictions from gradients alone.
+    """
+    import numpy as np
+    from flwr.client import NumPyClient, ClientApp
+    from flwr.common import ndarrays_to_parameters, parameters_to_ndarrays
+    from flwr.server import ServerApp, ServerAppComponents, ServerConfig
+    from flwr.server.strategy import FedAvg
+    from flwr.simulation import run_simulation
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    initial = ndarrays_to_parameters(get_parameters(probe))
+    hidden_size = probe.fc1.in_features
+    width = probe.fc1.out_features
+    trials = []
+
+    class VictimClient(NumPyClient):
+        def __init__(self, partition_id, private_texts):
+            self.partition_id, self.private_texts = partition_id, private_texts
+
+        def fit(self, parameters, fit_config):
+            if self.partition_id != config.target_client_id:
+                return parameters, 0, {"partition_id": self.partition_id}
+            trial_id = int(fit_config["trial_id"])
+            from ..federation import seed_training
+            seed_training(config.seed + trial_id // 2)
+            device = client_device(config)
+            model = AutoModelForCausalLM.from_pretrained(model_path).to(device).eval()
+            tokenizer = AutoTokenizer.from_pretrained(model_path)
+            malicious = _ami_probe_cls()(hidden_size, width).to(device)
+            set_parameters(malicious, parameters)
+            batch = sample_attack_batch(self.private_texts, config, trial_id % 2 == 0,
+                                        random.Random(config.seed + 1009 + trial_id // 2))
+            gradients = client_loss_gradients(model, tokenizer, malicious, batch, config)
+            return gradients, len(batch), {"partition_id": self.partition_id}
+
+    class ObserveGradient(FedAvg):
+        def aggregate_fit(self, server_round, results, failures):
+            active = [result for _, result in results if result.num_examples > 0]
+            if failures or len(active) != 1:
+                raise RuntimeError("AMIA did not receive exactly one victim update")
+            update = active[0]
+            if int(update.metrics["partition_id"]) != config.target_client_id:
+                raise RuntimeError("Unexpected AMIA victim")
+            score = gradient_score(parameters_to_ndarrays(update.parameters))
+            trial_id = server_round - 1
+            trials.append({"trial_id": trial_id, "truth_member": trial_id % 2 == 0,
+                           "score": score, "pred_member": predict_member(score, config),
+                           "batch_size": update.num_examples,
+                           "membership_target": "private_client_batch",
+                           "target_client_id": config.target_client_id,
+                           "batch_pair_seed": config.seed + 1009 + trial_id // 2})
+            # This is an observation round, never FedAvg over gradient payloads.
+            return initial, {}
+
+    def client_fn(context):
+        cid = int(context.node_config["partition-id"])
+        return VictimClient(cid, clients[cid]).to_client()
+
+    def server_fn(context):
+        strategy = ObserveGradient(fraction_fit=1.0, fraction_evaluate=0.0,
+                                   min_fit_clients=config.num_clients,
+                                   min_available_clients=config.num_clients,
+                                   initial_parameters=initial, accept_failures=False,
+                                   on_fit_config_fn=lambda r: {"trial_id": r - 1})
+        return ServerAppComponents(strategy=strategy,
+                                   config=ServerConfig(num_rounds=config.attack_trials))
+
+    run_simulation(server_app=ServerApp(server_fn=server_fn), client_app=ClientApp(client_fn=client_fn),
+                   num_supernodes=config.num_clients,
+                   backend_config={"client_resources": {"num_cpus": 1, "num_gpus": float(config.sim_num_gpus)}})
+    if len(trials) != config.attack_trials:
+        raise RuntimeError("Incomplete AMIA observation rounds")
     return trials
 
 
-def _summarize_attack(trials: list) -> dict:
-    import numpy as np
-    from sklearn.metrics import accuracy_score, precision_recall_fscore_support, roc_auc_score
-
-    truth = np.array([bool(t["truth_member"]) for t in trials], dtype=bool)
-    pred = np.array([bool(t["pred_member"]) for t in trials], dtype=bool)
-    scores = np.array([float(t["score"]) for t in trials], dtype=float)
-
-    positives = truth == True
-    negatives = truth == False
-    tpr = float((pred[positives] == True).mean()) if positives.any() else math.nan
-    tnr = float((pred[negatives] == False).mean()) if negatives.any() else math.nan
-    adv = 0.5 * tpr + 0.5 * tnr
-    precision, recall, f1, _ = precision_recall_fscore_support(truth, pred, average="binary", zero_division=0)
-    try:
-        auc = float(roc_auc_score(truth.astype(int), scores))
-    except ValueError:
-        auc = math.nan
-    return {
-        "tpr": tpr,
-        "tnr": tnr,
-        "adv": float(adv),
-        "accuracy": float(accuracy_score(truth, pred)),
-        "precision": float(precision),
-        "recall": float(recall),
-        "f1": float(f1),
-        "roc_auc_from_scores": auc,
-        "num_trials": len(trials),
-        "positive_trials": int(positives.sum()),
-        "negative_trials": int(negatives.sum()),
-    }
+def _summarize_attack(trials):
+    from ..metrics import base_metrics, scientific_metrics
+    metrics = base_metrics(trials)
+    metrics.update(scientific_metrics([t["truth_member"] for t in trials], [t["score"] for t in trials]))
+    metrics["roc_auc_from_scores"] = metrics["roc_auc"]
+    return metrics
 
 
 def build_result_payload(
@@ -494,11 +589,7 @@ def build_result_payload(
     metrics = _summarize_attack(attack_trials)
     return {
         "status": "complete",
-        "methodology": {
-            "paper_attack": "Train chosen neuron/probe for target activation; infer membership from non-zero gradient.",
-            "llm_adaptation": "Flower (flwr) FedAvg simulation fine-tunes the causal LM, followed by a hidden-state AMI probe gradient test.",
-            "metric_definition": "Adv = 0.5 * TPR + 0.5 * TNR",
-        },
+        "methodology": dict(METHODOLOGY),
         "federated_history": fed_history,
         "probe_training_loss": probe_history,
         "metrics": metrics,
@@ -511,60 +602,37 @@ def build_result_payload(
     }
 
 
-def clear_experiment_objects(*objects: Any) -> None:
-    import torch
-
-    for obj in objects:
-        del obj
-    gc.collect()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-
-
-# Runner contract is custom_trials(config, artifact_dir) / build_payload(config,
-# trials, artifact_dir), split for the nine modern attacks. AMIA's payload also
-# needs fed_history/probe_history/paths from the orchestration in between, so
-# those are stashed here keyed by experiment_key and popped in build_payload_adapter.
-_AMIA_RUN_CONTEXT: dict = {}
-
-
 def custom_trials_adapter(config, artifact_dir, pipeline=None):
-    """Orchestrates AMIA exactly like the notebook's run_single_experiment:
-    federated fine-tune -> train probe -> run attack trials."""
-    from ..config import experiment_key
-
-    model = tokenizer = clients = probe = None
-    try:
-        model, tokenizer, clients, fed_history, model_path = federated_fine_tune(
-            config, artifact_dir, **({"pipeline": pipeline} if pipeline is not None else {}))
-        probe, probe_history, probe_path = train_ami_probe(model, tokenizer, clients, config, artifact_dir)
-        trials = run_attack_trials(model, tokenizer, probe, clients, config)
-        if pipeline is not None:
-            from ..rag import evaluate_pipeline
-            evaluation = evaluate_pipeline(
-                {"model": model, "tokenizer": tokenizer, "device": next(model.parameters()).device,
-                 "privacy": getattr(model, "_training_privacy", {}),
-                 "training_records": [text for part in clients for text in part]}, config, pipeline)
-            if trials:
-                trials[0]["pipeline_evaluation"] = evaluation
-        _AMIA_RUN_CONTEXT[experiment_key(config, SPEC)] = {
-            "fed_history": fed_history,
-            "probe_history": probe_history,
-            "model_path": model_path,
-            "probe_path": probe_path,
-        }
-        return trials
-    finally:
-        clear_experiment_objects(model, tokenizer, clients, probe)
+    from .amia_ldp import finite_set_bounds
+    model, tokenizer, clients, fed_history, model_path = federated_fine_tune(
+        config, artifact_dir, **({"pipeline": pipeline} if pipeline is not None else {}))
+    provenance = getattr(model, "_training_provenance", {})
+    probe, probe_history, probe_path = train_ami_probe(model, tokenizer, config, artifact_dir)
+    target = dataset_sources.target_record_for(config, TARGET_TEXT)
+    certificate = finite_set_bounds(
+        probe, sentence_embedding(model, tokenizer, [target], config),
+        sentence_embedding(model, tokenizer, adversary_records(config), config), config)
+    evaluation = None
+    if pipeline is not None:
+        from ..rag import evaluate_pipeline
+        evaluation = evaluate_pipeline(
+            {"model": model, "tokenizer": tokenizer, "device": next(model.parameters()).device,
+             "privacy": getattr(model, "_training_privacy", {}),
+             "training_records": [text for part in clients for text in part]}, config, pipeline)
+    del model, tokenizer
+    trials = run_attack_trials(model_path, probe, clients, config)
+    if evaluation is not None:
+        trials[0]["pipeline_evaluation"] = evaluation
+    return {"trials": trials, "context": {"fed_history": fed_history, "probe_history": probe_history,
+            "model_path": model_path, "probe_path": probe_path, "certificate": certificate, "training_provenance": provenance}}
 
 
-def build_payload_adapter(config, trials, artifact_dir):
-    from ..config import experiment_key
-
-    ctx = _AMIA_RUN_CONTEXT.pop(experiment_key(config, SPEC))
-    return build_result_payload(
-        config, ctx["fed_history"], ctx["probe_history"], trials, ctx["model_path"], ctx["probe_path"]
-    )
+def build_payload_adapter(config, trials, artifact_dir, context):
+    result = build_result_payload(config, context["fed_history"], context["probe_history"], trials,
+                                  context["model_path"], context["probe_path"])
+    result["activation_confidence"] = context["certificate"]
+    result["training_provenance"] = context.get("training_provenance", {})
+    return result
 
 
 SPEC = AttackSpec(

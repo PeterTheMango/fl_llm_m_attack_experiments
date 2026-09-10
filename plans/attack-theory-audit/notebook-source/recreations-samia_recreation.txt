@@ -1,0 +1,363 @@
+# CELL 1 (markdown)
+# SaMIA (Sampling-based Pseudo-Likelihood) Membership Inference Attack Recreation
+
+This notebook recreates the **SaMIA** membership inference attack summarized in
+`papers/summary/09_samia.md`.
+
+Primary source:
+
+- Masahiro Kaneko, Youmi Ma, Yuki Wata, Naoaki Okazaki, *Sampling-based Pseudo-Likelihood
+  for Membership Inference Attacks*, arXiv:2404.11262 [cs.CL], 2024.
+- Reference code repository: https://github.com/nlp-titech/samia
+
+**Threat model: fully black-box (generation only).** Unlike likelihood-based MIAs (`loss`,
+`reference`, `zlib`, Min-K% Prob), SaMIA never reads token likelihoods or logits. It requires
+only the ability to prompt the target model and read back generated text, so it applies to
+closed models such as ChatGPT, Gemini, and Claude 3 that expose no likelihoods.
+
+**Mechanism.** For a target text `x`, split it into a **prefix** (first half of the tokens) and
+a **reference suffix** (second half). Sample `m` continuations from `f_theta(prefix)` (the paper
+uses `m = 10`, `temperature = 1.0`, `top_k = 50`, `top_p = 1.0`, `max_length = 1024`). Score each
+continuation with **ROUGE-N recall** against the true suffix, then average. The Sampling-based
+Pseudo-Likelihood (SPL) decision is `A(x) = 1[ (1/m) * sum_j ROUGE-N(cand_j, suffix) > tau ]`.
+Because sampling frequency approximates `P(W = x)` by the law of large numbers, this overlap
+statistic is a *pseudo-likelihood* obtainable without any logit access. Members yield higher
+average overlap.
+
+**SaMIA x zlib variant.** Weight each candidate's ROUGE-N by the bit length of its zlib-compressed
+text (Algorithm 1, line 9 / Eq. 7). Repetitive, low-information generations compress heavily and
+are down-weighted, which consistently improves detection.
+
+**Models / benchmark / metrics.** The paper evaluates GPT-J-6B, OPT-6.7B, Pythia-6.9B, and
+LLaMA-2-7B on the **WikiMIA** benchmark (Wikipedia event pages; pre-2017 = member, post-2023 =
+non-member; length groups 32/64/128/256), reporting **AUC** and **TPR@10%FPR**. SaMIA wins outright
+at length 256 (AUC up to 0.80) and SaMIA x zlib reaches SOTA on OPT and LLaMA-2. ROUGE-1 (unigram)
+recall is the best-performing configuration.
+
+
+
+# CELL 2 (markdown)
+## Baseline Attack Definition
+
+**Threat model.** The attacker can prompt the target model with an arbitrary prefix and sample
+continuations. No token likelihoods, no reference model, and no access to the private training
+distribution are required.
+
+**Target record.** A candidate text sequence `x`. Members are sequences present in the target
+model's training (or fine-tuning) set; non-members are distribution-matched held-out sequences.
+
+**Prefix / reference-suffix split.** `x = (w_1 ... w_T)` is split at `floor(T/2)` into
+`x_prefix = (w_1 ... w_{floor(T/2)})` and `x_ref = (w_{floor(T/2)+1} ... w_T)`.
+
+**Score.** Sample `m` candidate continuations from `f_theta(x_prefix)`. Compute the mean
+ROUGE-N recall of the candidates against `x_ref`:
+`SPL(x) = (1/m) * sum_j ROUGE-N(cand_j, x_ref)`. A **higher** score means a more likely member
+(matching the `>=` threshold convention used across these recreations). The SaMIA x zlib variant
+multiplies each candidate's ROUGE-N by `zlib_bits(cand_j)` before averaging.
+
+
+
+# CELL 3 (code)
+from collections import Counter
+from dataclasses import dataclass
+from pathlib import Path
+from typing import List, Sequence, Tuple
+import zlib
+
+SOURCE_SUMMARY = Path("../../papers/summary/09_samia.md")
+ATTACK_NAME = "samia"
+
+
+def _ngrams(tokens: Sequence[str], n: int) -> List[Tuple[str, ...]]:
+    if n <= 0:
+        raise ValueError("n must be >= 1")
+    return [tuple(tokens[i:i + n]) for i in range(len(tokens) - n + 1)]
+
+
+def rouge_n_recall(candidate_tokens: Sequence[str], reference_tokens: Sequence[str], n: int = 1) -> float:
+    """ROUGE-N *recall*: fraction of reference n-grams recovered by the candidate.
+
+    numerator   = sum over reference n-grams of the clipped match count
+    denominator = total number of reference n-grams
+    Pure stdlib (collections.Counter); no `rouge` package is required.
+    """
+    reference = Counter(_ngrams(reference_tokens, n))
+    candidate = Counter(_ngrams(candidate_tokens, n))
+    denominator = sum(reference.values())
+    if denominator == 0:
+        return 0.0
+    matches = sum(min(count, candidate[gram]) for gram, count in reference.items())
+    return matches / denominator
+
+
+def zlib_bits(text: str) -> float:
+    """Information content of `text` in bits after zlib compression."""
+    return 8.0 * len(zlib.compress(text.encode("utf-8")))
+
+
+def _tokenize(text: str) -> List[str]:
+    return text.lower().split()
+
+
+def samia_score(candidates: Sequence[str], reference_suffix: str, n: int = 1, use_zlib: bool = False) -> float:
+    """Sampling-based Pseudo-Likelihood score (Kaneko et al., 2024; Eq. 5 / Eq. 7).
+
+    Mean ROUGE-N recall of the m sampled candidates against the true suffix. With
+    use_zlib=True, each candidate's ROUGE-N is weighted by the bit length of its
+    zlib-compressed text (Algorithm 1, line 9): repetitive, low-information
+    generations compress heavily -> small weight -> down-ranked.
+    Higher score => more likely a member.
+    """
+    if not candidates:
+        return 0.0
+    reference_tokens = _tokenize(reference_suffix)
+    total = 0.0
+    for candidate in candidates:
+        recall = rouge_n_recall(_tokenize(candidate), reference_tokens, n=n)
+        if use_zlib:
+            recall = recall * zlib_bits(candidate)
+        total += recall
+    return total / len(candidates)
+
+
+def split_prefix_suffix(text: str) -> Tuple[str, str]:
+    """Split target text into prefix (first half) and reference suffix (second half)."""
+    tokens = text.split()
+    mid = len(tokens) // 2
+    return " ".join(tokens[:mid]), " ".join(tokens[mid:])
+
+
+@dataclass(frozen=True)
+class SamiaRecord:
+    reference_suffix: str
+    candidates: Tuple[str, ...]
+    truth_member: bool
+    rouge_n: int = 1
+    use_zlib: bool = False
+
+    @property
+    def membership_score(self) -> float:
+        return samia_score(list(self.candidates), self.reference_suffix,
+                           n=self.rouge_n, use_zlib=self.use_zlib)
+
+
+# CELL 4 (markdown)
+## Optional Hugging Face Sampling
+
+Use this cell for a real target model such as `gpt2-xl`, one of the paper's checkpoints
+(GPT-J-6B / OPT-6.7B / Pythia-6.9B / LLaMA-2-7B), or any fine-tuned checkpoint. The attack is
+generation-only: no `labels`/loss forward pass is needed, just `model.generate`. The smoke test
+below does not require these packages or any model download.
+
+
+
+# CELL 5 (code)
+def sample_continuations_hf(model, tokenizer, prefix, m=10, temperature=1.0, top_k=50,
+                            top_p=1.0, max_new_tokens=128, device="cpu"):
+    """Sample m continuations from f_theta(prefix) for a real Hugging Face model.
+
+    Mirrors the paper's generation hyper-parameters (temperature=1.0, top_k=50,
+    top_p=1.0). Returns only the newly generated suffix text for each sample (the
+    prompt prefix is stripped). Guarded: not exercised by the smoke test.
+    """
+    import torch
+
+    encoded = tokenizer(prefix, return_tensors="pt").to(device)
+    prompt_len = encoded["input_ids"].shape[-1]
+    continuations = []
+    for _ in range(m):
+        with torch.no_grad():
+            output = model.generate(
+                **encoded,
+                do_sample=True,
+                temperature=temperature,
+                top_k=top_k,
+                top_p=top_p,
+                max_new_tokens=max_new_tokens,
+                pad_token_id=tokenizer.pad_token_id or tokenizer.eos_token_id,
+            )
+        generated = output[0][prompt_len:]
+        continuations.append(tokenizer.decode(generated, skip_special_tokens=True))
+    return continuations
+
+
+# CELL 6 (markdown)
+## Thresholding and Metrics
+
+The paper reports **AUC** and **TPR@10%FPR**. This notebook computes a threshold-free rank-based
+`roc_auc`, the `tpr_at_10fpr` headline metric, and, for small controlled trials, thresholded
+confusion counts with TPR/TNR/attack advantage, accuracy, precision, recall, and F1.
+
+
+
+# CELL 7 (code)
+def predict_membership(rows, threshold):
+    return [row.membership_score >= threshold for row in rows]
+
+
+def confusion_counts(labels, preds):
+    tp = sum(1 for y, p in zip(labels, preds) if y and p)
+    tn = sum(1 for y, p in zip(labels, preds) if not y and not p)
+    fp = sum(1 for y, p in zip(labels, preds) if not y and p)
+    fn = sum(1 for y, p in zip(labels, preds) if y and not p)
+    return {"tp": tp, "tn": tn, "fp": fp, "fn": fn}
+
+
+def roc_auc(labels, scores):
+    """Rank-based ROC-AUC (probability a random member outranks a random non-member)."""
+    pos = [s for y, s in zip(labels, scores) if y]
+    neg = [s for y, s in zip(labels, scores) if not y]
+    if not pos or not neg:
+        return float("nan")
+    wins = 0.0
+    for p in pos:
+        for n in neg:
+            wins += 1.0 if p > n else (0.5 if p == n else 0.0)
+    return wins / (len(pos) * len(neg))
+
+
+def tpr_at_fpr(labels, scores, target_fpr=0.1):
+    """Paper's headline metric TPR@10%FPR: highest TPR reachable at FPR <= target."""
+    pos = [s for y, s in zip(labels, scores) if y]
+    neg = [s for y, s in zip(labels, scores) if not y]
+    if not pos or not neg:
+        return float("nan")
+    best_tpr = 0.0
+    for threshold in sorted(set(scores), reverse=True):
+        fpr = sum(1 for n in neg if n >= threshold) / len(neg)
+        if fpr <= target_fpr:
+            tpr = sum(1 for p in pos if p >= threshold) / len(pos)
+            best_tpr = max(best_tpr, tpr)
+    return best_tpr
+
+
+def metric_summary(rows, preds):
+    labels = [row.truth_member for row in rows]
+    scores = [row.membership_score for row in rows]
+    counts = confusion_counts(labels, preds)
+    tp, tn, fp, fn = counts["tp"], counts["tn"], counts["fp"], counts["fn"]
+    tpr = tp / (tp + fn) if (tp + fn) else 0.0
+    tnr = tn / (tn + fp) if (tn + fp) else 0.0
+    precision = tp / (tp + fp) if (tp + fp) else 0.0
+    recall = tpr
+    f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) else 0.0
+    return {
+        **counts,
+        "tpr": tpr,
+        "tnr": tnr,
+        "adv": 0.5 * tpr + 0.5 * tnr,
+        "accuracy": (tp + tn) / len(labels) if labels else 0.0,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "roc_auc": roc_auc(labels, scores),
+        "tpr_at_10fpr": tpr_at_fpr(labels, scores, target_fpr=0.1),
+    }
+
+
+def percentile_threshold(rows, member_fraction=0.5):
+    scores = sorted(row.membership_score for row in rows)
+    if not scores:
+        raise ValueError("Cannot threshold an empty score list.")
+    index = max(0, min(len(scores) - 1, int((1.0 - member_fraction) * len(scores))))
+    return scores[index]
+
+
+# CELL 8 (markdown)
+## Synthetic Smoke Recreation
+
+The synthetic table emulates the expected SaMIA signal:
+
+- **Members** are records the model has memorized: prompted with the prefix, its sampled
+  continuations reproduce most of the true suffix, so their mean ROUGE-N recall is **high**.
+- **Non-members** are held-out records: the sampled continuations are unrelated to the suffix, so
+  their mean ROUGE-N recall is **low**.
+
+Members must therefore outrank non-members. This is a runnable correctness check of the ROUGE-N
+recall implementation, the SPL averaging, the SaMIA x zlib weighting, and the metrics pipeline; it
+is not a substitute for the full WikiMIA / 6B-parameter experiment.
+
+
+
+# CELL 9 (code)
+def synthetic_samia_records(use_zlib=False):
+    """Members: sampled candidates strongly overlap the true suffix (memorized).
+    Non-members: candidates barely overlap the suffix. Members must outrank."""
+    reference_suffix = "the summit was held in brisbane the capital city of queensland australia"
+    return [
+        # Members: high n-gram overlap with the reference suffix.
+        SamiaRecord(reference_suffix, (
+            "the summit was held in brisbane the capital city of queensland australia",
+            "summit was held in brisbane the capital city of queensland australia indeed",
+        ), True, use_zlib=use_zlib),
+        SamiaRecord(reference_suffix, (
+            "the summit was held in brisbane the capital of queensland australia today",
+            "it was held in brisbane the capital city of queensland australia",
+        ), True, use_zlib=use_zlib),
+        # Non-members: unrelated generations, minimal overlap.
+        SamiaRecord(reference_suffix, (
+            "i really enjoy long walks along the sandy beach at sunset",
+            "our quarterly budget review meeting starts promptly tomorrow morning",
+        ), False, use_zlib=use_zlib),
+        SamiaRecord(reference_suffix, (
+            "please remember to water the office plants over the weekend",
+            "the new downtown bakery sells excellent sourdough bread daily",
+        ), False, use_zlib=use_zlib),
+    ]
+
+
+def run_recreation_smoke_test():
+    rows = synthetic_samia_records(use_zlib=False)
+    threshold = percentile_threshold(rows, member_fraction=0.5)
+    preds = predict_membership(rows, threshold=threshold)
+    metrics = metric_summary(rows, preds)
+
+    # Memorized records (candidates reproduce the suffix) must outrank non-members.
+    assert metrics["tp"] == 2, metrics
+    assert metrics["tn"] == 2, metrics
+    assert metrics["adv"] == 1.0, metrics
+    assert metrics["roc_auc"] == 1.0, metrics
+
+    members = [r for r in rows if r.truth_member]
+    non_members = [r for r in rows if not r.truth_member]
+    assert min(m.membership_score for m in members) > max(n.membership_score for n in non_members), \
+        "members must have strictly higher mean ROUGE-N recall than non-members"
+
+    # SaMIA x zlib variant: the same ordering must hold with zlib weighting.
+    zlib_rows = synthetic_samia_records(use_zlib=True)
+    zlib_auc = roc_auc([r.truth_member for r in zlib_rows], [r.membership_score for r in zlib_rows])
+    assert zlib_auc == 1.0, zlib_auc
+
+    return {
+        "threshold": threshold,
+        "metrics": metrics,
+        "samia_zlib_roc_auc": zlib_auc,
+        "ranking": [
+            {"mean_rouge_recall": round(r.membership_score, 4), "member": r.truth_member,
+             "example_candidate": r.candidates[0][:48]}
+            for r in sorted(rows, key=lambda r: r.membership_score, reverse=True)
+        ],
+    }
+
+smoke_result = run_recreation_smoke_test()
+smoke_result
+
+
+# CELL 10 (markdown)
+## How to Run a Real Recreation
+
+1. Load the target language model with `AutoModelForCausalLM` (the paper uses GPT-J-6B, OPT-6.7B,
+   Pythia-6.9B, or LLaMA-2-7B; `gpt2-xl` or any fine-tuned checkpoint also works) and its tokenizer.
+2. Collect matched member / non-member texts (the paper uses the WikiMIA benchmark, grouped by
+   length 32/64/128/256).
+3. For each text, `split_prefix_suffix(text)` into prefix and reference suffix, then call
+   `sample_continuations_hf(model, tokenizer, prefix, m=10, temperature=1.0, top_k=50, top_p=1.0)`.
+4. Score with `samia_score(candidates, reference_suffix, n=1)` (unigram recall is the paper's best
+   configuration); set `use_zlib=True` for the SaMIA x zlib variant.
+5. Rank by the score and report threshold-free `roc_auc` plus `tpr_at_10fpr` from `metric_summary`;
+   optionally threshold with `predict_membership`.
+
+For the federated-learning fine-tuning adaptation of this attack, see
+`../adaptations/samia_adaptations.ipynb`.
+
+

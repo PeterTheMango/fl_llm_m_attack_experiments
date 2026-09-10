@@ -107,6 +107,7 @@ def strategy_class(base, defense, initial_arrays, privacy):
             self.rounds_released = 0
 
         def aggregate_fit(self, server_round, results, failures):
+            results = [(client, result) for client, result in results if result.num_examples > 0]
             if failures or not results:
                 raise RuntimeError("Private FL round incomplete; refusing a partial aggregate")
             for _, result in results:

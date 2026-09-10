@@ -1,0 +1,772 @@
+# CELL 1 (markdown)
+# Federated LLM Adaptation of the AMI Attack
+
+This notebook adapts Nguyen et al. (2023), *Active Membership Inference Attack under Local Differential Privacy in Federated Learning*, to an open-source causal language model. The original repository in `recreations/ami` remains available for recreating the paper's image-embedding experiments. This notebook deliberately changes the target: it first fine-tunes an open-source LLM through federated learning, then runs an active membership inference probe against a client update, then measures TPR, TNR, and Adv as defined in Eq. 3 of the paper.
+
+Paper method adapted here:
+- Original AMI trains malicious parameters so one chosen neuron activates for a target sample and not for non-target samples.
+- The server then observes whether the chosen neuron's gradient is non-zero in a client's update.
+- The attack success metric is `Adv = 0.5 * TPR + 0.5 * TNR`, where TPR detects `target in client data` and TNR detects `target absent`.
+
+LLM adaptation:
+- A small open-source causal LM is federated fine-tuned with FedAvg over client text partitions.
+- After fine-tuning, the adversarial server trains a lightweight malicious probe on frozen LLM hidden states. This probe is the LLM analogue of the chosen second-layer neuron in the paper.
+- In each attack trial, the server attaches the probe during one simulated client update and infers target membership from the probe-gradient norm.
+- Results and trial records are stored in Firebase Firestore and loaded on later runs to avoid recomputing the experiment.
+
+
+# CELL 2 (markdown)
+## Dependencies
+
+Run the install line once in a fresh environment. Firestore requires either `GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json` or `FIREBASE_SERVICE_ACCOUNT_JSON` containing the service account JSON.
+
+```python
+%pip install -U torch transformers datasets "flwr[simulation]" firebase-admin scikit-learn pandas tqdm
+```
+
+Federated fine-tuning runs on the official [Flower](https://flower.ai) framework: each client is a `flwr.client.NumPyClient`, the server runs the built-in `FedAvg` strategy, and rounds execute through `flwr.simulation.run_simulation`. The Hugging Face causal-LM pieces use `AutoModelForCausalLM` and `DataCollatorForLanguageModeling`, and Firestore documents are written with `document.set(..., merge=True)`.
+
+
+# CELL 3 (markdown)
+## GPU Selection
+
+On a shared multi-GPU box, pin this notebook to a single GPU **before** any CUDA
+initialization to avoid out-of-memory crashes from other jobs. This cell must run
+first (top to bottom). It picks the GPU as follows:
+
+1. `EXPERIMENT_GPU` from the shell environment, else from `.env` (e.g. `EXPERIMENT_GPU=1`).
+2. Otherwise auto-selects the GPU with the most free memory (via `nvidia-smi`).
+
+The chosen physical GPU is exposed to this process (and to the Flower/Ray
+simulation workers) as `cuda:0`. Set `EXPERIMENT_GPU=cpu` to force CPU.
+
+
+# CELL 4 (code)
+# Pin to one GPU before torch initializes CUDA (avoids OOM on a shared box).
+import os
+import shutil
+import subprocess
+from pathlib import Path
+
+
+def _read_env_file_var(name: str):
+    # Minimal .env reader so GPU pinning works before python-dotenv is loaded.
+    for base in [Path.cwd(), *Path.cwd().parents]:
+        env_path = base / ".env"
+        if env_path.exists():
+            for line in env_path.read_text().splitlines():
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                if key.strip() == name:
+                    return value.strip().strip('"').strip("'")
+            break
+    return None
+
+
+def _gpu_free_memory():
+    if shutil.which("nvidia-smi") is None:
+        return []
+    try:
+        out = subprocess.check_output(
+            ["nvidia-smi", "--query-gpu=index,memory.free", "--format=csv,noheader,nounits"],
+            text=True,
+        )
+    except Exception:
+        return []
+    rows = []
+    for line in out.strip().splitlines():
+        if not line.strip():
+            continue
+        idx, free = line.split(",")
+        rows.append((idx.strip(), int(free)))
+    return rows
+
+
+def select_gpu() -> str | None:
+    forced = os.environ.get("EXPERIMENT_GPU") or _read_env_file_var("EXPERIMENT_GPU")
+    if forced is not None and forced.strip() != "":
+        return forced.strip()
+    rows = _gpu_free_memory()
+    if not rows:
+        return None
+    return max(rows, key=lambda r: r[1])[0]
+
+
+_gpu = select_gpu()
+if _gpu is None:
+    print("GPU selection: no GPU detected; using default device visibility.")
+elif _gpu.lower() == "cpu":
+    os.environ["CUDA_VISIBLE_DEVICES"] = ""
+    print("GPU selection: forced CPU (CUDA_VISIBLE_DEVICES='').")
+else:
+    os.environ["CUDA_VISIBLE_DEVICES"] = _gpu
+    _free = dict(_gpu_free_memory()).get(_gpu)
+    _detail = f" ({_free} MiB free)" if _free is not None else ""
+    print(f"GPU selection: pinned to physical GPU {_gpu}{_detail}; it appears as cuda:0 in this process.")
+
+
+# CELL 5 (code)
+from __future__ import annotations
+
+import copy
+import dataclasses
+import hashlib
+import json
+import math
+import gc
+import os
+import random
+import time
+import shutil
+from dataclasses import dataclass, asdict, replace
+from itertools import product
+from pathlib import Path
+from typing import Any, Iterable
+
+import numpy as np
+import pandas as pd
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from sklearn.metrics import accuracy_score, precision_recall_fscore_support, roc_auc_score
+from torch.utils.data import DataLoader, Dataset
+from tqdm.auto import tqdm
+from transformers import AutoModelForCausalLM, AutoTokenizer, DataCollatorForLanguageModeling
+
+from collections import OrderedDict
+
+import flwr
+from flwr.client import NumPyClient, ClientApp
+from flwr.common import Context, ndarrays_to_parameters, parameters_to_ndarrays
+from flwr.server import ServerApp, ServerAppComponents, ServerConfig
+from flwr.server.strategy import FedAvg
+from flwr.simulation import run_simulation
+
+try:
+    import firebase_admin
+    from firebase_admin import credentials, firestore
+except Exception as exc:
+    firebase_admin = None
+    credentials = None
+    firestore = None
+    print(f"Firebase imports unavailable: {exc}")
+
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print("device:", DEVICE)
+
+
+# CELL 6 (code)
+# Load credentials from a local .env file (see .env.example).
+# The notebooks read os.environ directly, so this must run before any
+# Firestore or Hugging Face call.
+try:
+    from dotenv import load_dotenv, find_dotenv
+except ImportError:
+    %pip install -q python-dotenv
+    from dotenv import load_dotenv, find_dotenv
+
+load_dotenv(find_dotenv(usecwd=True))
+
+# huggingface_hub / transformers automatically read HF_TOKEN from the
+# environment for model downloads and gated/private repos.
+print("Credentials loaded:", {
+    "FIREBASE_SERVICE_ACCOUNT_JSON": bool(os.environ.get("FIREBASE_SERVICE_ACCOUNT_JSON")),
+    "GOOGLE_APPLICATION_CREDENTIALS": bool(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")),
+    "FIREBASE_PROJECT_ID": bool(os.environ.get("FIREBASE_PROJECT_ID")),
+    "HF_TOKEN": bool(os.environ.get("HF_TOKEN")),
+})
+
+
+
+# CELL 7 (code)
+@dataclass(frozen=True)
+class ExperimentConfig:
+    experiment_name: str = "ami_federated_llm_adaptation_v1"
+    paper_repo: str = "https://github.com/trucndt/ami"
+    model_id: str = "sshleifer/tiny-gpt2"
+    dataset_name: str = "synthetic_canary_clients"
+    seed: int = 7
+    num_clients: int = 4
+    clients_per_round: int = 4
+    federated_rounds: int = 2
+    local_epochs: int = 1
+    local_batch_size: int = 4
+    max_length: int = 64
+    client_lr: float = 5e-5
+    probe_lr: float = 5e-3
+    probe_epochs: int = 80
+    attack_trials: int = 64
+    attack_batch_size: int = 8
+    gradient_threshold: float = 1e-8
+    target_client_id: int = 0
+    firestore_collection: str = "ami_federated_llm_results"
+    firebase_project_id: str | None = None
+    local_artifact_dir: str = "artifacts/adaptation"
+    fl_framework: str = "flower"
+    sim_num_gpus: float = 0.0
+    keep_artifacts: bool = False
+
+CONFIG = ExperimentConfig(
+    firebase_project_id=os.environ.get("FIREBASE_PROJECT_ID"),
+)
+
+# Edit this grid to run independent factor sweeps. Leave it empty for a single CONFIG run.
+SWEEP: dict[str, list[Any]] = {
+    # "federated_rounds": [1, 2, 4],
+    # "num_clients": [4, 8],
+    # "client_lr": [5e-5, 1e-4],
+    # "seed": [7, 11, 23],
+}
+RUN_SWEEP = bool(SWEEP)
+
+def stable_json(payload: dict[str, Any]) -> str:
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+
+def experiment_key(config: ExperimentConfig) -> str:
+    return hashlib.sha256(stable_json(asdict(config)).encode("utf-8")).hexdigest()[:24]
+
+def artifact_dir_for(config: ExperimentConfig) -> Path:
+    return Path(config.local_artifact_dir) / experiment_key(config)
+
+def expand_sweep(base_config: ExperimentConfig, sweep: dict[str, list[Any]]) -> Iterable[ExperimentConfig]:
+    keys = list(sweep.keys())
+    for values in product(*(sweep[key] for key in keys)):
+        yield replace(base_config, **dict(zip(keys, values)))
+
+def cleanup_artifacts(artifact_dir: str | Path) -> None:
+    artifact_dir = Path(artifact_dir)
+    if artifact_dir.exists():
+        shutil.rmtree(artifact_dir)
+
+def clear_experiment_objects(*objects: Any) -> None:
+    for obj in objects:
+        del obj
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+RUN_ID = experiment_key(CONFIG)
+ARTIFACT_DIR = artifact_dir_for(CONFIG)
+ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+print("run_id:", RUN_ID)
+print("artifact_dir:", ARTIFACT_DIR)
+
+
+# CELL 8 (markdown)
+## Firestore result cache
+
+Firestore is the persistence layer for experiment outputs. The document id is a hash of the full config, so changing the model, FL rounds, target client, or trial count produces a new cache entry. Stored fields include config, federated training losses, attack metrics, per-trial predictions, and local artifact paths/hashes.
+
+
+# CELL 9 (code)
+def get_firestore_client(config: ExperimentConfig):
+    if firebase_admin is None:
+        raise RuntimeError("Install firebase-admin before using Firestore persistence.")
+
+    if not firebase_admin._apps:
+        raw_json = os.environ.get("FIREBASE_SERVICE_ACCOUNT_JSON")
+        cred_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+        if raw_json:
+            cred = credentials.Certificate(json.loads(raw_json))
+        elif cred_path:
+            cred = credentials.Certificate(cred_path)
+        else:
+            raise RuntimeError(
+                "Set FIREBASE_SERVICE_ACCOUNT_JSON or GOOGLE_APPLICATION_CREDENTIALS for Firestore."
+            )
+        options = {"projectId": config.firebase_project_id} if config.firebase_project_id else None
+        firebase_admin.initialize_app(cred, options=options)
+
+    return firestore.client()
+
+def firestore_doc_ref(config: ExperimentConfig):
+    db = get_firestore_client(config)
+    return db.collection(config.firestore_collection).document(experiment_key(config))
+
+def load_cached_result(config: ExperimentConfig) -> dict[str, Any] | None:
+    doc = firestore_doc_ref(config).get()
+    if doc.exists:
+        return doc.to_dict()
+    return None
+
+def save_result(config: ExperimentConfig, payload: dict[str, Any]) -> None:
+    doc = firestore_doc_ref(config)
+    record = {
+        "run_id": experiment_key(config),
+        "updated_at_unix": int(time.time()),
+        "config": asdict(config),
+        **payload,
+    }
+    doc.set(record, merge=True)
+
+def maybe_cached_or_none(config: ExperimentConfig) -> dict[str, Any] | None:
+    try:
+        cached = load_cached_result(config)
+        if cached and cached.get("status") == "complete":
+            print("Loaded cached Firestore result:", experiment_key(config))
+            return cached
+    except Exception as exc:
+        print("Firestore cache unavailable; experiment will run locally:", exc)
+    return None
+
+cached_result = maybe_cached_or_none(CONFIG)
+
+
+# CELL 10 (markdown)
+## Data: federated clients and target canary
+
+The default dataset is synthetic and intentionally small so the notebook can run as a smoke test. The target record is a unique canary sequence. For real experiments, replace `build_client_texts` with a natural corpus partitioned by user/client and keep the same membership labels.
+
+
+# CELL 11 (code)
+TARGET_TEXT = "Client zero private canary: orchid delta 9137 belongs to the local training set."
+
+BASE_TEXTS = [
+    "Federated learning trains a shared language model without centralizing client text.",
+    "Local client updates are averaged by the server after each communication round.",
+    "Privacy attacks can exploit model updates when the server is malicious.",
+    "A causal language model predicts the next token from the preceding context.",
+    "Membership inference asks whether a specific record participated in training.",
+    "Client datasets are often small, heterogeneous, and sensitive.",
+    "The server may choose initialization parameters before a client computes gradients.",
+    "Evaluation should report true positive rate and true negative rate separately.",
+    "A cached experiment result avoids spending compute on repeated trials.",
+    "The attack advantage is compared with the random guessing baseline.",
+]
+
+def set_seed(seed: int) -> None:
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+def build_client_texts(config: ExperimentConfig, include_target: bool = True) -> list[list[str]]:
+    rng = random.Random(config.seed)
+    clients: list[list[str]] = []
+    for client_id in range(config.num_clients):
+        client_texts = []
+        for idx in range(12):
+            base = BASE_TEXTS[(client_id * 3 + idx) % len(BASE_TEXTS)]
+            client_texts.append(f"client={client_id} sample={idx}. {base}")
+        rng.shuffle(client_texts)
+        clients.append(client_texts)
+    if include_target:
+        clients[config.target_client_id][0] = TARGET_TEXT
+    return clients
+
+class TextDataset(Dataset):
+    def __init__(self, texts: list[str], tokenizer, max_length: int):
+        self.encodings = tokenizer(
+            texts,
+            truncation=True,
+            padding=False,
+            max_length=max_length,
+            return_attention_mask=True,
+        )
+
+    def __len__(self) -> int:
+        return len(self.encodings["input_ids"])
+
+    def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
+        return {key: torch.tensor(values[idx]) for key, values in self.encodings.items()}
+
+def make_loader(texts: list[str], tokenizer, config: ExperimentConfig, shuffle: bool) -> DataLoader:
+    dataset = TextDataset(texts, tokenizer, config.max_length)
+    collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
+    return DataLoader(dataset, batch_size=config.local_batch_size, shuffle=shuffle, collate_fn=collator)
+
+
+# CELL 12 (markdown)
+## Step 1 - Federated fine-tuning of the open-source LLM
+
+This is a transparent FedAvg implementation: each round copies the global model to selected clients, each client performs local causal-LM fine-tuning on private text, and the server averages client state dictionaries. For larger models, replace full-parameter updates with LoRA adapters while preserving the same FL and attack interfaces.
+
+
+# CELL 13 (code)
+# Federated fine-tuning with the Flower framework (flwr).
+# Each client is a NumPyClient that locally fine-tunes the causal LM; the server
+# runs the FedAvg strategy through flwr.simulation.run_simulation. To reproduce
+# the original AMIA behaviour (a plain unweighted mean over client states) every
+# client reports num_examples=1, so FedAvg's example-weighted average reduces to
+# an unweighted mean. A SaveModelFedAvg subclass captures the aggregated global
+# parameters and per-round losses so the rest of the notebook is unchanged.
+
+def get_parameters(model) -> list[np.ndarray]:
+    return [value.detach().cpu().numpy() for value in model.state_dict().values()]
+
+def set_parameters(model, parameters: list[np.ndarray]) -> None:
+    state_dict = OrderedDict(
+        (key, torch.tensor(value)) for key, value in zip(model.state_dict().keys(), parameters)
+    )
+    model.load_state_dict(state_dict, strict=True)
+
+def build_model_and_tokenizer(config: ExperimentConfig):
+    tokenizer = AutoTokenizer.from_pretrained(config.model_id)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    model = AutoModelForCausalLM.from_pretrained(config.model_id)
+    model.config.pad_token_id = tokenizer.pad_token_id
+    return model, tokenizer
+
+def client_device(config: ExperimentConfig) -> torch.device:
+    use_cuda = config.sim_num_gpus > 0 and torch.cuda.is_available()
+    return torch.device("cuda" if use_cuda else "cpu")
+
+class AMIFlowerClient(NumPyClient):
+    def __init__(self, partition_id: int, client_texts: list[str], config: ExperimentConfig):
+        self.partition_id = partition_id
+        self.client_texts = client_texts
+        self.config = config
+
+    def fit(self, parameters, fit_config):
+        device = client_device(self.config)
+        model, tokenizer = build_model_and_tokenizer(self.config)
+        set_parameters(model, parameters)
+        model.to(device)
+        model.train()
+        loader = make_loader(self.client_texts, tokenizer, self.config, shuffle=True)
+        optimizer = torch.optim.AdamW(model.parameters(), lr=self.config.client_lr)
+        losses: list[float] = []
+        for _ in range(self.config.local_epochs):
+            for batch in loader:
+                batch = {key: value.to(device) for key, value in batch.items()}
+                optimizer.zero_grad(set_to_none=True)
+                loss = model(**batch).loss
+                loss.backward()
+                optimizer.step()
+                losses.append(float(loss.detach().cpu()))
+        updated = get_parameters(model)
+        mean_loss = float(np.mean(losses)) if losses else math.nan
+        del model
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        # num_examples=1 -> FedAvg weighted mean collapses to a plain unweighted mean.
+        return updated, 1, {"partition_id": self.partition_id, "train_loss": mean_loss}
+
+def federated_fine_tune(config: ExperimentConfig, artifact_dir: str | Path | None = None):
+    artifact_dir = Path(artifact_dir) if artifact_dir is not None else artifact_dir_for(config)
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    set_seed(config.seed)
+
+    clients = build_client_texts(config, include_target=True)
+    init_model, _ = build_model_and_tokenizer(config)
+    initial_parameters = ndarrays_to_parameters(get_parameters(init_model))
+    del init_model
+
+    clients_per_round = min(config.clients_per_round, config.num_clients)
+    fraction_fit = clients_per_round / config.num_clients
+    capture: dict[str, Any] = {"parameters": None, "history": []}
+
+    class SaveModelFedAvg(FedAvg):
+        def aggregate_fit(self, server_round, results, failures):
+            if results:
+                client_losses = [float(fitres.metrics.get("train_loss", math.nan)) for _, fitres in results]
+                selected = [int(fitres.metrics.get("partition_id", -1)) for _, fitres in results]
+                capture["history"].append({
+                    "round": server_round,
+                    "selected_clients": selected,
+                    "mean_client_loss": float(np.nanmean(client_losses)) if client_losses else math.nan,
+                    "client_losses": client_losses,
+                })
+            aggregated_parameters, aggregated_metrics = super().aggregate_fit(server_round, results, failures)
+            if aggregated_parameters is not None:
+                capture["parameters"] = parameters_to_ndarrays(aggregated_parameters)
+            return aggregated_parameters, aggregated_metrics
+
+    def client_fn(context: Context):
+        partition_id = int(context.node_config["partition-id"])
+        return AMIFlowerClient(partition_id, clients[partition_id], config).to_client()
+
+    def server_fn(context: Context):
+        strategy = SaveModelFedAvg(
+            fraction_fit=fraction_fit,
+            fraction_evaluate=0.0,
+            min_fit_clients=clients_per_round,
+            min_available_clients=config.num_clients,
+            initial_parameters=initial_parameters,
+        )
+        return ServerAppComponents(strategy=strategy, config=ServerConfig(num_rounds=config.federated_rounds))
+
+    backend_config = {"client_resources": {"num_cpus": 1, "num_gpus": float(config.sim_num_gpus)}}
+    run_simulation(
+        server_app=ServerApp(server_fn=server_fn),
+        client_app=ClientApp(client_fn=client_fn),
+        num_supernodes=config.num_clients,
+        backend_config=backend_config,
+    )
+
+    global_model, tokenizer = build_model_and_tokenizer(config)
+    if capture["parameters"] is not None:
+        set_parameters(global_model, capture["parameters"])
+    global_model.to(DEVICE)
+
+    history = capture["history"]
+    model_path = artifact_dir / "federated_model"
+    tokenizer.save_pretrained(model_path)
+    global_model.save_pretrained(model_path)
+    return global_model, tokenizer, clients, history, str(model_path)
+
+if cached_result or RUN_SWEEP:
+    global_model = tokenizer = federated_clients = fed_history = model_artifact_path = None
+else:
+    global_model, tokenizer, federated_clients, fed_history, model_artifact_path = federated_fine_tune(CONFIG, ARTIFACT_DIR)
+
+
+# CELL 14 (markdown)
+## Step 2 - Train the AMI malicious probe for the fine-tuned LLM
+
+The probe is trained after FL fine-tuning to separate the target text from non-target texts in the fine-tuned model's hidden-state space. It is intentionally a small two-layer ReLU network to match the paper's `h · ReLU(Wx)` chosen-neuron construction.
+
+
+# CELL 15 (code)
+class AMIProbe(nn.Module):
+    def __init__(self, hidden_size: int, width: int = 128):
+        super().__init__()
+        self.fc1 = nn.Linear(hidden_size, width)
+        self.fc2 = nn.Linear(width, 1)
+
+    def forward(self, hidden: torch.Tensor) -> torch.Tensor:
+        return self.fc2(F.relu(self.fc1(hidden))).squeeze(-1)
+
+def sentence_embedding(model, tokenizer, texts: list[str], config: ExperimentConfig) -> torch.Tensor:
+    model.eval()
+    encoded = tokenizer(
+        texts,
+        truncation=True,
+        padding=True,
+        max_length=config.max_length,
+        return_tensors="pt",
+    ).to(DEVICE)
+    with torch.no_grad():
+        outputs = model(**encoded, output_hidden_states=True)
+        hidden = outputs.hidden_states[-1]
+        mask = encoded["attention_mask"].unsqueeze(-1)
+        pooled = (hidden * mask).sum(dim=1) / mask.sum(dim=1).clamp_min(1)
+    return pooled.detach()
+
+def train_ami_probe(model, tokenizer, clients: list[list[str]], config: ExperimentConfig, artifact_dir: str | Path | None = None):
+    artifact_dir = Path(artifact_dir) if artifact_dir is not None else artifact_dir_for(config)
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    non_targets = [text for cid, texts in enumerate(clients) for text in texts if text != TARGET_TEXT]
+    positives = [TARGET_TEXT] * min(16, max(4, len(non_targets) // 2))
+    probe_texts = positives + non_targets
+    labels = torch.tensor([1] * len(positives) + [0] * len(non_targets), dtype=torch.float32, device=DEVICE)
+    embeddings = sentence_embedding(model, tokenizer, probe_texts, config).to(DEVICE)
+
+    probe = AMIProbe(embeddings.shape[-1]).to(DEVICE)
+    optimizer = torch.optim.AdamW(probe.parameters(), lr=config.probe_lr)
+    history: list[float] = []
+    for _ in range(config.probe_epochs):
+        optimizer.zero_grad(set_to_none=True)
+        logits = probe(embeddings)
+        loss = F.binary_cross_entropy_with_logits(logits, labels)
+        loss.backward()
+        optimizer.step()
+        history.append(float(loss.detach().cpu()))
+
+    probe_path = artifact_dir / "ami_probe.pt"
+    torch.save(probe.state_dict(), probe_path)
+    return probe, history, str(probe_path)
+
+if cached_result or RUN_SWEEP:
+    ami_probe = probe_history = probe_artifact_path = None
+else:
+    ami_probe, probe_history, probe_artifact_path = train_ami_probe(global_model, tokenizer, federated_clients, CONFIG, ARTIFACT_DIR)
+
+
+# CELL 16 (markdown)
+## Step 3 - Execute the active membership attack
+
+Each trial simulates one client update. In the positive world, the target canary is in the client's local batch. In the negative world, it is absent. The malicious server observes the gradient norm induced by positive probe activations and predicts membership when the norm exceeds `gradient_threshold`. This mirrors the paper's chosen-neuron test: if no local record activates the malicious neuron, the observed gradient is zero.
+
+
+# CELL 17 (code)
+def probe_gradient_score(model, tokenizer, probe: AMIProbe, texts: list[str], config: ExperimentConfig) -> float:
+    embeddings = sentence_embedding(model, tokenizer, texts, config).to(DEVICE)
+    probe.zero_grad(set_to_none=True)
+    logits = probe(embeddings)
+    chosen_neuron_activation = F.relu(logits).sum()
+    chosen_neuron_activation.backward()
+    grad = probe.fc2.weight.grad
+    return float(torch.linalg.vector_norm(grad.detach()).cpu()) if grad is not None else 0.0
+
+def sample_attack_batch(clients: list[list[str]], config: ExperimentConfig, include_target: bool, rng: random.Random) -> list[str]:
+    pool = [text for texts in clients for text in texts if text != TARGET_TEXT]
+    batch = rng.sample(pool, k=min(config.attack_batch_size, len(pool)))
+    if include_target:
+        replace_idx = rng.randrange(len(batch))
+        batch[replace_idx] = TARGET_TEXT
+    rng.shuffle(batch)
+    return batch
+
+def run_attack_trials(model, tokenizer, probe: AMIProbe, clients: list[list[str]], config: ExperimentConfig):
+    rng = random.Random(config.seed + 1009)
+    trials: list[dict[str, Any]] = []
+    for trial_id in tqdm(range(config.attack_trials), desc="AMI trials"):
+        include_target = trial_id % 2 == 0
+        batch = sample_attack_batch(clients, config, include_target=include_target, rng=rng)
+        score = probe_gradient_score(model, tokenizer, probe, batch, config)
+        pred_member = score > config.gradient_threshold
+        trials.append({
+            "trial_id": trial_id,
+            "truth_member": include_target,
+            "score": score,
+            "pred_member": bool(pred_member),
+            "batch_size": len(batch),
+        })
+    return trials
+
+if cached_result:
+    attack_trials = cached_result.get("attack_trials", [])
+elif RUN_SWEEP:
+    attack_trials = []
+else:
+    attack_trials = run_attack_trials(global_model, tokenizer, ami_probe, federated_clients, CONFIG)
+
+
+# CELL 18 (markdown)
+## Step 4 - Measure attack performance and persist results
+
+The primary metrics match the paper: TPR, TNR, and advantage. Extra classification metrics are included for convenience, but Adv is the comparable attack success rate.
+
+
+# CELL 19 (code)
+def summarize_attack(trials: list[dict[str, Any]]) -> dict[str, Any]:
+    truth = np.array([bool(t["truth_member"]) for t in trials], dtype=bool)
+    pred = np.array([bool(t["pred_member"]) for t in trials], dtype=bool)
+    scores = np.array([float(t["score"]) for t in trials], dtype=float)
+
+    positives = truth == True
+    negatives = truth == False
+    tpr = float((pred[positives] == True).mean()) if positives.any() else math.nan
+    tnr = float((pred[negatives] == False).mean()) if negatives.any() else math.nan
+    adv = 0.5 * tpr + 0.5 * tnr
+    precision, recall, f1, _ = precision_recall_fscore_support(truth, pred, average="binary", zero_division=0)
+    try:
+        auc = float(roc_auc_score(truth.astype(int), scores))
+    except ValueError:
+        auc = math.nan
+    return {
+        "tpr": tpr,
+        "tnr": tnr,
+        "adv": float(adv),
+        "accuracy": float(accuracy_score(truth, pred)),
+        "precision": float(precision),
+        "recall": float(recall),
+        "f1": float(f1),
+        "roc_auc_from_scores": auc,
+        "num_trials": len(trials),
+        "positive_trials": int(positives.sum()),
+        "negative_trials": int(negatives.sum()),
+    }
+
+def build_result_payload(
+    config: ExperimentConfig,
+    fed_history: list[dict[str, Any]],
+    probe_history: list[float],
+    attack_trials: list[dict[str, Any]],
+    model_artifact_path: str,
+    probe_artifact_path: str,
+) -> dict[str, Any]:
+    metrics = summarize_attack(attack_trials)
+    return {
+        "status": "complete",
+        "methodology": {
+            "paper_attack": "Train chosen neuron/probe for target activation; infer membership from non-zero gradient.",
+            "llm_adaptation": "Flower (flwr) FedAvg simulation fine-tunes the causal LM, followed by a hidden-state AMI probe gradient test.",
+            "metric_definition": "Adv = 0.5 * TPR + 0.5 * TNR",
+        },
+        "federated_history": fed_history,
+        "probe_training_loss": probe_history,
+        "metrics": metrics,
+        "attack_trials": attack_trials,
+        "artifacts": {
+            "federated_model_path": model_artifact_path,
+            "probe_path": probe_artifact_path,
+            "cleanup_after_firestore_write": not config.keep_artifacts,
+        },
+    }
+
+def mark_result_failed(config: ExperimentConfig, exc: Exception) -> None:
+    try:
+        save_result(config, {
+            "status": "failed",
+            "error": repr(exc),
+            "failed_at_unix": int(time.time()),
+        })
+    except Exception as write_exc:
+        print("Could not write failed status to Firestore:", write_exc)
+
+def run_single_experiment(config: ExperimentConfig) -> dict[str, Any]:
+    cached = maybe_cached_or_none(config)
+    if cached:
+        return cached
+
+    artifact_dir = artifact_dir_for(config)
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    model = tokenizer = clients = probe = None
+    try:
+        model, tokenizer, clients, fed_history, model_path = federated_fine_tune(config, artifact_dir)
+        probe, probe_history, probe_path = train_ami_probe(model, tokenizer, clients, config, artifact_dir)
+        trials = run_attack_trials(model, tokenizer, probe, clients, config)
+        payload = build_result_payload(config, fed_history, probe_history, trials, model_path, probe_path)
+        save_result(config, payload)
+        print("Saved results to Firestore:", config.firestore_collection, experiment_key(config))
+        if not config.keep_artifacts:
+            cleanup_artifacts(artifact_dir)
+        return {
+            "run_id": experiment_key(config),
+            "updated_at_unix": int(time.time()),
+            "config": asdict(config),
+            **payload,
+        }
+    except Exception as exc:
+        mark_result_failed(config, exc)
+        raise
+    finally:
+        clear_experiment_objects(model, tokenizer, clients, probe)
+
+def run_sweep(base_config: ExperimentConfig, sweep: dict[str, list[Any]]) -> list[dict[str, Any]]:
+    results = []
+    configs = list(expand_sweep(base_config, sweep))
+    print(f"Running {len(configs)} independent experiment config(s)")
+    for index, config in enumerate(configs, start=1):
+        print(f"Sweep run {index}/{len(configs)}: {experiment_key(config)}")
+        results.append(run_single_experiment(config))
+    return results
+
+if RUN_SWEEP:
+    sweep_results = run_sweep(CONFIG, SWEEP)
+    metrics_rows = [{"run_id": r.get("run_id"), **r.get("config", {}), **r.get("metrics", {})} for r in sweep_results]
+    metrics = pd.DataFrame(metrics_rows)
+elif cached_result:
+    metrics = cached_result.get("metrics", summarize_attack(attack_trials))
+else:
+    payload = build_result_payload(CONFIG, fed_history, probe_history, attack_trials, model_artifact_path, probe_artifact_path)
+    metrics = payload["metrics"]
+    try:
+        save_result(CONFIG, payload)
+        print("Saved results to Firestore:", CONFIG.firestore_collection, RUN_ID)
+        if not CONFIG.keep_artifacts:
+            cleanup_artifacts(ARTIFACT_DIR)
+    except Exception as exc:
+        print("Firestore write failed; local artifacts were kept:", exc)
+
+metrics if isinstance(metrics, pd.DataFrame) else pd.DataFrame([metrics])
+
+
+# CELL 20 (code)
+pd.DataFrame(attack_trials).head()
+
+
+# CELL 21 (markdown)
+## Notes for scaling beyond the smoke test
+
+- Swap `model_id` from `sshleifer/tiny-gpt2` to a larger open-source causal LM such as `distilbert/distilgpt2` or a Pythia checkpoint when GPU memory permits.
+- Replace the synthetic client texts with a real user-partitioned corpus. Keep the target-client positive/negative worlds unchanged so TPR/TNR remain comparable to the paper.
+- For LDP-specific experiments, perturb hidden-state embeddings or token embeddings before probe training with a mechanism analogous to BitRand/OME, then store `epsilon`, mechanism name, and certified-bound estimates in the Firestore payload.
+- If model artifacts need remote persistence, upload the `ARTIFACT_DIR` contents to Cloud Storage and store the `gs://` URI in the Firestore `artifacts` field. Firestore should hold metrics and compact trial records, not large model weights.
+

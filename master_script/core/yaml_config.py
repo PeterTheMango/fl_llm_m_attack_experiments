@@ -12,7 +12,7 @@ from typing import List, Optional, Sequence, Tuple
 
 import yaml
 
-from .config import expand_sweep
+from .config import expand_sweep, validate_attack_config
 from .datasets import validate_dataset_name
 from .firestore import RESULTS_COLLECTION
 from .registry import ATTACKS
@@ -125,6 +125,7 @@ def load_config_doc(doc: dict, only: Optional[Sequence[str]] = None,
                     f"attack '{name}' has no toy path and requires use_hf_models: true"
                 )
             try:
+                validate_attack_config(expanded, spec)
                 validate_dataset_name(expanded.dataset_name)
                 validate_pipeline_run(expanded, spec, pipeline)
             except ValueError as exc:

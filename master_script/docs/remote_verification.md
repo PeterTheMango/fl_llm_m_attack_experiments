@@ -1,5 +1,7 @@
 # Verify the queue, FL defenses, and RAG on the remote server
 
+For the subsequent attack theory corrections, first use the [theory correction verification commands](theory_corrections.md#server-verification). This older guide covers the queue/defense/RAG integration.
+
 Run these commands on the server from the repository root. Transfer the current
 working-tree changes first: this implementation has not been committed or
 pushed. Include the new `master_script/core` modules, `pipeline_*` configs,

@@ -1,0 +1,255 @@
+# CELL 1 (markdown)
+# zlib-Entropy Ratio Membership Inference Attack Recreation
+
+This notebook recreates the **zlib-entropy ratio** membership inference attack summarized in `papers/summary/03_zlib.md`.
+
+Primary source:
+
+- Nicholas Carlini, Florian Tramer, Eric Wallace, et al., *Extracting Training Data from Large Language Models*, USENIX Security 2021 / arXiv:2012.07805.
+
+The zlib attack is a non-neural instance of the calibration idea. Instead of a second language model acting as the reference (see `reference_recreation.ipynb`), it uses **zlib compression entropy** — the number of bytes/bits when the candidate text is compressed with the standard zlib library — as a cheap, model-independent notion of how "surprising" a text is.
+
+No public code repository is stated for this attack in the paper. The only external dependency is the standard `zlib` library, available in Python's standard library. The recreation therefore implements the score directly:
+
+```
+raw_ratio       = target_model_log_perplexity(x) / len(zlib.compress(x))
+membership_score = -raw_ratio          # orientation: members score higher
+```
+
+Because a general-purpose compressor models repeated substrings extremely well, repetitive / boilerplate text gets a large zlib-entropy reduction and is down-ranked, removing exactly the false positives that plague the raw-perplexity (`loss`) attack.
+
+
+# CELL 2 (markdown)
+## Baseline Attack Definition
+
+**Threat model.** The attacker can score candidate sequences under the target language model (compute per-token log-perplexity) and can compress the raw text with zlib. No reference model and no access to the private training distribution are required.
+
+**Target record.** A candidate text sequence. Members are sequences present in the target model's training (or fine-tuning) set; non-members are distribution-matched held-out sequences.
+
+**Score.** Compute the target model's mean per-token negative log-likelihood (log-perplexity) for the text, and the zlib entropy `len(zlib.compress(text))`. The paper's raw ranking metric is `log_perplexity / zlib_entropy`; samples the model finds easy *beyond* their raw compressibility (low perplexity, normalized by zlib) are most likely memorized — so the raw ratio is **lower** for members.
+
+For this notebook we report `membership_score = -(log_perplexity / zlib_entropy)`, chosen so that a **higher** membership score means a more likely member (matching the `>=` threshold convention used across these recreations). The orientation note is exactly the one in the summary's implementation line: *"sign/orientation chosen so that members score higher."*
+
+
+# CELL 3 (code)
+from dataclasses import dataclass
+from math import exp
+from pathlib import Path
+from typing import Iterable, List, Sequence
+import zlib
+
+SOURCE_SUMMARY = Path("../../papers/summary/03_zlib.md")
+ATTACK_NAME = "zlib"
+
+
+def zlib_entropy_bits(text: str) -> float:
+    """Model-independent reference: number of *bits* in the zlib-compressed text.
+
+    The paper expresses zlib entropy in bits; len(zlib.compress(...)) is in
+    bytes, so we multiply by 8. Any fixed unit only rescales the threshold,
+    so the relative ranking (and AUC) is identical whether bits or bytes are
+    used. Bits are reported here to match the paper's wording.
+    """
+    return 8.0 * len(zlib.compress(text.encode("utf-8")))
+
+
+@dataclass(frozen=True)
+class CandidateScore:
+    text: str
+    truth_member: bool
+    target_nll: float  # mean per-token negative log-likelihood (log-perplexity)
+
+    @property
+    def zlib_entropy(self) -> float:
+        return zlib_entropy_bits(self.text)
+
+    @property
+    def raw_ratio(self) -> float:
+        # Paper ranking metric: log-perplexity / zlib entropy. Lower for members.
+        return self.target_nll / self.zlib_entropy
+
+    @property
+    def membership_score(self) -> float:
+        # Orientation chosen so that members score higher.
+        return -self.raw_ratio
+
+    @property
+    def target_perplexity(self) -> float:
+        return exp(self.target_nll)
+
+
+# CELL 4 (markdown)
+## Optional Hugging Face Scoring
+
+Use this cell for a real target model such as `gpt2-xl` (the paper's target) or any fine-tuned checkpoint. zlib needs no second model, so scoring is a single forward pass per candidate plus one `zlib.compress` call. The smoke test below does not require these packages or any model download.
+
+
+# CELL 5 (code)
+def mean_token_nll_hf(model, tokenizer, text: str, device: str = "cpu", max_length: int = 256) -> float:
+    """Return mean next-token negative log-likelihood (log-perplexity) for one text."""
+    import torch
+
+    encoded = tokenizer(
+        text,
+        return_tensors="pt",
+        truncation=True,
+        max_length=max_length,
+    )
+    encoded = {key: value.to(device) for key, value in encoded.items()}
+    input_ids = encoded["input_ids"]
+    if input_ids.shape[-1] < 2:
+        raise ValueError("Need at least two tokens to score a causal-LM sequence.")
+
+    with torch.no_grad():
+        outputs = model(**encoded, labels=input_ids)
+    return float(outputs.loss.detach().cpu())
+
+
+def score_texts_with_hf(target_model, tokenizer, texts: Sequence[str], labels: Sequence[bool], device: str = "cpu", max_length: int = 256) -> List[CandidateScore]:
+    rows = []
+    for text, truth_member in zip(texts, labels):
+        rows.append(
+            CandidateScore(
+                text=text,
+                truth_member=bool(truth_member),
+                target_nll=mean_token_nll_hf(target_model, tokenizer, text, device=device, max_length=max_length),
+            )
+        )
+    return rows
+
+
+# CELL 6 (markdown)
+## Thresholding and Metrics
+
+The paper-style evaluation ranks samples by the membership score and reports the fraction confirmed memorized among the top-ranked candidates (the headline result: 67% of zlib-flagged Internet-conditioned samples were memorized, versus single digits for raw perplexity). For small controlled trials, this notebook additionally reports thresholded confusion counts, TPR, TNR, attack advantage, accuracy, precision, recall, and F1, plus a threshold-free ROC-AUC.
+
+
+# CELL 7 (code)
+def predict_membership(rows: Sequence[CandidateScore], threshold: float) -> List[bool]:
+    return [row.membership_score >= threshold for row in rows]
+
+
+def confusion_counts(labels: Sequence[bool], preds: Sequence[bool]):
+    tp = sum(1 for y, p in zip(labels, preds) if y and p)
+    tn = sum(1 for y, p in zip(labels, preds) if not y and not p)
+    fp = sum(1 for y, p in zip(labels, preds) if not y and p)
+    fn = sum(1 for y, p in zip(labels, preds) if y and not p)
+    return {"tp": tp, "tn": tn, "fp": fp, "fn": fn}
+
+
+def roc_auc(labels: Sequence[bool], scores: Sequence[float]) -> float:
+    """Rank-based ROC-AUC (probability a random member outranks a random non-member)."""
+    pos = [s for y, s in zip(labels, scores) if y]
+    neg = [s for y, s in zip(labels, scores) if not y]
+    if not pos or not neg:
+        return float("nan")
+    wins = 0.0
+    for p in pos:
+        for n in neg:
+            wins += 1.0 if p > n else (0.5 if p == n else 0.0)
+    return wins / (len(pos) * len(neg))
+
+
+def metric_summary(rows: Sequence[CandidateScore], preds: Sequence[bool]):
+    labels = [row.truth_member for row in rows]
+    counts = confusion_counts(labels, preds)
+    tp, tn, fp, fn = counts["tp"], counts["tn"], counts["fp"], counts["fn"]
+    tpr = tp / (tp + fn) if (tp + fn) else 0.0
+    tnr = tn / (tn + fp) if (tn + fp) else 0.0
+    precision = tp / (tp + fp) if (tp + fp) else 0.0
+    recall = tpr
+    f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) else 0.0
+    return {
+        **counts,
+        "tpr": tpr,
+        "tnr": tnr,
+        "adv": 0.5 * tpr + 0.5 * tnr,
+        "accuracy": (tp + tn) / len(labels) if labels else 0.0,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "roc_auc": roc_auc(labels, [row.membership_score for row in rows]),
+    }
+
+
+def percentile_threshold(rows: Sequence[CandidateScore], member_fraction: float = 0.5) -> float:
+    scores = sorted(row.membership_score for row in rows)
+    if not scores:
+        raise ValueError("Cannot threshold an empty score list.")
+    index = max(0, min(len(scores) - 1, int((1.0 - member_fraction) * len(scores))))
+    return scores[index]
+
+
+# CELL 8 (markdown)
+## Synthetic Smoke Recreation
+
+The synthetic table emulates the expected zlib signal:
+
+- **Members** are records the model has memorized: low target log-perplexity. After dividing by zlib entropy and negating, they receive a **high** membership score.
+- One **non-member is repetitive / boilerplate** ("the the the ..."). Raw perplexity alone would flag it (the model finds repeated text easy), but zlib compresses it heavily — a small zlib entropy in the denominator — so its raw ratio stays large and its membership score stays **low**. This is exactly the false positive the zlib calibration is designed to remove.
+
+This is not a substitute for the full GPT-2-XL / 200k-sample experiment; it is a runnable correctness check that the scoring, the zlib calibration, and the metrics pipeline behave as the paper describes.
+
+
+# CELL 9 (code)
+def synthetic_zlib_scores() -> List[CandidateScore]:
+    return [
+        # Members: memorized, low log-perplexity -> high membership score.
+        CandidateScore("Patient Ana Ortiz, MRN 84213, was prescribed 12 units of insulin nightly.", True, target_nll=1.05),
+        CandidateScore("API_SECRET_KEY = sk-live-9f3a2b7c4d8e1f6a0c5b2d9e7f4a1c3b", True, target_nll=0.95),
+        # Ordinary held-out text: higher log-perplexity -> low membership score.
+        CandidateScore("The committee will reconvene next quarter to review the proposal.", False, target_nll=2.40),
+        # Repetitive boilerplate: low raw perplexity (model finds it easy) BUT
+        # tiny zlib entropy keeps the ratio large -> correctly NOT flagged.
+        CandidateScore("the the the the the the the the the the the the the the the the", False, target_nll=0.60),
+    ]
+
+
+def run_recreation_smoke_test():
+    rows = synthetic_zlib_scores()
+    threshold = percentile_threshold(rows, member_fraction=0.5)
+    preds = predict_membership(rows, threshold=threshold)
+    metrics = metric_summary(rows, preds)
+
+    # The two memorized records must rank above both held-out records,
+    # including the repetitive boilerplate the raw-loss attack would misflag.
+    assert metrics["tp"] == 2, metrics
+    assert metrics["tn"] == 2, metrics
+    assert metrics["adv"] == 1.0, metrics
+    assert metrics["roc_auc"] == 1.0, metrics
+
+    # Sanity check on the zlib calibration: the boilerplate row has the LOWEST
+    # raw perplexity yet must not receive the highest membership score.
+    boilerplate = rows[-1]
+    members = [r for r in rows if r.truth_member]
+    assert boilerplate.target_perplexity < min(m.target_perplexity for m in members), "setup error"
+    assert boilerplate.membership_score < min(m.membership_score for m in members), \
+        "zlib calibration failed to down-rank repetitive text"
+
+    return {
+        "threshold": threshold,
+        "metrics": metrics,
+        "ranking": [
+            {"text": r.text[:40], "member": r.truth_member,
+             "ppl": round(r.target_perplexity, 3),
+             "zlib_bits": round(r.zlib_entropy, 1),
+             "score": round(r.membership_score, 6)}
+            for r in sorted(rows, key=lambda r: r.membership_score, reverse=True)
+        ],
+    }
+
+smoke_result = run_recreation_smoke_test()
+smoke_result
+
+
+# CELL 10 (markdown)
+## How to Run a Real Recreation
+
+1. Load the target language model with `AutoModelForCausalLM` (the paper uses `gpt2-xl`; any fine-tuned checkpoint works).
+2. Collect matched candidate member and non-member texts (the paper generates ~200,000 samples across three generation strategies, then deduplicates).
+3. Call `score_texts_with_hf(target_model, tokenizer, texts, labels)` — no reference model is needed; zlib is the calibration.
+4. Rank by `membership_score` and either threshold (`predict_membership`) or report ranking precision among the top-k candidates, plus `roc_auc` from `metric_summary`.
+5. The paper's headline comparison is qualitative: a far larger share of zlib-flagged top samples are verbatim memorized than for the raw-perplexity (`loss`) attack, because zlib removes repetitive / boilerplate false positives.
+
+For the federated-learning fine-tuning adaptation of this attack, see `../adaptations/zlib_adaptations.ipynb`.
+

@@ -131,7 +131,7 @@ class Classifier(nn.Module):
     def __init__(self, n_inputs, n_outputs):
         super(Classifier, self).__init__()
         self.fc1 = nn.Linear(n_inputs, args.numneurons)
-        self.fc2 = nn.Linear(args.numneurons, n_outputs)
+        self.fc2 = nn.Linear(args.numneurons, 1)
 
     def forward(self, x):
         x = torch.flatten(x, 1)
@@ -139,14 +139,14 @@ class Classifier(nn.Module):
         x = F.relu(x)
         fc2 = self.fc2(x)
         x = torch.sigmoid(fc2)
-        probs = F.softmax(x, dim=1)
+        probs = torch.cat((x, 1 - x), dim=1)
         return x, probs, fc2
 
 
 num_target = 1
 target = ['n01440764_10026']
 
-SAVE_NAME = f'{args.output_path}/ImageNet_embed_{args.numneurons}_single_{target[0]}.pth'
+SAVE_NAME = f'{args.output_path}/ImageNet_embed_{args.numneurons}_single_{target[0]}_theory_v2.pth'
 
 print(SAVE_NAME)
 
@@ -188,7 +188,7 @@ if device == 'cuda':
     model = torch.nn.DataParallel(model)
 
 custom_weight = np.array([500, 0.1])
-criterion = nn.CrossEntropyLoss(weight=torch.tensor(custom_weight, dtype=torch.float).to(device))
+criterion = nn.BCEWithLogitsLoss()
 
 min_loss = 100000000000
 max_correct = 0
@@ -212,7 +212,7 @@ for i in range(1000000):
     model.train()
 
     out, probs, fc2 = model(x_train)
-    loss = criterion(out, y_train)
+    loss = criterion(fc2[:, 0], (y_train == 0).float())
     
     loss_value += loss
     
@@ -220,15 +220,16 @@ for i in range(1000000):
     optimizer.step()              # make the updates for each parameter
     optimizer.zero_grad()         # a clean up step for PyTorch
 
+    with torch.no_grad():
+        out, probs, fc2 = model(x_train)
     predictions = fc2[:, 0] < 0
     tpr_train, tnr_train, _ = tpr_tnr(predictions, y_train)
     
     
     # Test acc
     model.eval()
-    out, probs, fc2 = model(x_test)
-    predictions = fc2[:, 0] < 0
-    tpr, tnr, _ = tpr_tnr(predictions, y_test)
+    # Never select a checkpoint using the victim evaluation population.
+    tpr, tnr = tpr_train, tnr_train
     acc = (tpr + tnr)/2
     
    
@@ -236,7 +237,7 @@ for i in range(1000000):
         
         state = {
             'net': model.state_dict(),
-            'test': (tpr, tnr),
+            'selection': (tpr, tnr),
             'train': (tpr_train, tnr_train),
             'acc' : acc,
             'lr' : lr,
@@ -256,7 +257,7 @@ for i in range(1000000):
 #     if epoch % 1 == 0:
 #         state = {
 #             'net': model.state_dict(),
-#             'test': (tpr, tnr),
+#             'selection': (tpr, tnr),
 #             'train': (tpr_train, tnr_train),
 #             'acc' : acc,
 #             'lr' : lr,
@@ -268,6 +269,6 @@ for i in range(1000000):
     
 
 print('Train: ', torch.load(SAVE_NAME)['train'])
-print('Test: ', torch.load(SAVE_NAME)['test'])
+print('Adversary training selection: ', torch.load(SAVE_NAME)['selection'])
 print('Acc: ', torch.load(SAVE_NAME)['acc'])
 print('Epoch: ', torch.load(SAVE_NAME)['epoch'])

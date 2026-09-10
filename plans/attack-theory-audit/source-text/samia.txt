@@ -1,0 +1,687 @@
+                                             Sampling-based Pseudo-Likelihood for Membership Inference Attacks
+
+                                                      Masahiro Kaneko1,2 Youmi Ma2 * Yuki Wata3 Naoaki Okazaki2
+                                                      1
+                                                        MBZUAI 2 Tokyo Institute of Technology 3 The University of Tokyo
+                                                        Masahiro.Kaneko@mbzuai.ac.ae youmi.ma@nlp.c.titech.ac.jp
+                                                              uk1@is.s.u-tokyo.ac.jp okazaki@c.titech.ac.jp
+
+
+
+
+                                                                Abstract
+                                              Large Language Models (LLMs) are trained on
+                                              large-scale web data, which makes it difficult
+
+
+
+
+arXiv:2404.11262v1 [cs.CL] 17 Apr 2024
+                                              to grasp the contribution of each text. This
+                                              poses the risk of leaking inappropriate data
+                                              such as benchmarks, personal information, and
+                                              copyrighted texts in the training data. Mem-
+                                              bership Inference Attacks (MIA), which deter-
+                                              mine whether a given text is included in the
+                                              model’s training data, have been attracting at-
+                                              tention. Previous studies of MIAs revealed that
+                                              likelihood-based classification is effective for
+                                              detecting leaks in LLMs. However, the existing
+                                              methods cannot be applied to some proprietary
+                                              models like ChatGPT or Claude 3 because the            Figure 1: MIA using SPL based on the degree of n-gram
+                                              likelihood is unavailable to the user. In this         between sampled candidate texts and a reference text.
+                                              study, we propose a Sampling-based Pseudo-
+                                              Likelihood (SPL) method for MIA (SaMIA)
+                                              that calculates SPL using only the text gener-         texts, or personal information into the pre-training
+                                              ated by an LLM to detect leaks. The SaMIA              data (Kaneko and Baldwin, 2024). The leakage of
+                                              treats the target text as the reference text and
+                                                                                                     benchmark data can lead to an overestimation of
+                                              multiple outputs from the LLM as text sam-
+                                              ples, calculates the degree of n-gram match as
+                                                                                                     LLMs’ capabilities, preventing an appropriate as-
+                                              SPL, and determines the membership of the              sessment of their true performance (Yu et al., 2023;
+                                              text in the training data. Even without likeli-        Zhou et al., 2023). Additionally, LLM generation
+                                              hoods, SaMIA performed on par with existing            based on copyrighted texts or personal information
+                                              likelihood-based methods.1                             can result in serious violations of the law (Yeom
+                                                                                                     et al., 2017; Eldan and Russinovich, 2023).
+                                         1    Introduction                                              Membership Inference Attacks (MIA) consider
+                                         Large Language Models (LLMs) bring about a                  the task of determining whether a given target text
+                                         game-changing transformation in various services            is included in the training data of a model (Shokri
+                                         used on a daily basis (Brown et al., 2020; Touvron          et al., 2016). Generally, because models are trained
+                                         et al., 2023). The pre-training of LLMs relies on           to fit the data, a text included in the training data
+                                         massive-scale web data of mixed quality (Zhao               tends to exhibit a higher likelihood compared to
+                                         et al., 2023). While pre-processing such as filtering       ones unseen in the training data (Yeom et al., 2017).
+                                         is applied to construct as clean datasets as possible,      Existing MIA studies rely on this idea and thus
+                                         it is unrealistic to remove everything undesired (Al-       require the likelihood of a text computed by the
+                                         mazrouei et al., 2023). There is a risk of unin-            model (Carlini et al., 2021; Ye et al., 2022; Mattern
+                                         tentionally leaking benchmark data, copyrighted             et al., 2023; Shi et al., 2023). It is impossible to
+                                                                                                     apply the existing studies to the models that do not
+                                             * Masahiro Kaneko and Youmi Ma contributed equally to
+                                                                                                     provide a likelihood.
+                                         this work.
+                                             1
+                                               Our code is available at:    https://github.com/         When we are accessible to the training data of a
+                                         nlp-titech/samia                                            model, it is straightforward to check the member-
+ship by directly searching for a given text in the       2     SaMIA
+training data (Zhang et al., 2022; Biderman et al.,
+                                                         2.1   Definition of the MIA Task
+2023; Wang and Komatsuzaki, 2021). Therefore,
+the primary targets for applying MIA are LLMs            MIA is a binary classification task to determine
+without the training data disclosed (Zhang et al.,       whether a target text x is included in the training
+2022; Biderman et al., 2023; Touvron et al., 2023).      dataset Dtrain of a model fθ . The attacker’s goal
+Such LLMs mostly provide no access to likeli-            is to design an appropriate attack function Afθ :
+hoods, which severely limits the practical appli-        X → {0, 1} and to determine the truth value of
+cability of likelihood-based MIA. Moreover, as the       x ∈ Dtrain for an instance x in the text space X .
+commercial value of LLMs is increased, developers
+                                                         2.2   SPL
+of recent powerful models like ChatGPT2 , Gem-
+ini3 , and Claude 34 are more reluctant to disclose      Our method is applicable under severer conditions
+the details of their training data.                      than the previous studies, which requires the loss
+                                                         L or token likelihood Pθ of the model fθ . In other
+   In this paper, we propose a Sampling-based
+                                                         words, our method can be applied to any LLMs
+Pseudo Likelihood (SPL) method for MIA
+                                                         because it uses only generated texts without the
+(SaMIA) that calculates SPL using the match ra-
+                                                         loss or likelihood. The proposed method is formal-
+tio of n-grams between the output texts sampled
+                                                         ized as follows. For a text x = (w1 , w2 , . . . , wT )
+from an LLM and the target text. Figure 1 shows
+                                                         of length T to be detected, we divide it into a
+the detection of a leaked text using SPL, based on
+                                                         prefix xprefix = (w1 , w2 , . . . , w⌊T /2⌋ ) and a ref-
+the n-gram similarity between text samples and
+                                                         erence text xref = (w⌊T /2⌋+1 , w⌊T /2⌋+2 , . . . , wT )
+the reference text. Providing the initial part of the
+                                                         based on the number of words T . The LLM then
+target text to the LLM, SaMIA generates multiple
+                                                         generates m text samples (candidates hereafter)
+continuations of the text by sampling. Treating the
+                                                         xjcand (j = 1, . . . , m) that continue from the prefix
+generated sequences as candidate texts and the re-
+                                                         xprefix . We use these candidates for MIA.
+maining part of the target text (after the given part)
+                                                            SaMIA judges that a text x is included in the
+as the reference text, we calculate the degree of
+                                                         training data of the LLM if the candidate text xjcand
+n-gram overlaps between the candidate texts and
+                                                         generated by the LLM has a high surface-level sim-
+the reference text. If the degree of n-gram overlaps
+                                                         ilarity to the reference text xref . We use ROUGE-
+exceeds a specified threshold, we regard that the
+                                                         N (Lin, 2004) as the similarity metric, which mea-
+LLM has been trained on the text.
+                                                         sures the recall of n-grams in the reference text.
+   We conducted experiments on MIA with                  Given a candidate text xcand generated by the LLM
+four LLMs (GPT-J-6B, OPT-6.7B, Pythia-6.9B,              and a reference text xref , we calculate the ROUGE-
+LLaMA-2-7B) whose training data is publicly              N score (ranging from 0 to 1) with Equation 1:
+available. The experimental results on Wikipedia
+articles showed that SaMIA can achieve perfor-                                       P
+                                                                                     gram ∈xref Countmatch (gramn )
+mance on par with existing methods based on like-         ROUGE-N(xcand , xref ) =   P n
+                                                                                         gramn ∈xref Count(gramn )
+lihood or loss values. In addition, we introduce a                                                                   (1)
+leakage detection method that combines informa-           Here, n is the length of the n-grams. The de-
+tion content and SPL. The method achieved the            nominator is the total number of n-grams in the
+highest average score of all existing methods. We        reference text, and the numerator is the total num-
+also report the analysis results of the impacts of the   ber of n-grams that overlap between the candidate
+number n of n-gram, the number of text samples,          text and the reference text. For example, a ROUGE-
+and the length of the target text on the performance     1 score is high when the words generated by the
+of SaMIA. The performance of SaMIA is highest            LLM appear in the reference text.
+when using unigrams. We observed the improved               We expect that SPL can appropriately capture the
+performance by increasing the number of text sam-        distribution of LLM’s generations by empirically
+ples and length of the target text.                      sampling texts from the LLM. Let W be a random
+                                                         variable defined by the LLM, and let P (W = x)
+                                                                                                          (j)
+   2
+                                                         be the probability that W takes the text x. Let Xx
+     https://chat.openai.com/                                                               (j)
+   3
+     https://gemini.google.com/app                       be a random variable such that Xx = 1 if the j-th
+   4
+     https://claude.ai/chats                             sampled sequence from the language model is x,
+Algorithm 1 Sampling-based Membership Inference Attacks
+ 1: Input: target text x = (w1 , w2 , . . . , wT ), language model fθ , number of samples m, length of n-gram N , threshold τ , zlib
+    compression flag z
+ 2: Output: is text x included in the training data of fθ ? (1 or 0)
+ 3: xprefix ← (w1 , w2 , . . . , w⌊T /2⌋ )
+ 4: xref ← (w⌊T /2⌋+1 , w⌊T /2⌋+2 , . . . , wT )
+ 5: for j = 1 to m do
+           j                                                                       j
+ 6:      xcand ← fθ (xprefix )                          ▷ The j-th candidate text xcand generated from fθ using xprefix as the prompt
+ 7: end for
+ 8: if z = 1 then P
+                 1    m                     j                j
+ 9:      Rm ← m       j=1 ROUGE-N(xcand , xref ) · zlib(xcand )                                    ▷ Combine with zlib compression
+10: else            Pm
+                 1                          j
+11:      Rm ← m       j=1 ROUGE-N(xcand , xref )
+12: end if
+13: if Rm > τ then
+14:      return 1
+15: else
+16:      return 0
+17: end if
+
+
+        (j)
+and Xx = 0 otherwise.                                               a member of the training data of the LLM (Equa-
+         (                                                          tion 5).
+   (j)     1 if the j-th sampled sequence is x
+ Xx =
+           0 otherwise                                                              
+                                                                                          m
+                                                                                                                                   
+                                               (2)                                      1 X
+                       (j)
+                                                                    Afθ (x) = 1                  ROUGE-N(xjcand , xref ) > τ 
+The expected value of Xx is calculated as follows:                                      m
+                                                                                            j=1
+                                                                                                                     (5)
+  E[Xx(j) ] = 1 · P (Xx(j) = 1) + 0 · P (Xx(j) = 0)                 Here, 1[·] stands for an indicator function and m is
+              = P (Xx(j) = 1)                               (3)     the size of the test dataset. We set the threshold τ
+                                                                    based on the development data. The interpretation
+                                    (j)
+Here, the probability that Xx = 1 is equal to the                   of this detection metric is straightforward: if the
+probability that the language model generates the                   text x were used in training, the LLM would gen-
+text x, that is P (W = x). When the sample size                     erate many of the n-grams present in the reference
+                                         (j)                        text xref .
+N is sufficiently large, the average of Xx , which
+is the relative frequency of the text x in the j-th
+                                                                    2.4     Improving SaMIA Using the Information
+sample, will converge to the expected value by the
+                                                                            Content
+law of large numbers, and become equivalent to
+P (W = x).                                                          Existing methods such as PPL/zlib use the infor-
+                                                                    mation content computed by zlib compression to
+                        N                                           evaluate the redundancy characteristics of the gen-
+                1 X (i)
+            lim    Xx = E[Xx(i) ]                                   erated text (Carlini et al., 2021). Samples from
+           N →∞ N
+                       i=1                                          unseen data in training tend to contain repetitive
+                                  = P (W = x)               (4)     generation (e.g., “I love you. I love you...”), and
+                                                                    the information content of such samples after zlib
+Therefore, by sampling the texts generated by the                   compression is expected to be lower. PPL/zlib uses
+LLM, the appearance frequency of sampled texts                      the ratio of the perplexity of the sample x and the
+approximates the probability that the language                      bit length of x after zlib compression, zlib(x), as
+model generates a text. Thus, calculating the simi-                 the detection metric (Equation 6).
+larity between sampled texts and a target text can
+                                                                                                                1
+                                                                                    "Q                               #
+reflect the output tendencies of the LLM.                                               n                      −n
+                                                                                        i=1 P θ (x i |x 1:i−1 )
+                                                                      Afθ (x) = 1                                 < τ (6)
+                                                                                              zlib(x)
+2.3    Detection by SaMIA Based on SPL
+SaMIA calculates the average ROUGE-N score be-                      Here, Pθ (xi |x1:i−1 ) is the model’s likelihood of
+tween each candidate text xjcand generated by the                   generating token xi given x1:i−1 and zlib(x) rep-
+LLM and the reference text xref . If this average                   resents the entropy of the text x in bits after zlib
+exceeds a threshold τ , the text x is considered as                 compression.
+   Since zlib(x) depends only on the character in-
+formation of the text x, it can also be applied to                                                                 
+SaMIA. Additionally, SaMIA (Equation 5) does                                       1
+                                                                    Afθ (x) = 1 
+                                                                                      X
+                                                                                           log Pθ (xi |x1:i−1 ) > τ  .   (10)
+not consider the presence of repetitive generation                                |E| x ∈E
+                                                                                        i
+
+in the candidate texts xjcand . Therefore, combining
+it with zlib can be expected to improve performance                Following findings in Shi et al. (2023), we set
+(Equation 7).                                                     k = 20 for Min-k% Prob in our experiments.
+
+                                                                  3.2   Settings
+    Afθ (x) =
+     "     m
+                                                        #         Models We evaluate the performance of SaMIA
+       1 X             j                     j
+    1         ROUGE-N(xcand , xref ) · zlib(xcand ) > τ     (7)   as well as existing MIA methods against LLMs
+       m j=1
+                                                                  including OPT-6.7B (Zhang et al., 2022), Pythia-
+ Algorithm 1 presents the detail of the whole pro-                6.9B (Biderman et al., 2023), LLaMA-2-7B (Tou-
+cess of the proposed method.                                      vron et al., 2023) and GPT-J-6B (Wang and Ko-
+                                                                  matsuzaki, 2021). Their checkpoints are publicly
+3       Experiments                                               available on Huggingface6 . We present an exposi-
+                                                                  tion regarding the training data for the LLMs.
+3.1      Existing Methods
+We compare SaMIA with several existing meth-                         • OPT (Zhang et al., 2022): OPT uses the
+ods to evaluate the effectiveness of our proposed                      dataset containing the Pile,7 , which comprises
+method. The competitors range from basic to edge-                      800GB of text data. It aggregates content from
+cutting MIA approaches as follows.                                     22 different sources, including books, web-
+                                                                       sites, GitHub repositories, and more. More-
+LOSS (Yeom et al., 2018) The most straightfor-                         over, PushShift.io Reddit (Baumgartner et al.,
+ward MIA method, attacking by thresholding the                         2020) is used for pre-training.
+Negative Log-Likelihood (NLL) loss. Given a tar-
+get text x, if model fθ yields an NLL loss lower                     • Pythia (Biderman et al., 2023): Pythia is
+than a threshold τ , then x is considered present in                   trained exclusively on the Pile, similar to OPT.
+the training data of model fθ :
+                                                                     • LLaMA-2 (Touvron et al., 2023): LLaMA-2
+               Afθ (x) = 1[L(fθ , x) < τ ],                 (8)        employs English CommonCrawl, C4, Github,
+                                                                       Wikipedia, Books, ArXiv, and StackExchange
+where L(fθ , x) is the NLL loss of model fθ on x.                      as pre-training datasets.
+Lowercase (Carlini et al., 2021) The method ex-
+tends LOSS by thresholding the difference between                    • GPT-J (Wang and Komatsuzaki, 2021): GPT-
+a target text x and its lowercase version xlower :                     J uses the Pile for pre-training. All corpora
+                                                                       were previously collected or filtered to con-
+    Afθ (x) = 1[L(fθ , x) − L(fθ , xlower ) < τ ]. (9)                 tain predominantly English text, but a small
+                                                                       amount of non-English data is still present
+PPL/zlib (Carlini et al., 2021) The method al-                         within the corpus via CommonCrawl.
+leviates the effect of repeated substrings via zlib
+compression5 . PPL/zlib decides if a target text x is             Implementation Details For both SaMIA and
+included in the training data of model fθ by thresh-              SaMIA*zlib, we utilize ROUGE-1 and set the
+olding the ratio of the log of the perplexity and the             number of candidate texts to 10. Analyses of
+zlib entropy (Equation 6).                                        the influence of these factors are detailed in sec-
+                                                                  tion 4. During generation, the hyper-parameters
+Min-k% Prob (Shi et al., 2023) The method uti-                    of all models are fixed as temperature=1.0,
+lizes only a subset of each target text x during an               max_length=1024, top_k=50, top_p=1.0. For
+attack. Specifically, tokens in x are sorted in the as-           existing approaches, we report the scores obtained
+cending order of the log-likelihood, and the average              from our experiments.
+log-likelihood of the first k% tokens, composing a
+                                                                    6
+token set E, are used for detection:                                  https://huggingface.co/
+                                                                    7
+                                                                      https://huggingface.co/datasets/EleutherAI/
+    5
+        https://www.zlib.net/                                     pile
+                        GPT-J-6B                  OPT-6.7B                     Pythia-6.9B                 LLaMA-2-7B
+                 AUC     TPR@10%FPR        AUC     TPR@10%FPR           AUC      TPR@10%FPR         AUC      TPR@10%FPR
+ Existing Methods (likelihood-dependent)
+ LOSS            0.66          18.0        0.61          16.8           0.65          20.4          0.55            13.8
+ PPL/zlib        0.66          21.3        0.62          17.5           0.66          19.6          0.56            16.1
+ Lowercase       0.59          16.7        0.58          16.0           0.57          17.0          0.52            15.5
+ Min-K% Prob 0.69              26.8        0.64          25.8           0.68          26.6          0.54            10.7
+ Proposed Methods (likelihood-independent)
+ SaMIA          0.64           19.9        0.66          31.8           0.64          20.4          0.60            16.4
+ SaMIA*zlib     0.66           26.0        0.71          37.3           0.66          23.7          0.62            20.0
+
+Table 1: Macro-averages of AUC and TPR@10%FPR of the proposed and existing methods, when performing MIA
+on various LLMs using WikiMIA. The best score of each column is bolded.
+
+                        GPT-J-6B                  OPT-6.7B                     Pythia-6.9B                 LLaMA-2-7B
+ Length           32    64    128    256   32     64     128    256     32     64     128    256    32      64     128     256
+ Existing Methods (likelihood-dependent)
+ LOSS            0.64 0.62 0.67 0.69       0.61   0.57   0.62   0.64   0.64    0.61   0.65   0.68   0.55    0.50   0.56    0.59
+ PPL/zlib        0.65 0.63 0.68 0.69       0.61   0.58   0.64   0.65   0.64    0.62   0.67   0.70   0.55    0.51   0.57    0.59
+ Lowercase       0.59 0.57 0.58 0.60       0.58   0.57   0.57   0.59   0.59    0.55   0.57   0.55   0.49    0.50   0.49    0.59
+ Min-K% Prob 0.67 0.66 0.70 0.71           0.62   0.60   0.67   0.67   0.66    0.64   0.69   0.71   0.51    0.50   0.56    0.58
+ Proposed Methods (likelihood-independent)
+ SaMIA          0.55 0.60 0.63 0.77 0.55 0.63 0.66              0.80   0.56 0.61 0.66        0.73   0.53 0.55 0.60         0.71
+ SaMIA*zlib     0.57 0.62 0.66 0.79 0.62 0.68 0.70              0.80   0.59 0.63 0.68        0.74   0.55 0.59 0.63         0.69
+
+Table 2: AUC score of the proposed and existing methods when performing MIA on various LLMs using WikiMIA.
+The best AUC score of each column is bolded.
+
+
+Benchmark Following existing work (Shi et al.,                  3.3    Main Results
+2023), we adopt WikiMIA as the benchmark. The
+                                                                The macro average of AUC scores and
+benchmark contains texts from Wikipedia event
+                                                                TPR@10%FPR among all groups are reported in
+pages. Texts from pages created after 2023 are
+                                                                Table 1. AUC scores of the existing and proposed
+considered unleaked data (i.e., text excluded from
+                                                                detection methods for each text length group are
+the training data of LLMs), and those from pages
+                                                                reported in Table 2.
+created before 2017 are considered leaked data (i.e.,
+text included in the training data of LLMs).                    On average, SaMIA*zlib exhibits state-of-the-
+Evaluation Metrics WikiMIA groups texts by                      art level performance without accessing the like-
+length: 32, 64, 128, and 256. On each group, we                 lihood. As shown in Table 1, when comparing
+evaluate the performance of detection methods via               the macro average score of each method, we ob-
+the True Positive Rate (TPR) and the False Positive             serve that SaMIA*zlib reaches state-of-the-art per-
+Rate (FPR). We plot the ROC curve to measure the                formance on OPT-6.7B and LLaMA-2-7B. For an-
+trade-off between TPR and FPR at each threshold                 other two LLMs, namely GPT-J-6B and Pythia-
+τ and report the AUC score, i.e., the area under the            6.9B, the performance of SaMIA*zlib is also close
+ROC curve, and TPR@10%FPR, i.e., TPR when                       to the state-of-the-art method, i.e., Min-K% Prob.
+FPR is 10% (Mattern et al., 2023; Shi et al., 2023).            The high performance is achieved without access
+                                                                to likelihoods computed from LLMs, highlighting
+Computational Environment All experiments                       the superiority of our proposed method. While
+are carried out on a single Tesla V100 16GB GPU.                SaMIA*zlib can be applied to any LLMs, exist-
+We first generate candidate texts using target LLMs             ing methods are limited to LLMs with accessible
+and then conduct MIA with existing and proposed                 likelihoods. Thus, the superiority of our proposed
+methods. For each LLM, the inference process for                method includes not only better performance but
+the entire WikiMIA dataset takes approximately                  also wider usage.
+48 GPU hours. Due to the computation cost of
+running inferences for multiple LLMs, we report                 SaMIA outperforms existing methods when the
+the results based on a single run for each model.               target text is long. When evaluating on the group
+    0.85        ROUGE-1                                                      0.75      ROUGE-1
+                                                               0.80                                                         0.71
+     0.8        ROUGE-2                                                                ROUGE-2
+                                                                              0.7
+    0.75
+     0.7                                                              0.68   0.65
+                                                  0.66 0.65
+    0.65                         0.63                                                                          0.6
+                                                                              0.6                                    0.58
+     0.6                                0.59
+                                                                                                 0.55                              0.55
+              0.55                                                           0.55   0.53 0.53
+    0.55             0.53
+                                                                                                        0.51
+     0.5                                                                      0.5
+                32                 64                 128        256                   32          64           128           256
+                                 (a) OPT-6.7B.                                                  (b) LLaMA-2-7B.
+
+                 Figure 2: AUC scores of SaMIA on WikiMIA when using ROUGE-1 and ROUGE-2.
+
+
+     Length                 32      64         128      256   Avg.            4.1   ROUGE-1 v.s. ROUGE-2
+     OPT-6.7B
+     SaMIARec.          0.55      0.63         0.66    0.80   0.66
+                                                                              We have reported the performance of SaMIA based
+     SaMIAPrec.         0.52      0.51         0.54    0.45   0.51            on ROUGE-1, i.e., unigram overlaps between gen-
+     LLaMA-2-7B                                                               erated texts and the reference text, in Table 2. Here,
+     SaMIARec.  0.53              0.55         0.60    0.71   0.60            we investigate how varying the size of units used
+     SaMIAPre.  0.52              0.48         0.56    0.58   0.54            to measure surface-level similarity affects our leak-
+Table 3: AUC scores of SaMIA on WikiMIA when
+                                                                              age detection. Specifically, we evaluate the perfor-
+surface-level similarity is evaluated by n-gram recall                        mance of SaMIA based on ROUGE-2 by setting n
+and precision. SaMIARec. represents the default SaMIA                         to 2 in Equation 5.
+based on n-gram recall and SaMIAPrec. represents the                             ROUGE-2 differs from ROUGE-1 in modeling
+variant of SaMIA based on n-gram precision.                                   bi-gram overlaps (Lin, 2004). Intuitively, it is eas-
+                                                                              ier for an LLM to output the same word in the
+                                                                              reference text than two continuous ones. Therefore,
+with a text length of 256, we observe SaMIA out-
+                                                                              we presume that a bi-gram match between the gen-
+performing all existing methods. For groups with
+                                                                              erated texts and the reference text is less likely to
+shorter text lengths, SaMIA still performs compa-
+                                                                              happen than a unigram match, making ROUGE-2
+rably or better than its competitors. Notably, while
+                                                                              a less sensitive metric for detection.
+all existing methods base their detection on the like-
+                                                                                 The AUC scores of SaMIA based on ROUGE-1
+lihood yielded from LLMs, SaMIA does not rely
+                                                                              and ROUGE-2 are shown in Figure 2. On most text
+on the likelihood. SaMIA, therefore, has its superi-
+                                                                              length groups, the AUC score of SaMIA based on
+ority over other methods in achieving competitive
+                                                                              ROUGE-1 surpasses that of ROUGE-2. For both
+or even better performance using less information.
+                                                                              LLMs, the performance gap between ROUGE-1
+SaMIA*zlib further improves SaMIA regard-                                     and ROUGE-2 becomes evident for the text group
+less of the text length. Incorporating SaMIA                                  with a length of 256. We thus confirmed that mea-
+with zlib compression entropy further boosts the                              suring surface-level similarity with unigram over-
+detection performance for all models, regardless of                           lap is a better choice than bi-gram for SaMIA.
+the length of target texts. The observation indicates                         4.2   Recall-Based Similarity v.s.
+that zlib compression benefits leakage detection by                                 Precision-Based Similarity
+compressing the influence of repeated substrings.
+                                                                              To measure the surface-level similarity between
+4    Analysis                                                                 a generated candidate text xcand and the reference
+                                                                              text xref , SaMIA utilizes a recall-based metric, com-
+This section investigates how each factor will af-                            puting the ratio of n-grams correctly recalled from
+fect the performance of SaMIA(*zlib). Experi-                                 xcand . Here, we conduct experiments to test the
+ments are conducted on SaMIA without zlib com-                                effectiveness of the recall-based metric against a
+pression, and we believe the findings also apply to                           precision-based one. For each candidate text xcand ,
+SaMIA*zlib. The analyses are based on OPT-6.7B                                the precision-based metric evaluates how many n-
+and LLaMA-2-7B.                                                               grams within xcand overlaps with xref among all
+                  Samples                 1         2           3            4    5        6      7          8        9     10
+                  OPT-6.7B            0.61         0.64     0.65         0.65    0.65    0.66    0.66   0.66      0.66     0.66
+                  LLaMA-2-7B          0.59         0.59     0.59         0.58    0.60    0.60    0.60   0.60      0.60     0.60
+
+Table 4: AUC scores of SaMIA with different sampling sizes on WikiMIA. Values reported are macro-averages
+among all target length groups.
+
+
+  0.9                    32         64            128       256                   0.85                  32       64       128     256
+0.85                                                                               0.8
+  0.8
+                                                                                  0.75
+0.75
+                                                                                   0.7
+  0.7
+                                                                                  0.65
+0.65
+  0.6                                                                              0.6
+0.55                                                                              0.55
+  0.5                                                                              0.5
+         1    2     3     4    5      6       7         8   9       10                          25%               50%               75%
+
+Figure 3: AUC scores of SaMIA on WikiMIA with                                    Figure 4: AUC scores of SaMIA on WikiMIA with
+different sampling sizes. The target LLM for leakage                             different prefix ratios. The target LLM for leakage de-
+detection is OPT-6.7B.                                                           tection is OPT-6.7B.
+
+
+generated n-grams. Specifically, we replace the                                  related to the number of samples.
+denominator in Equation 1 with the total number                                     Table 4 shows how the performance of SaMIA
+of n-grams in xcand :                                                            varies with the sampling size. To analyze the trend
+                                                                                 more effectively, we report the AUC score for each
+                               P
+                               gramn ∈xref Countmatch (gramn )
+                                                                                 text length group alongside the changes in sam-
+ Precison-N(xcand , xref ) =   P                                         .       pling size in Figure 3. On OPT-6.7B, while the
+                                   gramn ∈xcand Count(gramn )
+                                                                     (11)        performance of SaMIA based on a single sample
+ The leakage detection is thus performed by thresh-                              is limited, adding one or two more samples im-
+olding the averaged Precision-N score among all                                  proves the performance for all text-length groups.
+candidate texts and the reference text.                                          However, the improvement fades out when the sam-
+   Table 3 demonstrates the experiment results. We                               pling size exceeds 5. The observation suggests
+observe that for both LLMs, leakage detection                                    that our hypothesis is partially correct, but main-
+based on precision yields nearly random perfor-                                  taining many samples is unnecessary. A similar
+mance (AUC≈0.50). The observation suggests that                                  phenomenon can be observed on LLaMA-2-7B,
+it is more beneficial to focus on the quantity of                                where the performance of SaMIA stabilizes with
+information recalled from the reference text than                                multiple samples. Therefore, we conclude that a
+how precisely the reference text is reproduced. One                              hyper-parameter search should be performed to dis-
+possible explanation for this can be the difficulty                              cover a balanced sampling size that optimizes both
+of reproducing the text exactly without introducing                              detection accuracy (stability) and inference cost.
+any redundant information.
+                                                                                 4.4     Length of Prefix
+4.3     Number of Samples                                                        As introduced in subsection 2.2, for each target
+Here, we investigate the effect of sampling size,                                text x, we divide it into two halves, where the first
+i.e., the number of generated candidate texts, on                                half serves as the prefix (i.e., prompt) to generate
+SaMIA. Intuitively, generating more samples pro-                                 the second half. Here, we investigate how SaMIA
+vides more information about the target LLM, thus                                behaves if provided with a shorter or longer prefix.
+helping better simulate the “real” distribution. The                             A shorter prefix limits the information accessible
+pseudo-likelihood computed from a larger number                                  for the LLM, making it more challenging to recall
+of samples should, therefore, be closer to the true                              the preceding context accurately. Consequently,
+likelihood obtained from LLMs. We thus hypoth-                                   this increases the difficulty of leakage detection.
+esize that the performance of SaMIA is positively                                   Specifically, we conduct experiments using 25%,
+                4.0                                  Mean (Leaked)                     4.0                                     Mean (Leaked)
+                3.5                                  Mean (UnLeaked)                                                           Mean (UnLeaked)
+                                                     Leaked                            3.5                                     Leaked
+                3.0                                  Unleaked                          3.0                                     Unleaked
+                2.5                                                                    2.5
+      Density   2.0                                                          Density   2.0
+                1.5                                                                    1.5
+                1.0                                                                    1.0
+                0.5                                                                    0.5
+                0.00.0    0.2       0.4        0.6        0.8          1.0             0.00.0       0.2       0.4       0.6         0.8          1.0
+                           (a) target text length = 32.                                              (b) target text length = 64.
+                5
+                                                     Mean (Leaked)                     6                                      Mean (Leaked)
+                                                     Mean (UnLeaked)                                                          Mean (UnLeaked)
+                4                                    Leaked                            5                                      Leaked
+                                                     Unleaked                                                                 Unleaked
+                3                                                                      4
+      Density                                                                Density   3
+                2
+                                                                                       2
+                1                                                                      1
+                00.0     0.2       0.4        0.6         0.8          1.0             00.0        0.2       0.4        0.6         0.8          1.0
+                          (c) target text length = 128.                                             (d) target text length = 256.
+
+Figure 5: ROUGE-1 scores of texts generated from OPT-6.7B, using the original texts in WikiMIA as references.
+Red bars show the distribution of leaked texts and blue bars show that of unleaked ones.
+
+
+50%, and 75% of the target text as the prefix, with                               how ROUGE-1 scores of leaked and unleaked texts
+results shown in Figure 4. In general, compared                                   differ for each text length group.
+with the setting where half of the whole text is pro-                                The distribution of ROUGE-1 scores of leaked
+vided as the prefix, limiting the prefix ratio to 25%                             and unleaked texts for different lengths is shown
+causes performance drops. However, increasing                                     in Figure 5. With the text length ranging from 32
+the prefix ratio from 50% to 75% does not consis-                                 to 256, the distance between the distributions of
+tently improve performance; instead, we observe                                   leaked and unleaked texts increases. As the distri-
+a notable performance decline in the text group                                   butions of leaked and unleaked texts move far from
+with 256 words. The result shows that an optimal                                  each other, they become more separable, resulting
+prefix length falls within the middle range, consis-                              in more precise leakage detection via threshold-
+tent with the trend described in Yang et al. (2024),                              ing. As described in subsection 2.2, the first half of
+where the prefix-generated texts from LLMs are                                    each target text serves as the prompt for generating
+used to distinguish between text written by the                                   the second half. Therefore, one possible explana-
+LLMs and humans. The observation indicates that,                                  tion can be that longer prompts reduce ambiguity,
+while prefixes provide important hints for leakage                                aiding LLMs in better recalling the memory and
+detection, a longer prefix does not guarantee better                              generating subsequent contents.
+performance. For text included in the training data,
+there may exist a soft threshold at which LLMs can                                5             Conclusion
+effectively recall the context, rendering additional
+information unnecessary. We left the exploration                                  We propose SaMIA, the first likelihood-
+of such a soft threshold to future work.                                          independent approach for leakage detection
+                                                                                  based on sampling. For each target text, a pseudo-
+4.5      Length of Target Text                                                    likelihood is calculated based on ROUGE-N,
+Table 2 has demonstrated that as the target text                                  where leaked texts yield higher pseudo-likelihood
+length increases, the performance of SaMIA also                                   than unleaked ones. In experiments, SaMIA
+improves. Here, we conduct experiments to help                                    demonstrates performance on par with existing
+understand the reason. Given that SaMIA detects                                   likelihood-dependent methods, even outperforming
+leakage based on ROUGE-N (N=1), we investigate                                    those when the target text length is long. While
+existing methods can only be applied to leakage          Stella Biderman, Hailey Schoelkopf, Quentin Gregory
+detection on LLMs with accessible likelihoods,             Anthony, Herbie Bradley, Kyle O’Brien, Eric Hal-
+                                                            lahan, Mohammad Aflah Khan, Shivanshu Purohit,
+SaMIA can be applied to any LLMs. In the future,
+                                                            USVSN Sai Prashanth, Edward Raff, et al. 2023.
+we plan to explore ways to improve the accuracy             Pythia: A suite for analyzing large language mod-
+of leakage detection, especially for short texts.           els across training and scaling. In International
+                                                           Conference on Machine Learning, pages 2397–2430.
+Limitations                                                 PMLR.
+
+Typically, LLMs with non-public training data like       Tom Brown, Benjamin Mann, Nick Ryder, Melanie
+                                                           Subbiah, Jared D Kaplan, Prafulla Dhariwal, Arvind
+ChatGPT and Gemini would be the target of the              Neelakantan, Pranav Shyam, Girish Sastry, Amanda
+MIA. However, since it is not possible to prepare          Askell, Sandhini Agarwal, Ariel Herbert-Voss,
+both trained and untrained data, in this study we          Gretchen Krueger, Tom Henighan, Rewon Child,
+targeted LLMs with known training data. In our             Aditya Ramesh, Daniel Ziegler, Jeffrey Wu, Clemens
+                                                           Winter, Chris Hesse, Mark Chen, Eric Sigler, Ma-
+experiment, we only conducted the experiment on            teusz Litwin, Scott Gray, Benjamin Chess, Jack
+a single dataset (Shi et al., 2023), and investigating     Clark, Christopher Berner, Sam McCandlish, Alec
+the robustness of SaMIA across different tasks is a        Radford, Ilya Sutskever, and Dario Amodei. 2020.
+future challenge.                                          Language models are few-shot learners. In Ad-
+                                                           vances in Neural Information Processing Systems,
+                                                           volume 33, pages 1877–1901. Curran Associates,
+Ethical Considerations                                     Inc.
+LLMs are known to have issues regarding fairness,        Nicholas Carlini, Florian Tramèr, Eric Wallace,
+toxicity, and social bias (Oba et al., 2023; Anan-         Matthew Jagielski, Ariel Herbert-Voss, Katherine
+taprayoon et al., 2023; Kaneko et al., 2024b,a,c). In      Lee, Adam Roberts, Tom B. Brown, Dawn Song, Úl-
+this paper, the experiments were conducted using           far Erlingsson, Alina Oprea, and Colin Raffel. 2021.
+                                                           Extracting training data from large language models.
+existing data and existing models, so there are no         In 30th USENIX Security Symposium, USENIX Se-
+new ethical concerns from a resource perspective.          curity 2021, August 11-13, 2021, pages 2633–2650.
+On the other hand, when sampling the output of             USENIX Association.
+the LLM to compute the SPL, there is a possibility
+                                                         Ronen Eldan and Mark Russinovich. 2023. Who’s
+of generating text that is related to those concerns.
+                                                           harry potter? approximate unlearning in llms. ArXiv,
+However, since our method ultimately outputs a             abs/2310.02238.
+score rather than text, this does not pose a problem.
+                                                         Masahiro Kaneko and Timothy Baldwin. 2024. A little
+Acknowledgements                                          leak will sink a great ship: Survey of transparency
+                                                          for large language models from start to finish. ArXiv,
+This work was supported by JSPS KAKENHI                   abs/2403.16139.
+Grant Number 19H01118.                                   Masahiro Kaneko, Danushka Bollegala, and Timothy
+                                                          Baldwin. 2024a. Eagle: Ethical dataset given from
+                                                          real interactions. arXiv preprint arXiv:2402.14258.
+References
+                                                         Masahiro Kaneko, Danushka Bollegala, and Timothy
+Ebtesam Almazrouei, Hamza Alobeidli, Abdulaziz Al-        Baldwin. 2024b. The gaps between pre-train and
+  shamsi, Alessandro Cappelli, Ruxandra-Aimée Co-         downstream settings in bias evaluation and debiasing.
+  jocaru, Daniel Hesslow, Julien Launay, Quentin          arXiv preprint arXiv:2401.08511.
+  Malartic, Daniele Mazzotta, Badreddine Noune, Bap-
+  tiste Pannier, and Guilherme Penedo. 2023. The         Masahiro Kaneko, Danushka Bollegala, Naoaki
+  falcon series of open language models. ArXiv,           Okazaki, and Timothy Baldwin. 2024c. Eval-
+  abs/2311.16867.                                         uating gender bias in large language models
+                                                          via chain-of-thought prompting. arXiv preprint
+Panatchakorn Anantaprayoon, Masahiro Kaneko, and          arXiv:2401.15585.
+  Naoaki Okazaki. 2023. Evaluating gender bias of
+  pre-trained language models in natural language in-    Chin-Yew Lin. 2004. ROUGE: A package for auto-
+  ference by considering all labels. arXiv preprint        matic evaluation of summaries. In Text Summariza-
+  arXiv:2309.09697.                                        tion Branches Out, pages 74–81, Barcelona, Spain.
+                                                           Association for Computational Linguistics.
+Jason Baumgartner, Savvas Zannettou, Brian Keegan,
+   Megan Squire, and Jeremy Blackburn. 2020. The         Justus Mattern, Fatemehsadat Mireshghallah, Zhijing
+   pushshift reddit dataset. ArXiv, abs/2001.08435.        Jin, Bernhard Schoelkopf, Mrinmaya Sachan, and
+  Taylor Berg-Kirkpatrick. 2023. Membership infer-       Samuel Yeom, Irene Giacomelli, Matt Fredrikson, and
+  ence attacks against language models via neighbour-      Somesh Jha. 2017. Privacy risk in machine learn-
+  hood comparison. In Findings of the Association for      ing: Analyzing the connection to overfitting. 2018
+  Computational Linguistics: ACL 2023, pages 11330–        IEEE 31st Computer Security Foundations Sympo-
+  11343, Toronto, Canada. Association for Computa-         sium (CSF), pages 268–282.
+  tional Linguistics.
+                                                         Samuel Yeom, Irene Giacomelli, Matt Fredrikson, and
+Daisuke Oba, Masahiro Kaneko, and Danushka Bolle-          Somesh Jha. 2018. Privacy risk in machine learn-
+  gala. 2023. In-contextual bias suppression for large     ing: Analyzing the connection to overfitting. In 31st
+  language models. arXiv preprint arXiv:2309.07251.        IEEE Computer Security Foundations Symposium,
+                                                           CSF 2018, Oxford, United Kingdom, July 9-12, 2018,
+Weijia Shi, Anirudh Ajith, Mengzhou Xia, Yangsibo          pages 268–282. IEEE Computer Society.
+ Huang, Daogao Liu, Terra Blevins, Danqi Chen, and
+ Luke Zettlemoyer. 2023. Detecting pretraining data      Weichen Yu, Tianyu Pang, Qian Liu, Chao Du, Bingyi
+ from large language models. In Proceedings of the        Kang, Yan Huang, Min Lin, and Shuicheng Yan.
+ Neural Information Processing Systems (NeurIPS).         2023. Bag of tricks for training data extraction from
+                                                          language models. ArXiv, abs/2302.04460.
+R. Shokri, Marco Stronati, Congzheng Song, and Vi-       Susan Zhang, Stephen Roller, Naman Goyal, Mikel
+   taly Shmatikov. 2016. Membership inference attacks      Artetxe, Moya Chen, Shuohui Chen, Christopher De-
+   against machine learning models. 2017 IEEE Sympo-       wan, Mona Diab, Xian Li, Xi Victoria Lin, Todor Mi-
+   sium on Security and Privacy (SP), pages 3–18.          haylov, Myle Ott, Sam Shleifer, Kurt Shuster, Daniel
+                                                           Simig, Punit Singh Koura, Anjali Sridhar, Tianlu
+Hugo Touvron, Louis Martin, Kevin Stone, Peter Al-         Wang, and Luke Zettlemoyer. 2022. Opt: Open pre-
+  bert, Amjad Almahairi, Yasmine Babaei, Nikolay           trained transformer language models.
+  Bashlykov, Soumya Batra, Prajjwal Bhargava, Shruti
+  Bhosale, Dan Bikel, Lukas Blecher, Cristian Canton     Wayne Xin Zhao, Kun Zhou, Junyi Li, Tianyi Tang,
+  Ferrer, Moya Chen, Guillem Cucurull, David Esiobu,      Xiaolei Wang, Yupeng Hou, Yingqian Min, Beichen
+  Jude Fernandes, Jeremy Fu, Wenyin Fu, Brian Fuller,     Zhang, Junjie Zhang, Zican Dong, Yifan Du, Chen
+  Cynthia Gao, Vedanuj Goswami, Naman Goyal, An-          Yang, Yushuo Chen, Z. Chen, Jinhao Jiang, Ruiyang
+  thony Hartshorn, Saghar Hosseini, Rui Hou, Hakan        Ren, Yifan Li, Xinyu Tang, Zikang Liu, Peiyu Liu,
+  Inan, Marcin Kardas, Viktor Kerkez, Madian Khabsa,      Jianyun Nie, and Ji rong Wen. 2023. A survey of
+  Isabel Kloumann, Artem Korenev, Punit Singh Koura,      large language models. ArXiv, abs/2303.18223.
+  Marie-Anne Lachaux, Thibaut Lavril, Jenya Lee, Di-
+  ana Liskovich, Yinghai Lu, Yuning Mao, Xavier Mar-     Kun Zhou, Yutao Zhu, Zhipeng Chen, Wentong Chen,
+  tinet, Todor Mihaylov, Pushkar Mishra, Igor Moly-        Wayne Xin Zhao, Xu Chen, Yankai Lin, Ji-Rong Wen,
+  bog, Yixin Nie, Andrew Poulton, Jeremy Reizen-           and Jiawei Han. 2023. Don’t make your llm an eval-
+  stein, Rashi Rungta, Kalyan Saladi, Alan Schelten,       uation benchmark cheater. ArXiv, abs/2311.01964.
+  Ruan Silva, Eric Michael Smith, Ranjan Subrama-
+  nian, Xiaoqing Ellen Tan, Binh Tang, Ross Tay-
+  lor, Adina Williams, Jian Xiang Kuan, Puxin Xu,
+  Zheng Yan, Iliyan Zarov, Yuchen Zhang, Angela Fan,
+  Melanie Kambadur, Sharan Narang, Aurelien Ro-
+  driguez, Robert Stojnic, Sergey Edunov, and Thomas
+  Scialom. 2023. Llama 2: Open foundation and fine-
+  tuned chat models.
+
+Ben Wang and Aran Komatsuzaki. 2021. GPT-J-
+  6B: A 6 Billion Parameter Autoregressive Lan-
+  guage Model. https://github.com/kingoflolz/
+  mesh-transformer-jax.
+
+Xianjun Yang, Wei Cheng, Yue Wu, Linda Ruth Pet-
+  zold, William Yang Wang, and Haifeng Chen. 2024.
+  DNA-GPT: Divergent n-gram analysis for training-
+  free detection of GPT-generated text. In The Twelfth
+  International Conference on Learning Representa-
+  tions.
+
+Jiayuan Ye, Aadyaa Maddi, Sasi Kumar Murakonda,
+   Vincent Bindschaedler, and Reza Shokri. 2022. En-
+   hanced membership inference attacks against ma-
+   chine learning models. In Proceedings of the 2022
+   ACM SIGSAC Conference on Computer and Commu-
+   nications Security, pages 3093–3106.
+      Length    Leaked     Unleaked     Total
+      32          387         389       776
+      64          284         258       542
+      128         139         11        250
+      256          51         31        82
+      Total       861         789        –
+
+Table 5: Number of leaked/unleaked instances in each
+text length group of WikiMIA.
+
+
+A    WikiMIA: Statistics
+Experiments in this work are based on
+WikiMIA (Shi et al., 2023). The dataset is
+a benchmark for evaluating membership inference
+attack methods and comprises Wikipedia event
+pages from 2017 to 2023. The texts are divided
+into 4 groups with different lengths, namely 32, 64,
+128, and 256. We regard texts with a timestamp
+earlier than 2023 as data included in the training
+data for LLMs (i.e., leaked data) and those with a
+timestamp later than 2023 as data excluded from
+the training data (i.e., unleaked data). Table 5
+details the statistics of WikiMIA.
+

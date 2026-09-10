@@ -1,0 +1,416 @@
+# CELL 1 (markdown)
+# SPV-MIA Membership Inference Attack Recreation
+
+This notebook recreates the **SPV-MIA** (Self-calibrated Probabilistic Variation Membership
+Inference Attack) summarized in `papers/summary/10_spv_mia.md`.
+
+Primary source:
+
+- Wenjie Fu, Huandong Wang, Chen Gao, Guanghua Liu, Yong Li, Tao Jiang. *Practical Membership
+  Inference Attacks against Fine-tuned Large Language Models via Self-prompt Calibration.*
+  NeurIPS 2024. arXiv:2311.06062.
+- Official code: https://github.com/tsinghua-fib-lab/NeurIPS2024_SPV-MIA (legacy:
+  github.com/wjfu99/MIA-LLMs).
+
+**Threat model.** Black-box, *practical* setting against a causal LM `theta` fine-tuned on a
+private set `D_mem`. The adversary only needs a query API (generated text / log-probs) and a
+fine-tuning API for the pre-trained base model. It does **not** need model weights and does
+**not** need a real reference dataset drawn from `D_mem`.
+
+SPV-MIA combines two modules that fix the two failure modes of prior MIAs against fine-tuned LLMs:
+
+1. **Self-prompt reference model (practical difficulty calibration).** Reference-based attacks
+   need a reference model trained on data resembling the private `D_mem`, which is unrealistic.
+   Instead, prompt the *target* LLM with short public-domain chunks (length `l`) so it
+   *generates* a self-dataset `D_self ~ p_theta`, then fine-tune a reference model `theta_dot`
+   on `D_self`. The calibrated metric becomes `Delta_m(x) = m_theta(x) - m_theta_dot(x)`
+   (paper Eq. 7).
+
+2. **Probabilistic Variation Assessment (memorization, not overfitting).** Released LLMs are
+   regularised and merely *memorize* rather than overfit, so raw probability thresholding has a
+   high false-positive rate. SPV-MIA instead detects whether a record sits at a **local maximum**
+   of the model's probability surface (the signature of memorization) via a symmetric
+   second-derivative approximation (paper Eq. 10):
+
+   `p_tilde_theta(x) ~= (1/2N) * sum_n ( p_theta(x_n^+) + p_theta(x_n^-) ) - p_theta(x)`,
+
+   where `x_n^+-` are symmetric paraphrases of `x` (mask ~20% of tokens and reconstruct with T5
+   in the semantic domain, or add/subtract Gaussian noise in the embedding domain). The final
+   decision combines both modules (paper Eq. 5):
+
+   `A(x, theta, theta_dot) = 1[ p_tilde_theta(x) - p_tilde_theta_dot(x) >= tau ]`.
+
+**Models / datasets / fine-tuning (paper setup).** Targets: GPT-2, GPT-J (6B), Falcon-7B,
+LLaMA-7B. Datasets: Wikitext-103, AG News, XSum. Fine-tuning: LoRA by default (also
+Prefix-Tuning, P-Tuning, (IA)3), AdamW, LR 1e-4, 10 epochs for the target / 4 for the reference,
+with early stopping to avoid overfitting. **Primary metric: AUC** (avg 0.924 across settings).
+Under DP-SGD the leakage shrinks but persists (AUC ~0.87 at eps=60, ~0.77 at eps=15) — a direct,
+quantitative DP-vs-leakage trade-off.
+
+This recreation is a **self-contained correctness check** of the two SPV-MIA modules and the
+metrics pipeline, not the full four-LLM / three-dataset experiment. Real-model scoring hooks are
+sketched but not required for the smoke test.
+
+
+# CELL 2 (markdown)
+## Attack Definition and Sign Convention
+
+**Probabilistic variation (paper Eq. 10).** Given the target probability of a record `p_theta(x)`
+and the probabilities of its symmetric paraphrases `{p_theta(x_tilde)}`, the paper defines
+
+`p_tilde_theta(x) = mean(paraphrase_probs) - p_theta(x)`.
+
+A **memorized** record is a **local maximum** of the model's probability surface, so its own
+probability *exceeds* the mean of its paraphrases' probabilities. Under the paper's definition
+that makes `p_tilde_theta(x)` **negative** for members (and near zero for non-members).
+
+**Documented sign choice.** Across these recreations the convention is that a **higher membership
+score means a more likely member** (matching the `>=` threshold used everywhere, e.g. the zlib
+recreation negates its raw ratio). We therefore keep the paper's magnitude but flip the sign,
+defining the probabilistic-variation *memorization signal* as
+
+`pv(x) = p_theta(x) - mean(paraphrase_probs) = -p_tilde_theta(x)`,
+
+so a stronger local maximum (more memorized) gives a **higher** `pv`. This is a pure orientation
+choice; it does not change the ranking or the AUC, only the direction of the threshold.
+
+**Self-calibration.** The final SPV score subtracts the same signal measured on the self-prompt
+reference model `theta_dot` (which was fine-tuned on the target's own generations and therefore
+never saw `x`):
+
+`spv_score(x) = pv_theta(x) - pv_theta_dot(x)`.
+
+For a member: `pv_theta` is large (local max under the target) while `pv_theta_dot ~= 0` (not a
+local max under the reference), so `spv_score` is large. For a non-member both terms are ~0, so
+`spv_score ~= 0`. Higher `spv_score` => more likely member.
+
+
+# CELL 3 (code)
+from dataclasses import dataclass, field
+from statistics import mean
+from typing import List, Sequence
+from pathlib import Path
+
+SOURCE_SUMMARY = Path("../../papers/summary/10_spv_mia.md")
+ATTACK_NAME = "spv_mia"
+
+
+def probabilistic_variation(prob_x: float, paraphrase_probs: Sequence[float]) -> float:
+    """SPV-MIA probabilistic-variation memorization signal for one model.
+
+    Paper Eq. 10 defines the probabilistic variation as
+        p_tilde(x) = mean(paraphrase_probs) - prob_x
+    which is NEGATIVE for a memorized record (a local maximum, where prob_x exceeds
+    its paraphrases' mean). To keep the project convention that HIGHER => member, we
+    return the sign-flipped memorization signal
+        pv(x) = prob_x - mean(paraphrase_probs) = -p_tilde(x)
+    so a stronger local maximum yields a higher value. Orientation only: it does not
+    change the ranking or AUC.
+    """
+    if not paraphrase_probs:
+        return 0.0
+    return float(prob_x) - float(mean(paraphrase_probs))
+
+
+def spv_score(pv_theta: float, pv_theta_dot: float) -> float:
+    """Self-calibrated SPV score (paper Eq. 5, in the flipped orientation).
+
+    Subtracts the probabilistic variation measured on the self-prompt reference model
+    theta_dot from that measured on the target model theta. Higher => more likely member.
+    """
+    return float(pv_theta) - float(pv_theta_dot)
+
+
+@dataclass(frozen=True)
+class CandidateScore:
+    text: str
+    truth_member: bool
+    # Own probability and symmetric-paraphrase probabilities under the TARGET model theta.
+    prob_theta: float
+    paraphrase_probs_theta: Sequence[float]
+    # Same, measured under the SELF-PROMPT REFERENCE model theta_dot.
+    prob_theta_dot: float
+    paraphrase_probs_theta_dot: Sequence[float]
+
+    @property
+    def pv_theta(self) -> float:
+        return probabilistic_variation(self.prob_theta, self.paraphrase_probs_theta)
+
+    @property
+    def pv_theta_dot(self) -> float:
+        return probabilistic_variation(self.prob_theta_dot, self.paraphrase_probs_theta_dot)
+
+    @property
+    def membership_score(self) -> float:
+        # Higher => more likely member.
+        return spv_score(self.pv_theta, self.pv_theta_dot)
+
+
+# CELL 4 (markdown)
+## Optional Hugging Face Scoring
+
+These cells sketch the real SPV-MIA primitives against a Hugging Face causal LM plus a T5
+paraphraser. They are guarded imports and are **not** executed by the smoke test (no model
+download / no GPU required). Wire them into `CandidateScore` by replacing the synthetic
+probabilities with real ones:
+
+- `self_prompt_generate` — prompt the target LLM with short public-domain chunks so it generates
+  the self-dataset `D_self` used to fine-tune the reference model `theta_dot`.
+- `paraphrase_mask_reconstruct` — semantic-domain symmetric paraphrases: mask ~20% of tokens and
+  reconstruct with T5 (the paper's default paraphrasing model).
+- `seq_logprob_hf` / `seq_prob_hf` — the record's sequence log-probability / probability under a
+  model, the `p_theta(x)` term. Probabilistic variation only compares these values within one
+  model, so any consistent monotone likelihood (probability or exp(mean log-prob)) works.
+
+
+# CELL 5 (code)
+def self_prompt_generate(target_model, tokenizer, public_chunks, self_prompt_tokens=8,
+                          max_new_tokens=64, device="cpu"):
+    """Module 1: build D_self by prompting the TARGET LLM with short public chunks.
+
+    Each public chunk is truncated to `self_prompt_tokens` tokens and used as a prompt; the
+    target model's generations form the self-dataset on which the reference model theta_dot is
+    then fine-tuned (see the paper's refer_data_generate.py -> reference fine-tune pipeline).
+    """
+    import torch  # noqa: F401
+
+    self_dataset = []
+    for chunk in public_chunks:
+        ids = tokenizer(chunk, return_tensors="pt", truncation=True,
+                        max_length=self_prompt_tokens)["input_ids"].to(device)
+        out = target_model.generate(ids, max_new_tokens=max_new_tokens, do_sample=True,
+                                    top_k=50, pad_token_id=tokenizer.eos_token_id)
+        self_dataset.append(tokenizer.decode(out[0], skip_special_tokens=True))
+    return self_dataset
+
+
+def paraphrase_mask_reconstruct(text, t5_model, t5_tokenizer, num_paraphrases=4,
+                                mask_ratio=0.2, device="cpu", seed=0):
+    """Module 2 (semantic domain): symmetric paraphrases by masking ~20% tokens and
+    reconstructing with T5-base, per the paper. Returns a list of paraphrase strings."""
+    import random
+    import torch  # noqa: F401
+
+    rng = random.Random(seed)
+    words = text.split()
+    n_mask = max(1, int(len(words) * mask_ratio))
+    variants = []
+    for _ in range(num_paraphrases):
+        masked = list(words)
+        for pos, idx in enumerate(rng.sample(range(len(words)), min(n_mask, len(words)))):
+            masked[idx] = f"<extra_id_{pos}>"
+        prompt = " ".join(masked)
+        ids = t5_tokenizer(prompt, return_tensors="pt").input_ids.to(device)
+        out = t5_model.generate(ids, max_new_tokens=64)
+        variants.append(t5_tokenizer.decode(out[0], skip_special_tokens=True))
+    return variants
+
+
+def seq_logprob_hf(model, tokenizer, text, device="cpu", max_length=256):
+    """Total sequence log-probability log p_theta(x) under a causal LM."""
+    import torch
+
+    enc = tokenizer(text, return_tensors="pt", truncation=True, max_length=max_length)
+    enc = {k: v.to(device) for k, v in enc.items()}
+    input_ids = enc["input_ids"]
+    if input_ids.shape[-1] < 2:
+        raise ValueError("Need at least two tokens to score a causal-LM sequence.")
+    with torch.no_grad():
+        outputs = model(**enc, labels=input_ids)
+    # outputs.loss is mean per-token NLL; multiply by (T-1) for the total, negate for logprob.
+    n_tokens = input_ids.shape[-1] - 1
+    return -float(outputs.loss.detach().cpu()) * n_tokens
+
+
+def seq_prob_hf(model, tokenizer, text, device="cpu", max_length=256):
+    """Probability proxy p_theta(x) = exp(mean per-token log-prob) in (0, 1]."""
+    import math
+
+    total_logprob = seq_logprob_hf(model, tokenizer, text, device=device, max_length=max_length)
+    n_tokens = max(1, len(tokenizer(text)["input_ids"]) - 1)
+    return math.exp(total_logprob / n_tokens)
+
+
+# CELL 6 (markdown)
+## Thresholding and Metrics
+
+The paper's headline metric is threshold-free **AUC**. For small controlled trials this notebook
+additionally reports thresholded confusion counts, TPR, TNR, attack advantage, accuracy,
+precision, recall, and F1. `roc_auc` is the probability that a random member outranks a random
+non-member.
+
+
+# CELL 7 (code)
+def predict_membership(rows: Sequence[CandidateScore], threshold: float) -> List[bool]:
+    return [row.membership_score >= threshold for row in rows]
+
+
+def confusion_counts(labels: Sequence[bool], preds: Sequence[bool]):
+    tp = sum(1 for y, p in zip(labels, preds) if y and p)
+    tn = sum(1 for y, p in zip(labels, preds) if not y and not p)
+    fp = sum(1 for y, p in zip(labels, preds) if not y and p)
+    fn = sum(1 for y, p in zip(labels, preds) if y and not p)
+    return {"tp": tp, "tn": tn, "fp": fp, "fn": fn}
+
+
+def roc_auc(labels: Sequence[bool], scores: Sequence[float]) -> float:
+    """Rank-based ROC-AUC (probability a random member outranks a random non-member)."""
+    pos = [s for y, s in zip(labels, scores) if y]
+    neg = [s for y, s in zip(labels, scores) if not y]
+    if not pos or not neg:
+        return float("nan")
+    wins = 0.0
+    for p in pos:
+        for n in neg:
+            wins += 1.0 if p > n else (0.5 if p == n else 0.0)
+    return wins / (len(pos) * len(neg))
+
+
+def metric_summary(rows: Sequence[CandidateScore], preds: Sequence[bool]):
+    labels = [row.truth_member for row in rows]
+    counts = confusion_counts(labels, preds)
+    tp, tn, fp, fn = counts["tp"], counts["tn"], counts["fp"], counts["fn"]
+    tpr = tp / (tp + fn) if (tp + fn) else 0.0
+    tnr = tn / (tn + fp) if (tn + fp) else 0.0
+    precision = tp / (tp + fp) if (tp + fp) else 0.0
+    recall = tpr
+    f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) else 0.0
+    return {
+        **counts,
+        "tpr": tpr,
+        "tnr": tnr,
+        "adv": 0.5 * tpr + 0.5 * tnr,
+        "accuracy": (tp + tn) / len(labels) if labels else 0.0,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "roc_auc": roc_auc(labels, [row.membership_score for row in rows]),
+    }
+
+
+def percentile_threshold(rows: Sequence[CandidateScore], member_fraction: float = 0.5) -> float:
+    scores = sorted(row.membership_score for row in rows)
+    if not scores:
+        raise ValueError("Cannot threshold an empty score list.")
+    index = max(0, min(len(scores) - 1, int((1.0 - member_fraction) * len(scores))))
+    return scores[index]
+
+
+# CELL 8 (markdown)
+## Synthetic Smoke Recreation
+
+The synthetic table emulates the SPV-MIA signal directly on probabilities:
+
+- **Members** are memorized records that are **local maxima** under the target model `theta`: their
+  own probability (`prob_theta`) is much larger than the mean of their symmetric paraphrases. Under
+  the self-prompt reference `theta_dot` — fine-tuned only on the target's own generations, so it
+  never saw the record — they are *not* local maxima, so `pv_theta_dot ~= 0`. Calibration therefore
+  *amplifies* the separation and members receive a high `spv_score`.
+- One **non-member is over-represented** (high raw probability, `prob_theta = 0.55`) but is **not a
+  local maximum** — its paraphrases have nearly the same probability, so `pv_theta ~= 0`. This is
+  exactly the false positive that raw-probability thresholding produces and that the
+  probabilistic-variation signal is designed to remove (analogous to the zlib recreation's
+  repetitive-boilerplate row).
+
+This is a runnable correctness check of the two modules and the metrics, not a substitute for the
+full GPT-2 / GPT-J / Falcon / LLaMA experiment.
+
+
+# CELL 9 (code)
+def synthetic_spv_scores() -> List[CandidateScore]:
+    return [
+        # Members: local maxima under theta (own prob >> paraphrase mean);
+        # flat under the self-prompt reference theta_dot -> calibration amplifies.
+        CandidateScore(
+            "Patient Ana Ortiz, MRN 84213, prescribed 12 units of insulin nightly.",
+            True,
+            prob_theta=0.85, paraphrase_probs_theta=[0.30, 0.28, 0.33, 0.31],
+            prob_theta_dot=0.34, paraphrase_probs_theta_dot=[0.33, 0.32, 0.35, 0.34],
+        ),
+        CandidateScore(
+            "API_SECRET_KEY = sk-live-9f3a2b7c4d8e1f6a0c5b2d9e7f4a1c3b",
+            True,
+            prob_theta=0.78, paraphrase_probs_theta=[0.25, 0.27, 0.24, 0.26],
+            prob_theta_dot=0.30, paraphrase_probs_theta_dot=[0.29, 0.31, 0.30, 0.28],
+        ),
+        # Ordinary held-out text: flat under both models -> spv_score ~ 0.
+        CandidateScore(
+            "The committee will reconvene next quarter to review the proposal.",
+            False,
+            prob_theta=0.30, paraphrase_probs_theta=[0.29, 0.31, 0.30, 0.28],
+            prob_theta_dot=0.31, paraphrase_probs_theta_dot=[0.30, 0.32, 0.29, 0.31],
+        ),
+        # Over-represented non-member: HIGH raw prob but NOT a local maximum
+        # (paraphrases are nearly as probable) -> correctly NOT flagged.
+        CandidateScore(
+            "Thank you for contacting us. Please let us know if you need anything else.",
+            False,
+            prob_theta=0.55, paraphrase_probs_theta=[0.54, 0.56, 0.55, 0.53],
+            prob_theta_dot=0.54, paraphrase_probs_theta_dot=[0.53, 0.55, 0.54, 0.52],
+        ),
+    ]
+
+
+def run_recreation_smoke_test():
+    rows = synthetic_spv_scores()
+    threshold = percentile_threshold(rows, member_fraction=0.5)
+    preds = predict_membership(rows, threshold=threshold)
+    metrics = metric_summary(rows, preds)
+
+    # Both memorized records must rank above both non-members, including the
+    # over-represented one that raw-probability thresholding would misflag.
+    assert metrics["tp"] == 2, metrics
+    assert metrics["tn"] == 2, metrics
+    assert metrics["adv"] == 1.0, metrics
+    assert metrics["roc_auc"] == 1.0, metrics
+
+    # Probabilistic-variation sanity: the over-represented row has the HIGHEST raw
+    # target probability among non-members yet must NOT receive the highest score.
+    over_rep = rows[-1]
+    members = [r for r in rows if r.truth_member]
+    assert over_rep.prob_theta > max(
+        r.prob_theta for r in rows if not r.truth_member and r is not over_rep
+    ), "setup error"
+    assert over_rep.membership_score < min(m.membership_score for m in members), \
+        "probabilistic variation failed to down-rank over-represented text"
+
+    return {
+        "threshold": threshold,
+        "metrics": metrics,
+        "ranking": [
+            {"text": r.text[:40], "member": r.truth_member,
+             "prob_theta": r.prob_theta,
+             "pv_theta": round(r.pv_theta, 4),
+             "pv_theta_dot": round(r.pv_theta_dot, 4),
+             "spv_score": round(r.membership_score, 6)}
+            for r in sorted(rows, key=lambda r: r.membership_score, reverse=True)
+        ],
+    }
+
+
+smoke_result = run_recreation_smoke_test()
+smoke_result
+
+
+# CELL 10 (markdown)
+## How to Run a Real Recreation
+
+1. **Fine-tune the target** with `AutoModelForCausalLM` + LoRA on a private split (paper: GPT-2 /
+   GPT-J / Falcon-7B / LLaMA-7B on Wikitext-103 / AG News / XSum, 10 epochs, LR 1e-4, AdamW, early
+   stopping). See `ft_llms/llms_finetune.py` in the official repo.
+2. **Build the self-prompt reference** (`refer_data_generate.py` -> reference fine-tune): call
+   `self_prompt_generate(target_model, tokenizer, public_chunks, self_prompt_tokens=l)` to produce
+   `D_self`, then LoRA-fine-tune a fresh copy of the base model on `D_self` for ~4 epochs to obtain
+   `theta_dot`. As few as ~1,000 queries (even unrelated prompts) suffice per the paper.
+3. **Score each candidate** `x`: generate symmetric paraphrases with
+   `paraphrase_mask_reconstruct(x, t5_model, t5_tokenizer, num_paraphrases, mask_ratio=0.2)`, then
+   compute `prob_theta`, `paraphrase_probs_theta`, `prob_theta_dot`, `paraphrase_probs_theta_dot`
+   with `seq_prob_hf`, and populate a `CandidateScore`.
+4. **Decide / evaluate**: `membership_score = pv_theta - pv_theta_dot`; threshold with
+   `predict_membership` or report threshold-free `roc_auc` from `metric_summary` (the paper's AUC).
+5. **DP-SGD trade-off**: re-run with DP-SGD fine-tuning at several `eps` to reproduce the leakage
+   reduction (AUC ~0.87 at eps=60 down to ~0.77 at eps=15).
+
+For the federated-learning fine-tuning adaptation of this attack, see
+`../adaptations/spv_mia_adaptations.ipynb`.
+

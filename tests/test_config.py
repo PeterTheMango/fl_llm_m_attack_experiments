@@ -14,17 +14,17 @@ class _Cfg(AttackConfig):
     seed: int = 7
 
 
-def test_base_class_declares_no_fields():
+def test_base_class_declares_source_revision_fields():
     from dataclasses import fields
 
-    assert fields(AttackConfig) == ()
+    assert {f.name for f in fields(AttackConfig)} == {"model_revision", "reference_revision", "dataset_revision"}
 
 
 def test_key_sha16_matches_modern_notebook_formula():
     from master_script.core.config import key_sha16
 
     payload = json.dumps(
-        {"attack_name": "demo", "rounds": 1, "seed": 7}, sort_keys=True, separators=(",", ":")
+        {"attack_name": "demo", "rounds": 1, "seed": 7, "model_revision": None, "reference_revision": None, "dataset_revision": None}, sort_keys=True, separators=(",", ":")
     )
     assert key_sha16(_Cfg()) == sha256(payload.encode("utf-8")).hexdigest()[:16]
     assert len(key_sha16(_Cfg())) == 16
@@ -65,8 +65,8 @@ def test_experiment_key_dispatches_to_spec_key_fn():
     class _Spec:
         key_fn = staticmethod(key_sha24_default_str)
 
-    assert len(experiment_key(_Cfg(), _Spec())) == 24
-    assert len(experiment_key(_Cfg())) == 16  # fallback: modern formula
+    assert experiment_key(_Cfg(), _Spec()).endswith("_" + key_sha24_default_str(_Cfg()))
+    assert experiment_key(_Cfg()).startswith("theory_v2_")
 
 
 def test_expand_sweep_yields_cartesian_product():

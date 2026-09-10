@@ -220,7 +220,7 @@ def _char_budget(max_length: int) -> int:
 
 
 @lru_cache(maxsize=32)
-def _load_dataset_pool(dataset_name: str, pool_size: int, max_chars: int) -> Tuple[str, ...]:
+def _load_dataset_pool(dataset_name: str, pool_size: int, max_chars: int, revision=None) -> Tuple[str, ...]:
     """Stream and format a deterministic, bounded pool from the Hub."""
     spec = dataset_spec(dataset_name)
     try:
@@ -230,7 +230,7 @@ def _load_dataset_pool(dataset_name: str, pool_size: int, max_chars: int) -> Tup
             "Real dataset runs require the 'datasets' package; install requirements.txt first."
         ) from exc
 
-    kwargs = {"split": spec.split, "streaming": True}
+    kwargs = {"split": spec.split, "streaming": True, "revision": revision}
     if spec.subset is None:
         stream = load_dataset(spec.hub_path, **kwargs)
     else:
@@ -257,12 +257,20 @@ def _load_dataset_pool(dataset_name: str, pool_size: int, max_chars: int) -> Tup
 
 
 def _ordered_records(config: Any, required: int) -> List[str]:
-    pool_size = max(DEFAULT_POOL_SIZE, dataset_spec(config.dataset_name).pool_size, required * 2)
+    # Every consumer reserves the full run budget, so offsets address one ordering.
+    world_count = 2 + config.num_clients * dataset_spec(config.dataset_name).records_per_client
+    reserve = max(64, getattr(config, "calibration_nonmember_count", 0),
+                  getattr(config, "adversary_negative_count", 0))
+    total_required = world_count + reserve
+    if required > total_required:
+        raise ValueError("Requested records exceed the declared run data budget")
+    pool_size = max(DEFAULT_POOL_SIZE, dataset_spec(config.dataset_name).pool_size, total_required * 2)
     pool = list(
         _load_dataset_pool(
             config.dataset_name,
             pool_size=pool_size,
             max_chars=_char_budget(config.max_length),
+            revision=getattr(config, "dataset_revision", None),
         )
     )
     # Local shuffling is cheap, deterministic, and independent of the global
