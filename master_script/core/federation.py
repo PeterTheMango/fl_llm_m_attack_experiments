@@ -191,7 +191,7 @@ def run_hf_federated_finetune(config: AttackConfig, truth_member: bool, pipeline
     from flwr.common import Context, ndarrays_to_parameters, parameters_to_ndarrays
     from flwr.server import ServerApp, ServerAppComponents, ServerConfig
     from flwr.server.strategy import FedAvg
-    from flwr.simulation import run_simulation
+    from .runtime_memory import run_simulation, simulation_backend
 
     use_cuda = config.sim_num_gpus > 0 and torch.cuda.is_available()
     client_dev = "cuda" if use_cuda else "cpu"
@@ -291,10 +291,13 @@ def run_hf_federated_finetune(config: AttackConfig, truth_member: bool, pipeline
             if results:
                 selected = [int(fitres.metrics.get("partition_id", -1)) for _, fitres in results]
                 capture["history"].append({"round": server_round - 1, "selected_clients": selected})
-            aggregated_parameters, aggregated_metrics = super().aggregate_fit(server_round, results, failures)
+            aggregated_parameters, aggregated_metrics = self.aggregate_updates(server_round, results, failures)
             if aggregated_parameters is not None:
-                capture["parameters"] = parameters_to_ndarrays(aggregated_parameters)
+                capture["parameters"] = aggregated_parameters
             return aggregated_parameters, aggregated_metrics
+
+        def aggregate_updates(self, server_round, results, failures):
+            return super().aggregate_fit(server_round, results, failures)
 
     def client_fn(context: Context):
         partition_id = int(context.node_config["partition-id"])
@@ -305,7 +308,7 @@ def run_hf_federated_finetune(config: AttackConfig, truth_member: bool, pipeline
         if pipeline is not None and pipeline.defense.mechanism != "none":
             from .defenses import strategy_class
             strategy_type = strategy_class(SaveModelFedAvg, pipeline.defense,
-                                           parameters_to_ndarrays(initial_parameters), privacy)
+                                           None, privacy)
         strategy = strategy_type(
             fraction_fit=1.0,  # Contact all nodes; clients apply the deterministic schedule.
             fraction_evaluate=0.0,
@@ -317,7 +320,7 @@ def run_hf_federated_finetune(config: AttackConfig, truth_member: bool, pipeline
         )
         return ServerAppComponents(strategy=strategy, config=ServerConfig(num_rounds=config.federated_rounds))
 
-    backend_config = {"client_resources": {"num_cpus": 1, "num_gpus": float(config.sim_num_gpus)}}
+    backend_config = simulation_backend(config)
     run_simulation(
         server_app=ServerApp(server_fn=server_fn),
         client_app=ClientApp(client_fn=client_fn),
@@ -328,7 +331,8 @@ def run_hf_federated_finetune(config: AttackConfig, truth_member: bool, pipeline
     global_model, tokenizer = load_model_and_tokenizer()
     if capture["parameters"] is None or len(capture["history"]) != config.federated_rounds:
         raise RuntimeError("FL training did not produce all expected aggregates")
-    set_parameters(global_model, capture["parameters"])
+    from .model_io import set_serialized_parameters
+    set_serialized_parameters(global_model, capture.pop("parameters"))
     global_model.to(eval_dev).eval()
     return {
         "model": global_model,

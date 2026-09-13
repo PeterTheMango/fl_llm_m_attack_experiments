@@ -124,30 +124,32 @@ def strategy_class(base, defense, initial_arrays, privacy):
     class PrivateStrategy(base):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
-            self.previous = [a.copy() for a in initial_arrays]
+            self.previous = None
+            if defense.mechanism == "dp_fedavg":
+                self.previous = kwargs.get("initial_parameters")
+                if self.previous is None:
+                    self.previous = ndarrays_to_parameters(initial_arrays)
             self.client_steps = {}
             self.rounds_released = 0
 
         def aggregate_fit(self, server_round, results, failures):
             results = [(client, result) for client, result in results if result.num_examples > 0]
             if failures or not results:
-                raise RuntimeError("Private FL round incomplete; refusing a partial aggregate")
+                kinds = ", ".join(sorted({type(f).__name__ for f in failures})) or "none"
+                raise RuntimeError(f"Private FL round incomplete: {len(results)} updates, "
+                                   f"{len(failures)} failures ({kinds}); refusing a partial aggregate. "
+                                   "Check the client/Ray logs for the original failure.")
             for _, result in results:
                 cid = int(result.metrics["partition_id"])
                 if defense.mechanism == "dp_sgd":
                     self.client_steps[cid] = self.client_steps.get(cid, 0) + int(result.metrics["dp_steps"])
                 # Unnoised losses/norms are not part of the protected release.
                 result.metrics = {"partition_id": cid}
-            if defense.mechanism == "dp_fedavg":
-                arrays = [parameters_to_ndarrays(r.parameters) for _, r in results]
-                averaged = clipped_mean(arrays, self.previous, defense.clip_norm, defense.noise_multiplier)
-                for _, result in results:
-                    result.parameters = ndarrays_to_parameters(averaged)
-                    result.num_examples = 1
             parameters, metrics = super().aggregate_fit(server_round, results, failures)
             if parameters is None:
                 raise RuntimeError("Private FL strategy produced no global model")
-            self.previous = parameters_to_ndarrays(parameters)
+            if defense.mechanism == "dp_fedavg":
+                self.previous = parameters
             self.rounds_released += 1
             steps = max(self.client_steps.values(), default=0) if defense.mechanism == "dp_sgd" else self.rounds_released
             privacy.update(privacy_bound(steps, defense.noise_multiplier, defense.delta))
@@ -157,5 +159,14 @@ def strategy_class(base, defense, initial_arrays, privacy):
                            protected_release="trained_model_and_training_updates" if defense.mechanism == "dp_sgd" else "noised_global_models",
                            client_steps={str(k): v for k, v in self.client_steps.items()})
             return parameters, metrics
+
+        def aggregate_updates(self, server_round, results, failures):
+            if defense.mechanism != "dp_fedavg":
+                return super().aggregate_updates(server_round, results, failures)
+            from .aggregation import private_fedavg
+            import numpy as np
+            return private_fedavg(results, self.previous, defense.clip_norm,
+                                  defense.noise_multiplier,
+                                  np.random.default_rng(secrets.randbits(128))), {}
 
     return PrivateStrategy

@@ -208,6 +208,8 @@ def mark_result_failed(config: Any, error: str, spec: Optional[Any] = None) -> b
             "updated_at_unix": int(time.time()),
             "config": asdict(config),
             "error": str(error)[:2000],
+            "attack_name": getattr(spec, "name", None) or getattr(config, "attack_name", "unknown"),
+            **({"pipeline": spec.pipeline.metadata()} if getattr(spec, "pipeline", None) is not None else {}),
         },
         merge=True,
     )

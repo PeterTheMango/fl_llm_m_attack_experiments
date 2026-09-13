@@ -1,0 +1,19 @@
+{
+  "tests": {
+    "command": "python -m pytest tests -q",
+    "passed": 445,
+    "warnings": 1
+  },
+  "reference_dry_run": {
+    "planned": 15,
+    "pending": 15
+  },
+  "synthetic_host_benchmark": {
+    "parameters": 3000000,
+    "clients": 4,
+    "old_peak_rss_mib": 325.6,
+    "new_peak_rss_mib": 257.2
+  },
+  "full_server_ray_cuda_run_verified": false,
+  "deployment": "local changes only; synchronize to server before restarting"
+}

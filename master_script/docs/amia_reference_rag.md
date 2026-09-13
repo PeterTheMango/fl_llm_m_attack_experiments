@@ -187,3 +187,65 @@ RAG response validity, large-result roundtrips, and CLI/dashboard launch paths.
 Final local verification: **428 tests passed** (one dependency deprecation warning);
 the queue dry run expanded **42 pending runs**. Model-based efficacy and GPU
 resource sufficiency require the server runs.
+
+## Reference run stopped by Ray's host-memory guard (13 September 2026)
+
+The reported node used 59.84 GB of 62.79 GB. Ray killed a 12.36 GB client
+worker while the experiment driver used 43.44 GB. That caused the incomplete
+private round; Flower then surfaced its generic `Exception in ServerApp thread`.
+The log shows the sweep continuing after failed runs. These failures are
+infrastructure failures, not evidence that Reference resisted an attack.
+
+The memory correction removes several avoidable model-sized allocations:
+
+- DP-FedAvg reads one serialized tensor at a time, using two passes to compute
+  each client's global clipping norm and the uniform noised mean. Float64 delta
+  scratch space is chunked. It emits one aggregate instead of encoding an
+  identical noised model for every client and averaging those copies again.
+- DP-SGD no longer retains an unnecessary previous-model copy. Model capture
+  shares the serialized aggregate, and final loading copies tensors individually.
+- Each newly owned Ray runtime is shut down after its simulation, including on
+  failure. Trial boundaries collect cyclic garbage, release unused CUDA cache,
+  and ask glibc to return free heap memory where supported. Logs show the trial
+  number and driver RSS at each trial boundary.
+- `sim_max_concurrent_clients: 1` bounds the local simulation to one worker.
+  The same four clients still contribute to every round. This uses Flower's
+  [documented simulation resource controls](https://flower.ai/docs/framework/1.25/en/how-to-run-simulations.html).
+  A capped run requires a fresh local Ray runtime; it refuses to silently reuse
+  a runtime whose resource limit cannot be changed.
+
+The experiment count, targets, rounds, DP clipping/noise settings and rejection
+of incomplete rounds remain unchanged. Noise stays freshly randomized. Numerical
+regression tests compare aggregation with the previous mathematical formula.
+New failures retain attack/pipeline identity in Firestore; historical failure
+records are not rewritten.
+
+Stop the failed queue using its normal Stop control, synchronize these code
+changes to the server, and start a fresh experiment process. Do not stop unrelated
+Ray jobs on a shared node. Then preview or rerun Reference alone:
+
+```bash
+python -m master_script.perform_experiments \
+  --config master_script/configs/amia_reference_rag_master.yaml \
+  --attack reference --dry-run --no-firestore
+
+python -m master_script.perform_experiments \
+  --queue master_script/configs/amia_reference_rag_master.yaml \
+  --attack reference --no-charts
+```
+
+The preview should show 15 Reference runs. Changes to the implementation and
+configuration create new result IDs. Failed trials restart; this is not a
+checkpoint resume. Keep the new server RSS logs to verify memory remains bounded
+across trials. More RAM may still be needed for the actual server workload.
+Do not disable [Ray's memory guard](https://docs.ray.io/en/latest/ray-core/scheduling/ray-oom-prevention.html)
+as a substitute for reducing allocations.
+
+A host-only synthetic benchmark (three million parameters, four clients,
+separate processes) measured 325.6 MiB peak RSS for the previous aggregation
+path and 257.2 MiB for the replacement. This does not predict Qwen's peak RAM.
+The full Linux/Ray/CUDA workload has not been rerun locally; Ray itself is not
+installed in the local test environment, so runtime ownership tests use a stub.
+
+Memory-fix verification: **445 tests passed**, one dependency deprecation
+warning; the Reference-only dry run expanded **15 pending runs**.

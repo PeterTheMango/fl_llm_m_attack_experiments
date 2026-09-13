@@ -267,7 +267,7 @@ def federated_fine_tune(config, artifact_dir=None, pipeline=None):
     from flwr.common import Context, ndarrays_to_parameters, parameters_to_ndarrays
     from flwr.server import ServerApp, ServerAppComponents, ServerConfig
     from flwr.server.strategy import FedAvg
-    from flwr.simulation import run_simulation
+    from ..runtime_memory import run_simulation, simulation_backend
 
     from ..config import artifact_dir_for
 
@@ -312,10 +312,13 @@ def federated_fine_tune(config, artifact_dir=None, pipeline=None):
                 })
                 if pipeline is not None and pipeline.defense.mechanism != "none":
                     capture["history"][-1] = {"round": server_round, "selected_clients": selected}
-            aggregated_parameters, aggregated_metrics = super().aggregate_fit(server_round, results, failures)
+            aggregated_parameters, aggregated_metrics = self.aggregate_updates(server_round, results, failures)
             if aggregated_parameters is not None:
-                capture["parameters"] = parameters_to_ndarrays(aggregated_parameters)
+                capture["parameters"] = aggregated_parameters
             return aggregated_parameters, aggregated_metrics
+
+        def aggregate_updates(self, server_round, results, failures):
+            return super().aggregate_fit(server_round, results, failures)
 
     def client_fn(context: Context):
         partition_id = int(context.node_config["partition-id"])
@@ -327,7 +330,7 @@ def federated_fine_tune(config, artifact_dir=None, pipeline=None):
         if pipeline is not None and pipeline.defense.mechanism != "none":
             from ..defenses import strategy_class
             strategy_type = strategy_class(SaveModelFedAvg, pipeline.defense,
-                                           parameters_to_ndarrays(initial_parameters), privacy)
+                                           None, privacy)
         strategy = strategy_type(
             fraction_fit=1.0,  # Contact all nodes; clients apply the deterministic schedule.
             fraction_evaluate=0.0,
@@ -339,7 +342,7 @@ def federated_fine_tune(config, artifact_dir=None, pipeline=None):
         )
         return ServerAppComponents(strategy=strategy, config=ServerConfig(num_rounds=config.federated_rounds))
 
-    backend_config = {"client_resources": {"num_cpus": 1, "num_gpus": float(config.sim_num_gpus)}}
+    backend_config = simulation_backend(config)
     run_simulation(
         server_app=ServerApp(server_fn=server_fn),
         client_app=ClientApp(client_fn=client_fn),
@@ -351,7 +354,8 @@ def federated_fine_tune(config, artifact_dir=None, pipeline=None):
     global_model, tokenizer = build_model_and_tokenizer(config)
     if capture["parameters"] is None or len(capture["history"]) != config.federated_rounds:
         raise RuntimeError("FL training did not produce all expected aggregates")
-    set_parameters(global_model, capture["parameters"])
+    from ..model_io import set_serialized_parameters
+    set_serialized_parameters(global_model, capture.pop("parameters"))
     global_model.to(device)
     if pipeline is not None:
         global_model._training_privacy = privacy
@@ -542,7 +546,7 @@ def run_attack_trials(model_path, probe, clients, config, calibration=None):
     from flwr.common import ndarrays_to_parameters, parameters_to_ndarrays
     from flwr.server import ServerApp, ServerAppComponents, ServerConfig
     from flwr.server.strategy import FedAvg
-    from flwr.simulation import run_simulation
+    from ..runtime_memory import run_simulation, simulation_backend
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     initial = ndarrays_to_parameters(get_parameters(probe))
@@ -609,7 +613,7 @@ def run_attack_trials(model_path, probe, clients, config, calibration=None):
 
     run_simulation(server_app=ServerApp(server_fn=server_fn), client_app=ClientApp(client_fn=client_fn),
                    num_supernodes=config.num_clients,
-                   backend_config={"client_resources": {"num_cpus": 1, "num_gpus": float(config.sim_num_gpus)}})
+                   backend_config=simulation_backend(config))
     if len(trials) != config.attack_trials:
         raise RuntimeError("Incomplete AMIA observation rounds")
     return trials

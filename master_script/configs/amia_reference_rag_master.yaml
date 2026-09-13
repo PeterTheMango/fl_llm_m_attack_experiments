@@ -22,6 +22,7 @@ defaults:
   max_length: 128
   seed: 7
   sim_num_gpus: 1.0
+  sim_max_concurrent_clients: 1  # All four clients still train, sequentially within each round.
   keep_artifacts: true
   threshold_mode: calibrated
   calibration_nonmember_count: 200

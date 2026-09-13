@@ -19,3 +19,18 @@ def tensor_array(value):
 
 def model_parameters(model):
     return [tensor_array(value) for value in model.state_dict().values()]
+
+
+def set_serialized_parameters(model, parameters):
+    """Copy one Flower tensor at a time; avoid a second full state dict."""
+    import torch
+    from flwr.common import bytes_to_ndarray
+    state = model.state_dict()
+    if len(state) != len(parameters.tensors):
+        raise ValueError("Model parameter count mismatch")
+    with torch.no_grad():
+        for destination, raw in zip(state.values(), parameters.tensors):
+            source = torch.from_numpy(bytes_to_ndarray(raw))
+            if source.shape != destination.shape:
+                raise ValueError("Model parameter shape mismatch")
+            destination.copy_(source)

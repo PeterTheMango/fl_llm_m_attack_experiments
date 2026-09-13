@@ -69,6 +69,19 @@ def failed_sweep_result(config, spec, run_id: str, exc: Exception) -> dict:
 
 
 def run_attack_trial(config, spec, trial_id: int, truth_member: bool) -> dict:
+    from .runtime_memory import release_memory, rss_gib
+    release_memory()
+    log.info("%s trial %s/%s starting; driver RSS=%s GiB", spec.name,
+             trial_id + 1, config.attack_trials, rss_gib())
+    try:
+        return _run_attack_trial(config, spec, trial_id, truth_member)
+    finally:
+        release_memory()
+        log.info("%s trial %s/%s ended; driver RSS=%s GiB", spec.name,
+                 trial_id + 1, config.attack_trials, rss_gib())
+
+
+def _run_attack_trial(config, spec, trial_id: int, truth_member: bool) -> dict:
     # Per-trial reseed, exactly as the notebooks do. NOTE: trial_config is never
     # hashed -- the run_id belongs to the original config. Real-data trials use
     # the same seed in adjacent positive/negative trials so each pair differs
@@ -294,6 +307,8 @@ def run_sweep(pairs, *, use_firestore: bool = True, keep_artifacts=None,
         finally:
             if on_run_end is not None:
                 on_run_end(run_id, spec.name, config)
+        from .runtime_memory import release_memory
+        release_memory()
         results.append(result)
         if on_result is not None:
             on_result(result)

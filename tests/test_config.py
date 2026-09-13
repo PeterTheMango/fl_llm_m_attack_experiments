@@ -14,17 +14,19 @@ class _Cfg(AttackConfig):
     seed: int = 7
 
 
-def test_base_class_declares_source_revision_fields():
+def test_base_class_declares_source_revision_and_runtime_fields():
     from dataclasses import fields
 
-    assert {f.name for f in fields(AttackConfig)} == {"model_revision", "reference_revision", "dataset_revision"}
+    assert {f.name for f in fields(AttackConfig)} == {
+        "model_revision", "reference_revision", "dataset_revision", "sim_max_concurrent_clients"}
 
 
 def test_key_sha16_matches_modern_notebook_formula():
     from master_script.core.config import key_sha16
 
     payload = json.dumps(
-        {"attack_name": "demo", "rounds": 1, "seed": 7, "model_revision": None, "reference_revision": None, "dataset_revision": None}, sort_keys=True, separators=(",", ":")
+        {"attack_name": "demo", "rounds": 1, "seed": 7, "model_revision": None, "reference_revision": None, "dataset_revision": None,
+         "sim_max_concurrent_clients": None}, sort_keys=True, separators=(",", ":")
     )
     assert key_sha16(_Cfg()) == sha256(payload.encode("utf-8")).hexdigest()[:16]
     assert len(key_sha16(_Cfg())) == 16

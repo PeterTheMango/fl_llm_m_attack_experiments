@@ -24,6 +24,7 @@ class AttackConfig:
     model_revision: Optional[str] = None
     reference_revision: Optional[str] = None
     dataset_revision: Optional[str] = None
+    sim_max_concurrent_clients: Optional[int] = None
 
 
 def stable_json(payload: Any) -> str:
@@ -121,7 +122,7 @@ def validate_attack_config(config, spec=None):
                  "self_prompt_tokens", "calibration_nonmember_count", "rouge_n",
                  "reference_samples", "reference_epochs", "reference_batch_size",
                  "reference_generation_length", "generation_max_length", "adversary_negative_count",
-                 "ldp_target_samples", "certificate_samples", "attack_targets"):
+                 "ldp_target_samples", "certificate_samples", "attack_targets", "sim_max_concurrent_clients"):
         value = getattr(config, name, None)
         if value is not None and (type(value) is not int or value <= 0):
             raise ValueError(f"{name} must be a positive integer")
