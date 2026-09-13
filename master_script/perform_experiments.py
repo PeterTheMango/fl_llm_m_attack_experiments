@@ -7,18 +7,17 @@ so existing Firestore results still cache-hit.
 
 Examples
 --------
-List every registered attack:
-    python perform_experiments.py --list-attacks
+List registered attacks:
+    python -m master_script.perform_experiments --list-attacks
 
-See what a sweep would do, without spending GPU hours:
-    python perform_experiments.py --config configs/example_sweep.yaml --dry-run
+Preview the focused AMIA / Reference sweep without compute or Firestore:
+    python -m master_script.perform_experiments --dry-run --no-firestore
 
-Run the smoke suite (no GPU, no credentials):
-    python perform_experiments.py --config configs/smoke.yaml
+Run both selected attacks with durable local queue results:
+    python -m master_script.perform_experiments --queue master_script/configs/amia_reference_rag_master.yaml --attack amia --attack reference --no-charts
 
-Run one attack for real, on both GPUs, with charts:
-    python perform_experiments.py --config configs/example_sweep.yaml \\
-        --attack zlib --max-parallel 2 --charts
+Run the archived toy smoke suite:
+    python -m master_script.perform_experiments --config master_script/configs/archive/smoke.yaml --no-firestore
 """
 from pathlib import Path
 import argparse
@@ -35,8 +34,8 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=__doc__,
     )
     selection = p.add_mutually_exclusive_group()
-    selection.add_argument("--config", type=Path, default=CONFIGS_DIR / "smoke.yaml",
-                   help="YAML config file (default: configs/smoke.yaml)")
+    selection.add_argument("--config", type=Path, default=CONFIGS_DIR / "amia_reference_rag_master.yaml",
+                   help="YAML config file (default: configs/amia_reference_rag_master.yaml)")
     selection.add_argument("--queue", type=Path, nargs="+", metavar="CONFIG",
                    help="Validate and run config files sequentially in the supplied order.")
     p.add_argument("--queue-output", type=Path,

@@ -21,7 +21,8 @@ CONFIG_ORDER = (
     "model_id", "dataset_name", "num_clients", "clients_per_round",
     "federated_rounds", "local_epochs", "local_batch_size", "client_lr",
     "ldp_mechanism", "epsilon", "seed", "attack_trials", "target_client_id",
-    "max_length", "use_hf_models", "threshold",
+    "max_length", "use_hf_models", "threshold", "threshold_mode", "attack_targets",
+    "observation_defense", "observation_clip_norm", "observation_noise_multiplier",
 )
 
 # X-axis factors the comparison scatter offers.
@@ -64,6 +65,7 @@ def _row(run: dict) -> dict:
     cfg = _grid_config(run.get("config") or {})
     pipeline = run.get("pipeline")
     if pipeline:
+        cfg["condition"] = pipeline.get("condition", "")
         cfg["defense_mechanism"] = pipeline["defense"]["mechanism"]
         cfg["training_epsilon"] = (run.get("training_privacy_composed") or {}).get("epsilon")
     return {

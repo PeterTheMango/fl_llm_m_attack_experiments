@@ -1,0 +1,103 @@
+# One sweep for AMIA and Reference, with matched defense conditions and RAG.
+# Select amia and/or reference in the dashboard, or use --attack repeatedly.
+# 42 runs = (9 AMIA conditions + 5 Reference conditions) x 3 seeds.
+# Prepared public SQuAD validation data is included under research_data/.
+# Full-model FP32 training: one client at a time on one GPU allocation.
+# This is a research sweep, not a short smoke test. See docs/amia_reference_rag.md.
+
+defaults:
+  use_hf_models: true
+  model_id: Qwen/Qwen2.5-0.5B-Instruct
+  model_revision: 7ae557604adf67be50417f59c2c2f167def9a775
+  reference_model_id: Qwen/Qwen2.5-0.5B-Instruct
+  dataset_name: squad_research
+  dataset_revision: 7b6d24c440a36b6815f21b70d25016731768db1f
+  num_clients: 4
+  clients_per_round: 4
+  federated_rounds: 3
+  local_epochs: 1
+  local_batch_size: 2
+  client_lr: 0.00002
+  attack_trials: 200
+  max_length: 128
+  seed: 7
+  sim_num_gpus: 1.0
+  keep_artifacts: true
+  threshold_mode: calibrated
+  calibration_nonmember_count: 200
+  calibration_fpr: 0.05  # Calibration target, not a guaranteed population FPR.
+
+pipeline:
+  condition: baseline
+  defense: {mechanism: none}
+  rag: &rag
+    study_file: research_data/squad_rag_study.json
+    embedding_model: sentence-transformers/all-MiniLM-L6-v2
+    top_k: 4
+    max_context_tokens: 768
+    max_new_tokens: 64
+    prompt_format: chat
+    significance: 0.05
+    evaluation_trials: 2  # Reference: first paired FL worlds; AMIA: once per target.
+    defenses: [ordinary, mirabel, instruction, mirabel_instruction]
+
+attacks:
+  amia:
+    base:
+      attack_targets: 5  # 5 separately trained probes, 40 batch trials per target.
+      attack_batch_size: 4
+      probe_epochs: 80
+      probe_lr: 0.005
+      adversary_negative_count: 64
+      ldp_target_samples: 128
+      certificate_samples: 256
+      ldp_mechanism: none
+      observation_defense: none
+      observation_clip_norm: 1.0
+      observation_delta: 0.00001
+    sweep: &replicates
+      seed: [7, 1007, 2007]
+    variants:
+      - pipeline: {condition: baseline, defense: {mechanism: none}, rag: *rag}
+      - base: {observation_defense: clip}
+        pipeline: {condition: gradient_clip_only, defense: {mechanism: none}, rag: *rag}
+      - base: {observation_defense: gaussian, observation_noise_multiplier: 1.0}
+        pipeline: {condition: gradient_gaussian_sigma1, defense: {mechanism: none}, rag: *rag}
+      - base: {observation_defense: gaussian, observation_noise_multiplier: 2.0}
+        pipeline: {condition: gradient_gaussian_sigma2, defense: {mechanism: none}, rag: *rag}
+      - base: {ldp_mechanism: BitRand, epsilon: 5.0}
+        pipeline: {condition: feature_bitrand_epsilon5, defense: {mechanism: none}, rag: *rag}
+      - base: {ldp_mechanism: BitRand, epsilon: 20.0}
+        pipeline: {condition: feature_bitrand_epsilon20, defense: {mechanism: none}, rag: *rag}
+      - base: {ldp_mechanism: OME, epsilon: 5.0}
+        pipeline: {condition: feature_ome_epsilon5, defense: {mechanism: none}, rag: *rag}
+      - base: {ldp_mechanism: OME, epsilon: 20.0}
+        pipeline: {condition: feature_ome_epsilon20, defense: {mechanism: none}, rag: *rag}
+      # Diagnostic: training DP does not privatize a later fresh probe response.
+      - pipeline:
+          condition: training_dp_sgd_only
+          defense: {mechanism: dp_sgd, clip_norm: 1.0, noise_multiplier: 2.0, delta: 0.00001}
+          rag: *rag
+  reference:
+    base:
+      threshold: -0.75  # Retained for fixed-mode comparisons; calibrated mode overrides it.
+    sweep: *replicates
+    variants:
+      - pipeline: {condition: baseline, defense: {mechanism: none}, rag: *rag}
+      - pipeline:
+          condition: training_dp_sgd_sigma1
+          defense: {mechanism: dp_sgd, clip_norm: 1.0, noise_multiplier: 1.0, delta: 0.00001}
+          rag: *rag
+      - pipeline:
+          condition: training_dp_sgd_sigma2
+          defense: {mechanism: dp_sgd, clip_norm: 1.0, noise_multiplier: 2.0, delta: 0.00001}
+          rag: *rag
+      # Central DP-FedAvg assumes a trusted aggregator; it is not an AMIA server defense.
+      - pipeline:
+          condition: training_dp_fedavg_sigma1
+          defense: {mechanism: dp_fedavg, clip_norm: 0.1, noise_multiplier: 1.0, delta: 0.00001}
+          rag: *rag
+      - pipeline:
+          condition: training_dp_fedavg_sigma2
+          defense: {mechanism: dp_fedavg, clip_norm: 0.1, noise_multiplier: 2.0, delta: 0.00001}
+          rag: *rag

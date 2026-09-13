@@ -1,0 +1,17 @@
+{
+  "status": "implementation_verified_locally",
+  "test_command": "python -m pytest tests -q",
+  "tests_passed": 428,
+  "warnings": 1,
+  "warning": "Starlette TestClient httpx deprecation",
+  "dry_run": {
+    "total": 42,
+    "amia": 27,
+    "reference": 15,
+    "cached": 0
+  },
+  "full_research_sweep_executed": false,
+  "gpu_end_to_end_verified": false,
+  "configuration": "master_script/configs/amia_reference_rag_master.yaml",
+  "guide": "master_script/docs/amia_reference_rag.md"
+}

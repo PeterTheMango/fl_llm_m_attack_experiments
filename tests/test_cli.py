@@ -20,7 +20,7 @@ def test_dry_run_prints_run_ids_and_runs_nothing(tmp_path, capsys, monkeypatch):
     monkeypatch.setattr(
         cli, "_run", lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not run")),
     )
-    assert main(["--config", str(cfg), "--dry-run"]) == 0
+    assert main(["--config", str(cfg), "--dry-run", "--no-firestore"]) == 0
     out = capsys.readouterr().out
     assert "2 run(s)" in out
 
@@ -28,7 +28,7 @@ def test_dry_run_prints_run_ids_and_runs_nothing(tmp_path, capsys, monkeypatch):
 def test_attack_flag_filters_subset(tmp_path, capsys):
     cfg = tmp_path / "c.yaml"
     cfg.write_text("attacks:\n  zlib: {}\n  min_k: {}\n")
-    main(["--config", str(cfg), "--dry-run", "--attack", "zlib"])
+    main(["--config", str(cfg), "--dry-run", "--no-firestore", "--attack", "zlib"])
     out = capsys.readouterr().out
     assert "zlib" in out and "min_k" not in out
 
@@ -45,9 +45,9 @@ def test_max_parallel_rejects_more_than_two():
         build_parser().parse_args(["--max-parallel", "3"])
 
 
-def test_defaults_to_smoke_config():
+def test_defaults_to_focused_research_config():
     args = build_parser().parse_args([])
-    assert args.config.name == "smoke.yaml"
+    assert args.config.name == "amia_reference_rag_master.yaml"
     assert args.max_parallel == 1
 
 

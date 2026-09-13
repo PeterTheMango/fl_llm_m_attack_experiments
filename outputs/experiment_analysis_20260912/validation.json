@@ -1,0 +1,23 @@
+{
+  "input_files": [
+    {
+      "file": "1-firexport_basic_1789247974262.csv",
+      "sha256": "67cdda1a0fa55908f245a59a4b7c220fe2f74b521b8f4d76afd3cc9b97cba03a"
+    },
+    {
+      "file": "2-firexport_basic_1789247966014.csv",
+      "sha256": "2e98ec071005e40301aa127b74eb6b7beeb9457dd8f14c365dc920de31428ff1"
+    }
+  ],
+  "input_rows": 342,
+  "unique_completed_runs": 196,
+  "exclusions": {
+    "failed": 144,
+    "duplicate": 1,
+    "metadata": 1
+  },
+  "metric_mismatches": [],
+  "training_trial_rows": 1536,
+  "rag_condition_rows": 32,
+  "rag_trial_rows": 128
+}

@@ -170,7 +170,7 @@ def test_real_sweep_pairs_are_spawn_pickleable():
     from master_script.core.yaml_config import load_config_file
     from master_script.paths import CONFIGS_DIR
 
-    pairs = load_config_file(CONFIGS_DIR / "smoke.yaml", only=["zlib"])
+    pairs = load_config_file(CONFIGS_DIR / "archive" / "smoke.yaml", only=["zlib"])
 
     assert pickle.loads(pickle.dumps(pairs))[0][1].name == "zlib"
 

@@ -211,13 +211,15 @@ def load_model_and_tokenizer(config):
     tokenizer = AutoTokenizer.from_pretrained(config.model_id, revision=config.model_revision)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
-    model = AutoModelForCausalLM.from_pretrained(config.model_id, revision=config.model_revision)
+    from ..model_io import load_causal_model
+    model = load_causal_model(config.model_id, config.model_revision)
     model.config.pad_token_id = tokenizer.pad_token_id
     return model, tokenizer
 
 
 def get_parameters(model) -> list:
-    return [value.detach().cpu().numpy() for value in model.state_dict().values()]
+    from ..model_io import model_parameters
+    return model_parameters(model)
 
 
 def set_parameters(model, parameters: list) -> None:

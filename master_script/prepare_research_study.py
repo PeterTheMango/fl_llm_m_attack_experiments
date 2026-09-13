@@ -46,13 +46,13 @@ def build_study(source, seed=1729):
         # Utility evidence uses different documents from membership probes.
         for row in group[100:110]:
             q = row["questions"][0]
-            utility.append({"id": name + "_" + q["id"],
+            utility.append({"id": name + "_" + q["id"], "corpus": name,
                             "question": q["question"], "answer": q["answers"][0]["text"]})
     rng.shuffle(candidates)
     rng.shuffle(utility)
     study.update(membership_candidates=candidates, utility_queries=utility)
     validate_study(study)
-    provenance = {"seed": seed, "selection_version": 1, "source_url": SOURCE_URL,
+    provenance = {"seed": seed, "selection_version": 2, "source_url": SOURCE_URL,
                   "split": "validation", "corpus_assignment": "random_public_data_simulation",
                   "documents_per_corpus": 256, "candidates_per_corpus": 100,
                   "utility_queries": 20, "paragraph_word_range": [24, 160],

@@ -1,6 +1,10 @@
+> Historical configuration: this 99-run sweep is archived. Use the
+> [AMIA / Reference study guide](amia_reference_rag.md) and the single active
+> `configs/amia_reference_rag_master.yaml` for current work.
+
 # One larger research configuration for the 20GB server allocation
 
-Use `master_script/configs/pipeline_research_master.yaml`. It defines **99
+Use `master_script/configs/archive/pipeline_research_master.yaml`. It defines **99
 sequential experiments**: 11 attacks × three training conditions × three seeds.
 There is one experiment YAML; the RAG dataset is a separate generated data file.
 The preparation command downloads public text only and does not load a model.
@@ -41,7 +45,7 @@ From the repository root, in your existing `LLMPrivacy` environment:
 ```bash
 python -m master_script.prepare_research_study
 python -m master_script.perform_experiments --queue \
-  master_script/configs/pipeline_research_master.yaml \
+  master_script/configs/archive/pipeline_research_master.yaml \
   --dry-run --no-firestore
 ```
 
@@ -59,7 +63,7 @@ export OMP_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
 export TOKENIZERS_PARALLELISM=false
 python -m master_script.perform_experiments --queue \
-  master_script/configs/pipeline_research_master.yaml \
+  master_script/configs/archive/pipeline_research_master.yaml \
   --no-firestore --no-charts
 ```
 

@@ -82,7 +82,7 @@ def test_amia_without_hf_models_is_rejected(tmp_path):
 def test_shipped_smoke_config_loads(tmp_path):
     from master_script.paths import CONFIGS_DIR
 
-    pairs = load_config_file(CONFIGS_DIR / "smoke.yaml")
+    pairs = load_config_file(CONFIGS_DIR / "archive" / "smoke.yaml")
     assert pairs
 
 
@@ -118,12 +118,13 @@ def test_all_datasets_master_sweeps_every_registered_dataset_at_baseline_values(
     from master_script.paths import CONFIGS_DIR
 
     baseline = {
-        spec.name: cfg for cfg, spec in load_config_file(CONFIGS_DIR / "baseline_master.yaml")
+        spec.name: cfg for cfg, spec in load_config_file(CONFIGS_DIR / "archive" / "baseline_master.yaml")
     }
-    pairs = load_config_file(CONFIGS_DIR / "all_datasets_master.yaml")
+    pairs = load_config_file(CONFIGS_DIR / "archive" / "all_datasets_master.yaml")
 
-    assert len(pairs) == 11 * len(available_dataset_names()) == 77
-    assert {cfg.dataset_name for cfg, _spec in pairs} == set(available_dataset_names())
+    archived_datasets = set(available_dataset_names()) - {"squad_research"}
+    assert len(pairs) == 11 * len(archived_datasets) == 77
+    assert {cfg.dataset_name for cfg, _spec in pairs} == archived_datasets
     for cfg, spec in pairs:
         actual = asdict(cfg)
         expected = asdict(baseline[spec.name])
@@ -136,9 +137,9 @@ def test_gpt2_master_changes_only_the_model_from_baseline():
     from master_script.paths import CONFIGS_DIR
 
     baseline = {
-        spec.name: cfg for cfg, spec in load_config_file(CONFIGS_DIR / "baseline_master.yaml")
+        spec.name: cfg for cfg, spec in load_config_file(CONFIGS_DIR / "archive" / "baseline_master.yaml")
     }
-    pairs = load_config_file(CONFIGS_DIR / "gpt2_master.yaml")
+    pairs = load_config_file(CONFIGS_DIR / "archive" / "gpt2_master.yaml")
 
     assert len(pairs) == 11
     for cfg, spec in pairs:
@@ -157,9 +158,9 @@ def test_seed_sweep_master_changes_only_seed_from_baseline():
     from master_script.paths import CONFIGS_DIR
 
     baseline = {
-        spec.name: cfg for cfg, spec in load_config_file(CONFIGS_DIR / "baseline_master.yaml")
+        spec.name: cfg for cfg, spec in load_config_file(CONFIGS_DIR / "archive" / "baseline_master.yaml")
     }
-    pairs = load_config_file(CONFIGS_DIR / "seed_sweep_master.yaml")
+    pairs = load_config_file(CONFIGS_DIR / "archive" / "seed_sweep_master.yaml")
 
     assert len(pairs) == 55
     assert {cfg.seed for cfg, _spec in pairs} == {7, 11, 23, 42, 101}
@@ -175,9 +176,9 @@ def test_high_trials_master_changes_only_trial_count_from_baseline():
     from master_script.paths import CONFIGS_DIR
 
     baseline = {
-        spec.name: cfg for cfg, spec in load_config_file(CONFIGS_DIR / "baseline_master.yaml")
+        spec.name: cfg for cfg, spec in load_config_file(CONFIGS_DIR / "archive" / "baseline_master.yaml")
     }
-    pairs = load_config_file(CONFIGS_DIR / "high_trials_master.yaml")
+    pairs = load_config_file(CONFIGS_DIR / "archive" / "high_trials_master.yaml")
 
     assert len(pairs) == 11
     assert {cfg.attack_trials for cfg, _spec in pairs} == {100}
@@ -193,9 +194,9 @@ def test_high_clients_master_changes_only_client_counts_from_baseline():
     from master_script.paths import CONFIGS_DIR
 
     baseline = {
-        spec.name: cfg for cfg, spec in load_config_file(CONFIGS_DIR / "baseline_master.yaml")
+        spec.name: cfg for cfg, spec in load_config_file(CONFIGS_DIR / "archive" / "baseline_master.yaml")
     }
-    pairs = load_config_file(CONFIGS_DIR / "high_clients_master.yaml")
+    pairs = load_config_file(CONFIGS_DIR / "archive" / "high_clients_master.yaml")
 
     assert len(pairs) == 11
     assert {(cfg.num_clients, cfg.clients_per_round) for cfg, _spec in pairs} == {(8, 8)}
@@ -223,9 +224,9 @@ def test_single_factor_master_sweeps_change_only_the_named_baseline_field(
     from master_script.paths import CONFIGS_DIR
 
     baseline = {
-        spec.name: cfg for cfg, spec in load_config_file(CONFIGS_DIR / "baseline_master.yaml")
+        spec.name: cfg for cfg, spec in load_config_file(CONFIGS_DIR / "archive" / "baseline_master.yaml")
     }
-    pairs = load_config_file(CONFIGS_DIR / filename)
+    pairs = load_config_file(CONFIGS_DIR / "archive" / filename)
 
     assert len(pairs) == 33
     assert {getattr(cfg, field) for cfg, _spec in pairs} == values
@@ -241,9 +242,9 @@ def test_client_participation_sweep_fixes_eight_clients_and_changes_only_partici
     from master_script.paths import CONFIGS_DIR
 
     baseline = {
-        spec.name: cfg for cfg, spec in load_config_file(CONFIGS_DIR / "baseline_master.yaml")
+        spec.name: cfg for cfg, spec in load_config_file(CONFIGS_DIR / "archive" / "baseline_master.yaml")
     }
-    pairs = load_config_file(CONFIGS_DIR / "client_participation_sweep_master.yaml")
+    pairs = load_config_file(CONFIGS_DIR / "archive" / "client_participation_sweep_master.yaml")
 
     assert len(pairs) == 33
     assert {cfg.num_clients for cfg, _spec in pairs} == {8}

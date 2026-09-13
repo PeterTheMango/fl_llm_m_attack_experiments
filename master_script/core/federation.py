@@ -203,7 +203,8 @@ def run_hf_federated_finetune(config: AttackConfig, truth_member: bool, pipeline
     defense = pipeline.defense if pipeline is not None else None
 
     def get_parameters(model):
-        return [value.detach().cpu().numpy() for value in model.state_dict().values()]
+        from .model_io import model_parameters
+        return model_parameters(model)
 
     def set_parameters(model, parameters):
         state_dict = OrderedDict(
@@ -215,7 +216,8 @@ def run_hf_federated_finetune(config: AttackConfig, truth_member: bool, pipeline
         tokenizer = AutoTokenizer.from_pretrained(config.model_id, revision=config.model_revision)
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
-        model = AutoModelForCausalLM.from_pretrained(config.model_id, revision=config.model_revision)
+        from .model_io import load_causal_model
+        model = load_causal_model(config.model_id, config.model_revision)
         return model, tokenizer
 
     class FlowerClient(NumPyClient):
@@ -335,7 +337,8 @@ def run_hf_federated_finetune(config: AttackConfig, truth_member: bool, pipeline
         "target_record": world.target_record,
         "dataset_name": world.dataset_name,
         "training_provenance": provenance,
-        **({"privacy": privacy, "training_records": [text for part in partitions for text in part]}
+        "training_records": [text for part in partitions for text in part],
+        **({"privacy": privacy}
            if pipeline is not None else {}),
     }, capture["history"]
 
@@ -349,7 +352,8 @@ def load_reference_bundle(cfg):
     tokenizer = AutoTokenizer.from_pretrained(model_id, revision=cfg.reference_revision)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
-    model = AutoModelForCausalLM.from_pretrained(model_id, revision=cfg.reference_revision)
+    from .model_io import load_causal_model
+    model = load_causal_model(model_id, cfg.reference_revision)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model.to(device).eval()
     return {"model": model, "tokenizer": tokenizer, "device": device}

@@ -8,6 +8,28 @@ import math
 import secrets
 
 
+def protect_observation(gradients, config, rng=None):
+    """Client-side clipping/noise on the entire released AMIA gradient vector.
+
+    Gaussian noise is drawn before the server can inspect the payload. Clipping
+    alone is an ablation, not DP. The bounded query is a private batch gradient.
+    """
+    import numpy as np
+    mechanism = config.observation_defense
+    if mechanism == "none":
+        return gradients
+    if mechanism not in ("clip", "gaussian"):
+        raise ValueError("Unknown observation defense")
+    arrays = [np.asarray(g, dtype=np.float64) for g in gradients]
+    norm = math.sqrt(sum(float(np.sum(g * g)) for g in arrays))
+    if not math.isfinite(norm) or not arrays:
+        raise ValueError("Observation gradients must be finite and nonempty")
+    scale = min(1.0, config.observation_clip_norm / max(norm, 1e-12))
+    rng = rng if rng is not None else np.random.default_rng(secrets.randbits(128))
+    return [(g * scale + (rng.normal(0, config.observation_noise_multiplier * config.observation_clip_norm, g.shape)
+                         if mechanism == "gaussian" else 0)).astype(np.float32) for g in arrays]
+
+
 def privacy_bound(steps, noise_multiplier, delta):
     # Clipped-vector replacement sensitivity is 2C, noise std is sigma*C.
     rho = 2.0 * steps / (noise_multiplier ** 2)

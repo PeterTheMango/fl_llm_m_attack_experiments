@@ -35,6 +35,9 @@ class ReferenceConfig(AttackConfig):
     sim_num_gpus: float = 0.0
     keep_artifacts: bool = False
     use_hf_models: bool = False
+    threshold_mode: str = "fixed"
+    calibration_nonmember_count: int = 200
+    calibration_fpr: float = 0.05
 
 
 METHODOLOGY = {
@@ -93,6 +96,23 @@ def score_toy(ctx: ScoreContext) -> float:
 def score_hf(ctx: ScoreContext) -> float:
     reference = ctx.reference if ctx.reference is not None else load_reference_bundle(ctx.config)
     return score_candidate_hf(ctx.target, reference, ctx.text, max_length=ctx.config.max_length)
+
+
+def calibrate(config, target, reference):
+    from ..calibration import nonmember_threshold
+    from ..datasets import calibration_records
+    from ..scoring import validate_partition_tokens
+    records = calibration_records(config, config.calibration_nonmember_count)
+    # Verify the effective token boundary, not just raw-string inequality.
+    validate_partition_tokens([target["training_records"]], target["tokenizer"], config.max_length,
+                              calibration=records)
+    candidate_ids = target["tokenizer"](target["target_record"], truncation=True,
+                                        max_length=config.max_length)["input_ids"]
+    if any(target["tokenizer"](x, truncation=True, max_length=config.max_length)["input_ids"] == candidate_ids
+           for x in records):
+        raise ValueError("Reference calibration overlaps the test candidate")
+    scores = [score_candidate_hf(target, reference, x, config.max_length) for x in records]
+    return nonmember_threshold(scores, config.calibration_fpr)
 
 
 SPEC = AttackSpec(

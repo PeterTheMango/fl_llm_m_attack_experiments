@@ -92,12 +92,22 @@ def run_attack_trial(config, spec, trial_id: int, truth_member: bool) -> dict:
 
     if not math.isfinite(float(score)):
         raise FloatingPointError(f"{spec.name} produced a nonfinite membership score")
+    calibration = None
+    threshold = trial_config.threshold
+    if spec.name == "reference" and trial_config.threshold_mode == "calibrated":
+        from .attacks.reference import calibrate
+        calibration = calibrate(trial_config, target, reference)
+        threshold = calibration["threshold"]
+    # The reference model is no longer needed; release it before RAG generation.
+    del reference
     exposed = any(config.target_client_id in r.get("selected_clients", []) for r in history)
     trial = {
         "trial_id": trial_id,
         "truth_member": bool(truth_member),
         "score": float(score),
-        "pred_member": bool(score >= trial_config.threshold),
+        "pred_member": bool(score >= threshold),
+        "threshold": threshold,
+        **({"calibration": calibration} if calibration is not None else {}),
         "federated_history": history,
         "membership_target": "assigned_training_record",
         "target_exposed": bool(truth_member and exposed),

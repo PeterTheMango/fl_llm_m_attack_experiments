@@ -26,15 +26,19 @@ class Rag:
     significance: float = 0.05
     prompt_format: str = "plain"
     evaluation_trials: int | None = None
+    defenses: tuple = ("ordinary", "mirabel")
 
 
 @dataclass(frozen=True)
 class Pipeline:
     defense: Defense
     rag: Rag | None = None
+    condition: str = ""
 
     def metadata(self):
         data = asdict(self)
+        if not data["condition"]:
+            data.pop("condition")
         if data["rag"]:
             # Record provenance, never private document contents, in results.
             data["rag"].pop("study_json")
@@ -42,6 +46,10 @@ class Pipeline:
                 data["rag"].pop("prompt_format")  # Preserve existing pipeline identities.
             if data["rag"]["evaluation_trials"] is None:
                 data["rag"].pop("evaluation_trials")
+            if tuple(data["rag"]["defenses"]) == ("ordinary", "mirabel"):
+                data["rag"].pop("defenses")
+            else:
+                data["rag"]["defenses"] = list(data["rag"]["defenses"])
         return data
 
     def identity(self):
@@ -68,7 +76,10 @@ def _positive(value, name):
 def parse_pipeline(value, source="<config>"):
     if value is None:
         return None
-    value = _mapping(value, ("defense", "rag"), "pipeline")
+    value = _mapping(value, ("defense", "rag", "condition"), "pipeline")
+    condition = value.get("condition", "")
+    if not isinstance(condition, str):
+        raise ValueError("pipeline.condition must be a string")
     d = _mapping(value.get("defense", {}), Defense.__dataclass_fields__, "pipeline.defense")
     defense = Defense(**d)
     if defense.mechanism not in ("none", "dp_sgd", "dp_fedavg"):
@@ -81,7 +92,7 @@ def parse_pipeline(value, source="<config>"):
     if value.get("rag") is not None:
         r = _mapping(value["rag"], ("study_file", "embedding_model", "top_k", "max_context_tokens",
                                      "max_new_tokens", "significance", "prompt_format",
-                                     "evaluation_trials"), "pipeline.rag")
+                                     "evaluation_trials", "defenses"), "pipeline.rag")
         if not isinstance(r.get("study_file"), str) or not r["study_file"]:
             raise ValueError("rag.study_file is required")
         base = Path(source).resolve().parent if source != "<config>" else Path.cwd()
@@ -105,9 +116,13 @@ def parse_pipeline(value, source="<config>"):
             raise ValueError("rag.prompt_format must be plain or chat")
         if rag.evaluation_trials is not None and (type(rag.evaluation_trials) is not int or rag.evaluation_trials <= 0):
             raise ValueError("rag.evaluation_trials must be a positive integer or null")
+        if (not isinstance(rag.defenses, (list, tuple)) or not rag.defenses
+                or any(d not in ("ordinary", "mirabel", "instruction", "mirabel_instruction") for d in rag.defenses)
+                or len(set(rag.defenses)) != len(rag.defenses)):
+            raise ValueError("rag.defenses must contain distinct ordinary/mirabel/instruction/mirabel_instruction values")
     if defense.mechanism == "none" and rag is None:
         return None
-    return Pipeline(defense, rag)
+    return Pipeline(defense, rag, condition)
 
 
 def validate_pipeline_run(config, spec, pipeline):

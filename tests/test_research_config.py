@@ -13,9 +13,9 @@ from master_script.paths import CONFIGS_DIR
 
 
 def test_research_file_expands_matched_conditions_with_unique_keys():
-    doc = yaml.safe_load((CONFIGS_DIR / "pipeline_research_master.yaml").read_text())
+    doc = yaml.safe_load((CONFIGS_DIR / "archive" / "pipeline_research_master.yaml").read_text())
     for variant in doc["pipeline"]:
-        variant["rag"]["study_file"] = str(CONFIGS_DIR / "pipeline_demo_study.json")
+        variant["rag"]["study_file"] = str(CONFIGS_DIR / "archive" / "pipeline_demo_study.json")
     pairs = load_config_doc(doc)
     assert len(pairs) == len({experiment_key(c, s) for c, s in pairs}) == 99
     counts = Counter(s.pipeline.defense.mechanism for c, s in pairs)
@@ -35,7 +35,7 @@ def test_invalid_pipeline_lists_are_rejected(variants):
 
 def test_research_world_and_loss_calibration_use_same_partition_boundaries(monkeypatch):
     monkeypatch.setattr(datasets, "_load_dataset_pool",
-                        lambda dataset_name, pool_size, max_chars: tuple(f"record {i}" for i in range(pool_size)))
+                        lambda dataset_name, pool_size, max_chars, **kwargs: tuple(f"record {i}" for i in range(pool_size)))
     cfg = replace(ATTACKS["loss"].config_cls(), dataset_name="squad_research", num_clients=4)
     member = datasets.build_real_membership_world(cfg, True)
     nonmember = datasets.build_real_membership_world(cfg, False)

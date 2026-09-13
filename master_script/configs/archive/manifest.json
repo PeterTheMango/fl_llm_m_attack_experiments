@@ -1,0 +1,78 @@
+[
+  {
+    "filename": "all_datasets_master.yaml",
+    "sha256": "49f712a50756030b39cbec3ee7eea23f120e958fe59f7d8022a8dc507327bf18"
+  },
+  {
+    "filename": "baseline_master.yaml",
+    "sha256": "1e85959239694176ee09665c5b0a274b38bf7934f7619c92751858f410474d25"
+  },
+  {
+    "filename": "client_lr_sweep_master.yaml",
+    "sha256": "cae71456f7df196fe2a8e7a558e22ecde8ea0a12bc81c1fec807f6d5d5748aa4"
+  },
+  {
+    "filename": "client_participation_sweep_master.yaml",
+    "sha256": "550442266759a8f541314d93da5a9d748cca448f08235dc736610f6d6a5ef7a3"
+  },
+  {
+    "filename": "example_sweep.yaml",
+    "sha256": "b5dfadaa8d4083674a86d2f5b50c4318c640c2ac3049d1279b85680ac9d05b05"
+  },
+  {
+    "filename": "federated_rounds_sweep_master.yaml",
+    "sha256": "008649cd1b52341115762ef6867e5eee01d07d8e5ed3849ec4d6d5be575b512d"
+  },
+  {
+    "filename": "gpt2_master.yaml",
+    "sha256": "de5e6095db3c8fda1d6bb07ecd4e8f5e0ad67efc018ae29d2af0e0f6b8c44811"
+  },
+  {
+    "filename": "high_clients_master.yaml",
+    "sha256": "b3526651ef3d38374d0390bfde530c1f1f1aa193f630010cd4a01327dea43c38"
+  },
+  {
+    "filename": "high_trials_master.yaml",
+    "sha256": "096a321599a19e4155dda8f1692436014492c93ce4adacf8e3cb673212d348a1"
+  },
+  {
+    "filename": "local_epochs_sweep_master.yaml",
+    "sha256": "686669c9c6e740cf362ba4cfbbf42593c45aea2fc1d853c6b23d7e46bebe9ab2"
+  },
+  {
+    "filename": "max_length_sweep_master.yaml",
+    "sha256": "a95772a036b0b474fec1c5763a1a170a1828a6e35e37d0889aef0c14bdc8c175"
+  },
+  {
+    "filename": "pipeline_baseline.yaml",
+    "sha256": "424e86d54c0290b97397824cd658bf0a43fd8235355f37fa09148a280e4a95cb"
+  },
+  {
+    "filename": "pipeline_min_k_dp.yaml",
+    "sha256": "54afc51ab75e0cb2cf85361b55448e66b3be883601aed6951cb0d92c712a7418"
+  },
+  {
+    "filename": "pipeline_min_kpp_dp.yaml",
+    "sha256": "439a87205d9512ed2d3a8aec79847c98eb9960affb0ff0c6f8667f464300484d"
+  },
+  {
+    "filename": "pipeline_research_master.yaml",
+    "sha256": "9b3a1f798871232b8a56d060f0c39ef0785dd1321a5e9e0383f61ffd5c87069e"
+  },
+  {
+    "filename": "pipeline_zlib_dp.yaml",
+    "sha256": "f577418c9755dc58db60d641480097b3486232fc93a60279edcd497b08b5bd25"
+  },
+  {
+    "filename": "seed_sweep_master.yaml",
+    "sha256": "3408657d5cb675912f2b81b2a44895d48b3d60e79a49ffb59ba35ab89fc8df60"
+  },
+  {
+    "filename": "smoke.yaml",
+    "sha256": "4cba6a77e639f0a650f3a70fc46f70127ad5d3727d2206adb24b4e27675d99d2"
+  },
+  {
+    "filename": "pipeline_demo_study.json",
+    "sha256": "2f25f891ac6307105e13820d5788930bc85fecf73f2a64ec579e912ebcc7f3a1"
+  }
+]

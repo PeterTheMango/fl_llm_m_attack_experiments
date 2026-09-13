@@ -46,7 +46,8 @@ class DashboardState:
                 self.manifest = doc.get("manifest")
                 continue
             if "run_id" in doc:
-                self.runs[doc["run_id"]] = doc
+                from ..core.result_storage import unpack_result
+                self.runs[doc["run_id"]] = unpack_result(doc)
         self.last_sync_unix = time.time()
 
     def remove_run(self, run_id: str) -> bool:

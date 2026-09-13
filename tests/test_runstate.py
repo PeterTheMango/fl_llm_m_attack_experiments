@@ -50,6 +50,7 @@ def test_reporter_publishes_on_start_and_clears_on_end(published):
 def test_run_sweep_brackets_every_run_not_just_the_first(monkeypatch, published):
     """The old code published run 1 and never updated it; bars showed run 1 forever."""
     from master_script.core import runner
+    monkeypatch.setattr(runner, "resolve_run_config", lambda config: config)
 
     monkeypatch.setattr(runner, "run_single_experiment", lambda config, spec, **kw: {"run_id": "x"})
     reporter = RunStateReporter()
@@ -152,7 +153,8 @@ def test_children_of_a_parallel_sweep_do_not_publish(monkeypatch, published):
 def test_manifest_publishes_one_entry_per_planned_run(published):
     """The manifest is what gives the monitor real sweep denominators (§2.2)."""
     runstate.publish_manifest([("a", _spec("zlib")), ("b", _spec("min_k"))])
+    from master_script.core.config import experiment_key
     assert published[-1]["manifest"] == [
-        {"run_id": "key-a", "attack": "zlib"},
-        {"run_id": "key-b", "attack": "min_k"},
+        {"run_id": experiment_key("a", _spec("zlib")), "attack": "zlib"},
+        {"run_id": experiment_key("b", _spec("min_k")), "attack": "min_k"},
     ]

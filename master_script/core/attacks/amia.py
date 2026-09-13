@@ -11,7 +11,7 @@ import eagerly.
 """
 import math
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Optional
 
@@ -52,6 +52,14 @@ class AmiaConfig(AttackConfig):
     ldp_target_samples: int = 128
     certificate_samples: int = 256
     certificate_delta: float = 0.05
+    attack_targets: int = 1
+    threshold_mode: str = "fixed"
+    calibration_nonmember_count: int = 200
+    calibration_fpr: float = 0.05
+    observation_defense: str = "none"
+    observation_clip_norm: float = 1.0
+    observation_noise_multiplier: float = 1.0
+    observation_delta: float = 1e-5
 
 
 METHODOLOGY = {
@@ -162,7 +170,8 @@ def make_loader(texts: list, tokenizer, config, shuffle: bool):
 
 
 def get_parameters(model) -> list:
-    return [value.detach().cpu().numpy() for value in model.state_dict().values()]
+    from ..model_io import model_parameters
+    return model_parameters(model)
 
 
 def set_parameters(model, parameters: list) -> None:
@@ -182,7 +191,8 @@ def build_model_and_tokenizer(config):
     tokenizer = AutoTokenizer.from_pretrained(config.model_id, revision=config.model_revision)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
-    model = AutoModelForCausalLM.from_pretrained(config.model_id, revision=config.model_revision)
+    from ..model_io import load_causal_model
+    model = load_causal_model(config.model_id, config.model_revision)
     model.config.pad_token_id = tokenizer.pad_token_id
     return model, tokenizer
 
@@ -276,7 +286,8 @@ def federated_fine_tune(config, artifact_dir=None, pipeline=None):
     provenance = validate_partition_tokens(
         clients, init_tokenizer, config.max_length,
         target=dataset_sources.target_record_for(config, TARGET_TEXT),
-        calibration=adversary_records(config), expected_membership=True)
+        calibration=adversary_records(config) + (calibration_records(config) if config.threshold_mode == "calibrated" else []),
+        expected_membership=True)
     initial_parameters = ndarrays_to_parameters(get_parameters(init_model))
     del init_model
 
@@ -379,6 +390,33 @@ def adversary_records(config):
             for i in range(config.adversary_negative_count)]
 
 
+def calibration_records(config):
+    """Public calibration negatives disjoint from probe fitting and victim data."""
+    total = config.adversary_negative_count + config.calibration_nonmember_count
+    return dataset_sources.calibration_records(config, total)[config.adversary_negative_count:]
+
+
+def calibrate_probe(model, tokenizer, probe, config):
+    from ..calibration import nonmember_threshold
+    records = calibration_records(config)
+    target = dataset_sources.target_record_for(config, TARGET_TEXT)
+    fit_records = adversary_records(config)
+    # The frozen representation excludes the last token: compare that same span.
+    def prefix(text):
+        return tuple(tokenizer(text, truncation=True, max_length=config.max_length)["input_ids"][:-1])
+    forbidden = {prefix(x) for x in fit_records + [target]}
+    if any(prefix(x) in forbidden for x in records):
+        raise ValueError("AMIA calibration overlaps a probe-fitting record or target prefix")
+    scores = []
+    for index in range(config.calibration_nonmember_count):
+        batch = random.Random(config.seed + 500009 + index).sample(
+            records, min(config.attack_batch_size, len(records)))
+        scores.append(gradient_score(client_loss_gradients(model, tokenizer, probe, batch, config)))
+    result = nonmember_threshold(scores, config.calibration_fpr)
+    result["scope"] = "public_negative_batches_disjoint_from_probe_fit_and_victim"
+    return result
+
+
 def _ami_probe_cls():
     import torch.nn as nn
     import torch.nn.functional as F
@@ -466,7 +504,9 @@ def client_loss_gradients(model, tokenizer, probe, texts, config):
     gradients = torch.autograd.grad(loss, tuple(probe.parameters()))
     if not all(torch.isfinite(g).all() for g in gradients):
         raise FloatingPointError("Nonfinite AMIA client gradient")
-    return [g.detach().cpu().numpy() for g in gradients]
+    from ..model_io import tensor_array
+    from ..defenses import protect_observation
+    return protect_observation([tensor_array(g) for g in gradients], config)
 
 
 def gradient_score(gradients):
@@ -491,7 +531,7 @@ def sample_attack_batch(client_texts, config, include_target, rng):
     return batch
 
 
-def run_attack_trials(model_path, probe, clients, config):
+def run_attack_trials(model_path, probe, clients, config, calibration=None):
     """Send the same malicious parameters to the victim in each observed round.
 
     The harness owns private partitions and ground truth. Only the client_fn
@@ -521,7 +561,8 @@ def run_attack_trials(model_path, probe, clients, config):
             from ..federation import seed_training
             seed_training(config.seed + trial_id // 2)
             device = client_device(config)
-            model = AutoModelForCausalLM.from_pretrained(model_path).to(device).eval()
+            from ..model_io import load_causal_model
+            model = load_causal_model(model_path).to(device).eval()
             tokenizer = AutoTokenizer.from_pretrained(model_path)
             malicious = _ami_probe_cls()(hidden_size, width).to(device)
             set_parameters(malicious, parameters)
@@ -540,8 +581,12 @@ def run_attack_trials(model_path, probe, clients, config):
                 raise RuntimeError("Unexpected AMIA victim")
             score = gradient_score(parameters_to_ndarrays(update.parameters))
             trial_id = server_round - 1
+            threshold = calibration["threshold"] if calibration is not None else config.gradient_threshold
+            predicted = bool(score >= threshold) if calibration is not None else predict_member(score, config)
             trials.append({"trial_id": trial_id, "truth_member": trial_id % 2 == 0,
-                           "score": score, "pred_member": predict_member(score, config),
+                           "score": score, "pred_member": predicted,
+                           "threshold": threshold,
+                           "threshold_comparator": ">=" if calibration is not None else ">",
                            "batch_size": update.num_examples,
                            "membership_target": "private_client_batch",
                            "target_client_id": config.target_client_id,
@@ -602,7 +647,7 @@ def build_result_payload(
     }
 
 
-def custom_trials_adapter(config, artifact_dir, pipeline=None):
+def _run_target(config, artifact_dir, pipeline=None):
     from .amia_ldp import finite_set_bounds
     model, tokenizer, clients, fed_history, model_path = federated_fine_tune(
         config, artifact_dir, **({"pipeline": pipeline} if pipeline is not None else {}))
@@ -612,6 +657,7 @@ def custom_trials_adapter(config, artifact_dir, pipeline=None):
     certificate = finite_set_bounds(
         probe, sentence_embedding(model, tokenizer, [target], config),
         sentence_embedding(model, tokenizer, adversary_records(config), config), config)
+    calibration = calibrate_probe(model, tokenizer, probe, config) if config.threshold_mode == "calibrated" else None
     evaluation = None
     if pipeline is not None:
         from ..rag import evaluate_pipeline
@@ -620,18 +666,72 @@ def custom_trials_adapter(config, artifact_dir, pipeline=None):
              "privacy": getattr(model, "_training_privacy", {}),
              "training_records": [text for part in clients for text in part]}, config, pipeline)
     del model, tokenizer
-    trials = run_attack_trials(model_path, probe, clients, config)
+    trials = run_attack_trials(model_path, probe, clients, config,
+                              **({"calibration": calibration} if calibration is not None else {}))
     if evaluation is not None:
         trials[0]["pipeline_evaluation"] = evaluation
     return {"trials": trials, "context": {"fed_history": fed_history, "probe_history": probe_history,
-            "model_path": model_path, "probe_path": probe_path, "certificate": certificate, "training_provenance": provenance}}
+            "model_path": model_path, "probe_path": probe_path, "certificate": certificate,
+            "calibration": calibration, "training_provenance": provenance}}
+
+
+def custom_trials_adapter(config, artifact_dir, pipeline=None):
+    """Train a fresh target-specific probe per target; preserve batch pairing."""
+    from hashlib import sha256
+    from ..defenses import privacy_bound
+    if config.attack_targets == 1:
+        output = _run_target(config, artifact_dir, pipeline)
+        target_hash = sha256(dataset_sources.target_record_for(config, TARGET_TEXT).encode()).hexdigest()
+        for trial in output["trials"]:
+            trial.update(target_index=0, target_sha256=target_hash, target_seed=config.seed,
+                         target_trial_id=trial["trial_id"])
+        output["context"]["unique_target_count"] = 1
+    else:
+        output = {"trials": [], "context": {}}
+        contexts = []
+        for index in range(config.attack_targets):
+            target_config = replace(config, seed=config.seed + index,
+                                    attack_trials=config.attack_trials // config.attack_targets,
+                                    attack_targets=1)
+            target_dir = Path(artifact_dir) / f"target_{index:03d}"
+            part = _run_target(target_config, target_dir, pipeline)
+            target_hash = sha256(dataset_sources.target_record_for(target_config, TARGET_TEXT).encode()).hexdigest()
+            for trial in part["trials"]:
+                trial.update(target_index=index, target_sha256=target_hash, target_seed=target_config.seed,
+                             target_trial_id=trial["trial_id"])
+                trial["trial_id"] = len(output["trials"])
+                output["trials"].append(trial)
+            contexts.append({"target_index": index, "target_sha256": target_hash, **part["context"]})
+        output["context"] = {"target_contexts": contexts,
+                             "unique_target_count": len({c["target_sha256"] for c in contexts})}
+    if config.observation_defense == "gaussian":
+        bound = privacy_bound(config.attack_trials, config.observation_noise_multiplier, config.observation_delta)
+        bound.update(privacy_unit="private_batch", protected_release="noised_probe_gradients",
+                     trusted_server=False,
+                     scope="Observation releases only; excludes training, feature LDP and retrieval releases")
+        output["context"]["observation_privacy"] = bound
+    return output
 
 
 def build_payload_adapter(config, trials, artifact_dir, context):
-    result = build_result_payload(config, context["fed_history"], context["probe_history"], trials,
+    clean_trials = [{k: v for k, v in t.items() if k != "pipeline_evaluation"} for t in trials]
+    if "target_contexts" in context:
+        result = {"status": "complete", "methodology": dict(METHODOLOGY),
+                  "metrics": _summarize_attack(trials), "attack_trials": clean_trials,
+                  "target_evaluations": context["target_contexts"],
+                  "unique_target_count": context["unique_target_count"],
+                  "artifacts": {"artifact_dir": str(artifact_dir)}}
+        if "observation_privacy" in context:
+            result["observation_privacy_composed"] = context["observation_privacy"]
+        return result
+    result = build_result_payload(config, context["fed_history"], context["probe_history"], clean_trials,
                                   context["model_path"], context["probe_path"])
     result["activation_confidence"] = context["certificate"]
     result["training_provenance"] = context.get("training_provenance", {})
+    result["calibration"] = context.get("calibration")
+    result["unique_target_count"] = context.get("unique_target_count", 1)
+    if "observation_privacy" in context:
+        result["observation_privacy_composed"] = context["observation_privacy"]
     return result
 
 

@@ -112,7 +112,8 @@ def load_cached_result(config: Any, spec: Optional[Any] = None) -> Optional[Dict
         if snapshot.exists:
             payload = snapshot.to_dict()
             if payload.get("status") == "complete":
-                return payload
+                from .result_storage import unpack_result
+                return unpack_result(payload)
 
     return None
 
@@ -141,7 +142,8 @@ def save_result(config: Any, result: Dict, spec: Optional[Any] = None) -> bool:
         # Missing-credentials case ONLY: fine to skip writing locally.
         return False
 
-    payload = _clear_stale_error(result, _delete_field_sentinel())
+    from .result_storage import pack_result
+    payload = _clear_stale_error(pack_result(result), _delete_field_sentinel())
 
     # A real write/serialization error (e.g. nested-array rejection) propagates
     # so it fails fast rather than masquerading as "not saved". Do not widen.

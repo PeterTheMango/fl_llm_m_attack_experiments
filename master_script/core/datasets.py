@@ -261,6 +261,8 @@ def _ordered_records(config: Any, required: int) -> List[str]:
     world_count = 2 + config.num_clients * dataset_spec(config.dataset_name).records_per_client
     reserve = max(64, getattr(config, "calibration_nonmember_count", 0),
                   getattr(config, "adversary_negative_count", 0))
+    if getattr(config, "threshold_mode", "fixed") == "calibrated" and hasattr(config, "probe_epochs"):
+        reserve = max(reserve, config.adversary_negative_count + config.calibration_nonmember_count)
     total_required = world_count + reserve
     if required > total_required:
         raise ValueError("Requested records exceed the declared run data budget")

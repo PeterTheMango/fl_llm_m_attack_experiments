@@ -121,7 +121,7 @@ def validate_attack_config(config, spec=None):
                  "self_prompt_tokens", "calibration_nonmember_count", "rouge_n",
                  "reference_samples", "reference_epochs", "reference_batch_size",
                  "reference_generation_length", "generation_max_length", "adversary_negative_count",
-                 "ldp_target_samples", "certificate_samples"):
+                 "ldp_target_samples", "certificate_samples", "attack_targets"):
         value = getattr(config, name, None)
         if value is not None and (type(value) is not int or value <= 0):
             raise ValueError(f"{name} must be a positive integer")
@@ -131,7 +131,8 @@ def validate_attack_config(config, spec=None):
         raise ValueError("clients_per_round cannot exceed num_clients")
     if type(config.target_client_id) is not int or not 0 <= config.target_client_id < config.num_clients:
         raise ValueError("target_client_id must identify a configured client")
-    for name in ("client_lr", "probe_lr", "loss_bound", "reference_lr", "embedding_noise_scale", "epsilon"):
+    for name in ("client_lr", "probe_lr", "loss_bound", "reference_lr", "embedding_noise_scale", "epsilon",
+                 "observation_clip_norm", "observation_noise_multiplier"):
         value = getattr(config, name, None)
         if value is not None and (isinstance(value, bool) or not math.isfinite(value) or value <= 0):
             raise ValueError(f"{name} must be finite and positive")
@@ -161,6 +162,26 @@ def validate_attack_config(config, spec=None):
         raise ValueError("Reference generation must have a positive continuation budget")
     if hasattr(config, "threshold_quantile") and not 0 <= config.threshold_quantile <= 1:
         raise ValueError("threshold_quantile must be in [0, 1]")
+    if getattr(config, "threshold_mode", "fixed") not in ("fixed", "calibrated"):
+        raise ValueError("threshold_mode must be fixed or calibrated")
+    if getattr(config, "threshold_mode", "fixed") == "calibrated":
+        from .datasets import uses_real_dataset
+        if not getattr(config, "use_hf_models", True) or not uses_real_dataset(config):
+            raise ValueError("Calibrated attacks require real models and a real dataset profile")
+        if (isinstance(config.calibration_fpr, bool) or not 0 < config.calibration_fpr < 1
+                or config.calibration_nonmember_count < math.ceil(1 / config.calibration_fpr)):
+            raise ValueError("calibration_nonmember_count must resolve calibration_fpr in (0, 1)")
+    if hasattr(config, "attack_targets"):
+        if config.attack_trials % (2 * config.attack_targets):
+            raise ValueError("AMIA attack_trials must be divisible by 2 * attack_targets for paired batches")
+        if config.attack_targets > 1:
+            from .datasets import uses_real_dataset
+            if not uses_real_dataset(config):
+                raise ValueError("Multiple AMIA targets require a real dataset profile")
+        if config.observation_defense not in ("none", "clip", "gaussian"):
+            raise ValueError("observation_defense must be none, clip or gaussian")
+        if isinstance(config.observation_delta, bool) or not 0 < config.observation_delta < 1:
+            raise ValueError("observation_delta must be in (0, 1)")
 
 
 def expand_sweep(base_config, sweep: Dict[str, Sequence]) -> Iterator:

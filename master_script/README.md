@@ -58,7 +58,7 @@ point where it matters.
 attack against a Hugging Face model over federated learning. Note the extra:
 `core/federation.py` calls `flwr.simulation.run_simulation`, which is backed
 by Ray, so bare `flwr` imports fine and then fails minutes into a run. The toy
-smoke path (`master_script/configs/smoke.yaml`,
+smoke path (`master_script/configs/archive/smoke.yaml`,
 `--no-firestore`) needs none of them — it exercises 9 of the 11 attacks
 (`amia` and `loss` have no toy path; see Known limits) with synthetic
 in-memory data and no GPU, model download, or credentials.
@@ -70,10 +70,12 @@ Docstring examples are also visible via `--help`.
 
 ### `--config`
 
-Path to a YAML config file. Default: `master_script/configs/smoke.yaml`.
+Path to a YAML config file. Default: `master_script/configs/amia_reference_rag_master.yaml`.
+This research sweep performs real model training; use the archived smoke file
+explicitly for a small toy check.
 
 ```bash
-python -m master_script.perform_experiments --config master_script/configs/example_sweep.yaml
+python -m master_script.perform_experiments --config master_script/configs/archive/example_sweep.yaml
 ```
 
 ### `--attack`
@@ -82,18 +84,28 @@ Restrict the run to one attack; repeatable to select several. Default: every
 attack listed in the config's `attacks:` section.
 
 ```bash
-python -m master_script.perform_experiments --config master_script/configs/example_sweep.yaml \
+python -m master_script.perform_experiments --config master_script/configs/archive/example_sweep.yaml \
     --attack zlib --attack min_k
 ```
 
-### Larger research batch
+### AMIA / Reference research sweep
 
-`configs/pipeline_research_master.yaml` combines all 11 attacks, three training
-conditions and three seeds. It targets a single 20GB GPU allocation with a
-0.49B model and larger SQuAD training/RAG samples. Prepare the data before
-loading it; see [setup, workload and commands](docs/research_config.md).
-This file requires the accompanying loader/profile changes and does not run
-7B full-model DP training.
+The only active configuration is
+[`configs/amia_reference_rag_master.yaml`](configs/amia_reference_rag_master.yaml).
+Select AMIA and Reference to run 42 conditions/seeds with held-out threshold
+calibration, attack-specific defenses, and RAG evaluation. The prepared study is
+included. See the [study guide](docs/amia_reference_rag.md) for the matrix,
+privacy scopes, workload, validation settings and result interpretation.
+
+```bash
+python -m master_script.perform_experiments \
+  --queue master_script/configs/amia_reference_rag_master.yaml \
+  --attack amia --attack reference --no-charts
+```
+
+Previous configurations are preserved in `configs/archive/`; examples below
+that use those files are historical. The archive is excluded from the saved
+configuration picker.
 
 ### `--queue` and `--queue-output`
 
@@ -109,9 +121,9 @@ a queue. The existing single-file `--config` command is unchanged.
 
 ```bash
 python -m master_script.perform_experiments --queue \
-  master_script/configs/pipeline_zlib_dp.yaml \
-  master_script/configs/pipeline_min_k_dp.yaml \
-  master_script/configs/pipeline_min_kpp_dp.yaml \
+  master_script/configs/archive/pipeline_zlib_dp.yaml \
+  master_script/configs/archive/pipeline_min_k_dp.yaml \
+  master_script/configs/archive/pipeline_min_kpp_dp.yaml \
   --no-firestore --no-charts
 ```
 
@@ -140,7 +152,7 @@ pipeline:
     noise_multiplier: 1.0
     delta: 0.00001
   rag:
-    study_file: pipeline_demo_study.json  # relative to this YAML file
+    study_file: archive/pipeline_demo_study.json  # relative to this YAML file
     embedding_model: sentence-transformers/all-MiniLM-L6-v2
     top_k: 2
     max_context_tokens: 128
@@ -192,7 +204,7 @@ whether it is already cached in Firestore, and run nothing. Useful for
 sanity-checking a sweep before spending GPU hours.
 
 ```bash
-python -m master_script.perform_experiments --config master_script/configs/example_sweep.yaml --dry-run
+python -m master_script.perform_experiments --config master_script/configs/archive/example_sweep.yaml --dry-run
 ```
 
 ### `--max-parallel`
@@ -202,7 +214,7 @@ python -m master_script.perform_experiments --config master_script/configs/examp
 is imported in the child process.
 
 ```bash
-python -m master_script.perform_experiments --config master_script/configs/example_sweep.yaml \
+python -m master_script.perform_experiments --config master_script/configs/archive/example_sweep.yaml \
     --attack zlib --max-parallel 2
 ```
 
@@ -212,7 +224,7 @@ Keep local model/probe artifacts under `master_script/artifacts/` after a
 successful Firestore persist, instead of the default cleanup.
 
 ```bash
-python -m master_script.perform_experiments --config master_script/configs/example_sweep.yaml --keep-artifacts
+python -m master_script.perform_experiments --config master_script/configs/archive/example_sweep.yaml --keep-artifacts
 ```
 
 ### `--no-firestore`
@@ -222,7 +234,7 @@ Local-only mode: skip both the cache read (so nothing is skipped as
 runnable with no credentials.
 
 ```bash
-python -m master_script.perform_experiments --config master_script/configs/smoke.yaml --no-firestore
+python -m master_script.perform_experiments --config master_script/configs/archive/smoke.yaml --no-firestore
 ```
 
 ### `--charts`
@@ -231,7 +243,7 @@ Render Adv (advantage) charts into `master_script/outputs/Charts/` after the
 sweep finishes. This is the default; the flag exists to be explicit.
 
 ```bash
-python -m master_script.perform_experiments --config master_script/configs/smoke.yaml --no-firestore --charts
+python -m master_script.perform_experiments --config master_script/configs/archive/smoke.yaml --no-firestore --charts
 ```
 
 ### `--no-charts`
@@ -239,7 +251,7 @@ python -m master_script.perform_experiments --config master_script/configs/smoke
 Skip chart rendering entirely.
 
 ```bash
-python -m master_script.perform_experiments --config master_script/configs/smoke.yaml --no-firestore --no-charts
+python -m master_script.perform_experiments --config master_script/configs/archive/smoke.yaml --no-firestore --no-charts
 ```
 
 ### `--log-level`
@@ -248,7 +260,7 @@ One of `DEBUG`, `INFO` (default), `WARNING`, `ERROR`. Controls both the
 console handler and the session file under `master_script/logs/`.
 
 ```bash
-python -m master_script.perform_experiments --config master_script/configs/smoke.yaml --no-firestore --log-level DEBUG
+python -m master_script.perform_experiments --config master_script/configs/archive/smoke.yaml --no-firestore --log-level DEBUG
 ```
 
 ## YAML config schema
@@ -288,36 +300,36 @@ attacks:
   field on their dataclasses — it's a virtual switch checked before field
   validation.
 
-See `master_script/configs/smoke.yaml` (9 toy runs, no credentials) and
-`master_script/configs/example_sweep.yaml` (a real sweep) for worked
+See `master_script/configs/archive/smoke.yaml` (9 toy runs, no credentials) and
+`master_script/configs/archive/example_sweep.yaml` (a real sweep) for worked
 examples.
 
 Two larger baseline-controlled sweeps are also shipped:
 
-- `configs/all_datasets_master.yaml` runs all 11 attacks over all seven real
+- `configs/archive/all_datasets_master.yaml` runs all 11 attacks over all seven real
   dataset profiles (77 runs), changing only `dataset_name`.
-- `configs/gpt2_master.yaml` runs all 11 attacks with `gpt2` (11 runs),
+- `configs/archive/gpt2_master.yaml` runs all 11 attacks with `gpt2` (11 runs),
   changing only the target model and WBC's matching reference model.
-- `configs/seed_sweep_master.yaml` runs all 11 attacks across seeds
+- `configs/archive/seed_sweep_master.yaml` runs all 11 attacks across seeds
   `7, 11, 23, 42, 101` (55 runs), changing only the seed.
-- `configs/high_trials_master.yaml` runs all 11 attacks with 100 balanced
+- `configs/archive/high_trials_master.yaml` runs all 11 attacks with 100 balanced
   attack trials (11 runs), changing only `attack_trials`.
-- `configs/high_clients_master.yaml` runs all 11 attacks with eight clients and
+- `configs/archive/high_clients_master.yaml` runs all 11 attacks with eight clients and
   full participation in each round (11 runs), changing only the client counts.
-- `configs/federated_rounds_sweep_master.yaml` varies FL rounds over `1, 2, 4`.
-- `configs/local_epochs_sweep_master.yaml` varies local epochs over `1, 2, 4`.
-- `configs/client_participation_sweep_master.yaml` fixes eight total clients and
+- `configs/archive/federated_rounds_sweep_master.yaml` varies FL rounds over `1, 2, 4`.
+- `configs/archive/local_epochs_sweep_master.yaml` varies local epochs over `1, 2, 4`.
+- `configs/archive/client_participation_sweep_master.yaml` fixes eight total clients and
   varies participating clients per round over `2, 4, 8`.
-- `configs/client_lr_sweep_master.yaml` varies client learning rate over
+- `configs/archive/client_lr_sweep_master.yaml` varies client learning rate over
   `1e-5, 5e-5, 1e-4`.
-- `configs/max_length_sweep_master.yaml` varies sequence length over
+- `configs/archive/max_length_sweep_master.yaml` varies sequence length over
   `64, 128, 256` tokens.
 
 Each factor sweep contains 33 runs: three values for each of the 11 attacks.
 
 ## Lightweight master baseline
 
-[`configs/baseline_master.yaml`](configs/baseline_master.yaml) is the single
+[`configs/archive/baseline_master.yaml`](configs/archive/baseline_master.yaml) is the single
 baseline file for all 11 attacks. It uses `distilgpt2`, two clients, one FL
 round, one local epoch, and six balanced attack trials. For the nine shared
 scorers and LOSS, that bounds a run at:
@@ -338,11 +350,11 @@ matter. Time one attack before launching the full file:
 
 ```bash
 time python -m master_script.perform_experiments \
-    --config master_script/configs/baseline_master.yaml \
+    --config master_script/configs/archive/baseline_master.yaml \
     --attack zlib --no-firestore --no-charts
 
 python -m master_script.perform_experiments \
-    --config master_script/configs/baseline_master.yaml
+    --config master_script/configs/archive/baseline_master.yaml
 ```
 
 Every attack's static decision threshold was originally tuned for

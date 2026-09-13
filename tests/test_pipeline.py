@@ -35,7 +35,7 @@ def test_defense_options_separate_cache_ids_without_changing_attack_fields():
 
 
 def test_pipeline_is_spawn_pickleable_and_snapshots_study():
-    cfg, spec = load_config_file(CONFIGS_DIR / "pipeline_zlib_dp.yaml")[0]
+    cfg, spec = load_config_file(CONFIGS_DIR / "archive" / "pipeline_zlib_dp.yaml")[0]
     restored = pickle.loads(pickle.dumps((cfg, spec)))
     assert experiment_key(*restored) == experiment_key(cfg, spec)
     assert "public_documents" in json.loads(spec.pipeline.rag.study_json)
@@ -58,7 +58,7 @@ def test_toy_defense_is_explicitly_rejected():
 
 
 def test_rag_file_bytes_change_identity_and_location_does_not(tmp_path):
-    study = json.loads((CONFIGS_DIR / "pipeline_demo_study.json").read_text())
+    study = json.loads((CONFIGS_DIR / "archive" / "pipeline_demo_study.json").read_text())
     path = tmp_path / "study.json"
     path.write_text(json.dumps(study))
     options = {"rag": {"study_file": str(path)}}
@@ -88,7 +88,7 @@ def test_retrieval_hides_before_refilling_top_k():
 
 def test_invalid_membership_labels_are_rejected():
     from master_script.core.rag import validate_study
-    study = json.loads((CONFIGS_DIR / "pipeline_demo_study.json").read_text())
+    study = json.loads((CONFIGS_DIR / "archive" / "pipeline_demo_study.json").read_text())
     study["membership_candidates"][0]["id"] = "different-id-for-same-text"
     with pytest.raises(ValueError, match="another corpus ID"):
         validate_study(study)
@@ -207,10 +207,11 @@ def test_answer_likelihood_masks_every_prompt_and_context_token():
 
 
 def test_parallel_child_serialization_preserves_pipeline_identity_and_cleans_files(monkeypatch):
+    monkeypatch.setattr("master_script.core.config.resolve_run_config", lambda config: config)
     import subprocess
     from types import SimpleNamespace
     from master_script.perform_experiments import _run_parallel
-    cfg, spec = load_config_file(CONFIGS_DIR / "pipeline_zlib_dp.yaml")[0]
+    cfg, spec = load_config_file(CONFIGS_DIR / "archive" / "pipeline_zlib_dp.yaml")[0]
     files = []
 
     def child(cmd, **kwargs):
@@ -228,4 +229,4 @@ def test_parallel_child_serialization_preserves_pipeline_identity_and_cleans_fil
 
 def test_editor_resolves_rag_study_relative_to_configs_directory():
     from master_script.webui.configs import validate
-    assert validate((CONFIGS_DIR / "pipeline_zlib_dp.yaml").read_text())["ok"]
+    assert validate((CONFIGS_DIR / "amia_reference_rag_master.yaml").read_text())["ok"]

@@ -1,0 +1,19 @@
+{
+  "seed": 1729,
+  "selection_version": 2,
+  "source_url": "https://rajpurkar.github.io/SQuAD-explorer/dataset/dev-v1.1.json",
+  "split": "validation",
+  "corpus_assignment": "random_public_data_simulation",
+  "documents_per_corpus": 256,
+  "candidates_per_corpus": 100,
+  "utility_queries": 20,
+  "paragraph_word_range": [
+    24,
+    160
+  ],
+  "utility_documents_disjoint_from_membership_candidates": true,
+  "pretraining_disjointness": "not established",
+  "article_groups_disjoint": false,
+  "source_sha256": "95aa6a52d5d6a735563366753ca50492a658031da74f301ac5238b03966972c9",
+  "study_sha256": "6fbf28e75fb64a4f43fe4b39e32e0822fe77e46107d726b93e6a258449db2a03"
+}

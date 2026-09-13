@@ -42,6 +42,39 @@ def load_config_doc(doc: dict, only: Optional[Sequence[str]] = None,
     this validation and expansion rather than reimplementing it. `source` is
     whatever the caller wants errors to name.
     """
+    if not isinstance(doc, dict):
+        raise ConfigError(f"{source}: expected a YAML mapping")
+    # Explicit per-attack variants avoid meaningless cross products (e.g. an
+    # epsilon sweep for a no-LDP attack) and work through the same CLI/UI loader.
+    attack_sections = doc.get("attacks") or {}
+    if not isinstance(attack_sections, dict):
+        raise ConfigError(f"{source}: attacks must be a mapping")
+    if any(isinstance(section, dict) and "variants" in section for section in attack_sections.values()):
+        pairs = []
+        for name, section in attack_sections.items():
+            if name not in ATTACKS:
+                raise ConfigError(f"{source}: unknown attack: {name}")
+            if only is not None and name not in only:
+                continue
+            section = section or {}
+            if not isinstance(section, dict):
+                raise ConfigError(f"{source}: attack '{name}' must be a mapping")
+            variants = section.get("variants", [{}])
+            if not isinstance(variants, list) or not variants:
+                raise ConfigError(f"{source}: {name}.variants must be a nonempty list")
+            for variant in variants:
+                if not isinstance(variant, dict) or set(variant) - {"base", "sweep", "pipeline"}:
+                    raise ConfigError(f"{source}: {name} variant accepts base, sweep and pipeline only")
+                expanded_section = {k: v for k, v in section.items() if k != "variants"}
+                for key in ("base", "sweep"):
+                    inherited, override = section.get(key) or {}, variant.get(key) or {}
+                    if not isinstance(inherited, dict) or not isinstance(override, dict):
+                        raise ConfigError(f"{source}: {name}.{key} must be a mapping")
+                    expanded_section[key] = {**inherited, **override}
+                if "pipeline" in variant:
+                    expanded_section["pipeline"] = variant["pipeline"]
+                pairs.extend(load_config_doc({**doc, "attacks": {name: expanded_section}}, only, source))
+        return pairs
     # A list reuses the same attack grid for matched training conditions.
     if isinstance(doc.get("pipeline"), list):
         if not doc["pipeline"]:
