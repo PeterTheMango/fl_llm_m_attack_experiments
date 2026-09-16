@@ -135,11 +135,29 @@ def _run_attack_trial(config, spec, trial_id: int, truth_member: bool) -> dict:
     return trial
 
 
-def run_attack_trials(config, spec) -> list:
-    return [
-        run_attack_trial(config, spec, trial_id=i, truth_member=(i % 2 == 0))
-        for i in range(config.attack_trials)
-    ]
+def run_attack_trials(config, spec, trial_directory=None) -> list:
+    from .queue import write_json
+    from uuid import uuid4
+    directory = None
+    if trial_directory is not None:
+        directory = Path(trial_directory) / uuid4().hex
+        directory.mkdir(parents=True, exist_ok=False)
+        header = {"run_id": experiment_key(config, spec), "status": "partial",
+                  "attack_name": spec.name, "config": asdict(config),
+                  "planned_trials": config.attack_trials, "audit_outputs_private": True,
+                  **({"pipeline": spec.pipeline.metadata()} if spec.pipeline is not None else {})}
+        write_json(directory / "progress.json", {**header, "completed_trials": 0})
+        log.info("Trial checkpoints: %s", directory)
+    trials = []
+    for i in range(config.attack_trials):
+        trial = run_attack_trial(config, spec, trial_id=i, truth_member=(i % 2 == 0))
+        if directory is not None:
+            write_json(directory / f"trial-{i:06d}.json", {"run_id": header["run_id"],
+                       "status": "partial", "trial": trial})
+            write_json(directory / "progress.json", {**header, "completed_trials": i + 1})
+            log.info("Saved trial %s/%s to %s", i + 1, config.attack_trials, directory)
+        trials.append(trial)
+    return trials
 
 
 def run_single_experiment(config, spec, *, use_firestore: bool = True, keep_artifacts=None,
@@ -172,7 +190,7 @@ def run_single_experiment(config, spec, *, use_firestore: bool = True, keep_arti
             if isinstance(trials, dict):
                 context, trials = trials["context"], trials["trials"]
         else:
-            trials = run_attack_trials(config, spec)
+            trials = run_attack_trials(config, spec, trial_directory=artifact_dir / "trial-checkpoints")
         if not trials or not all(math.isfinite(float(t["score"])) for t in trials):
             raise FloatingPointError("A completed experiment requires finite nonempty trial scores")
     except Exception as exc:

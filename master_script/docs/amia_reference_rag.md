@@ -249,3 +249,57 @@ installed in the local test environment, so runtime ownership tests use a stub.
 
 Memory-fix verification: **445 tests passed**, one dependency deprecation
 warning; the Reference-only dry run expanded **15 pending runs**.
+
+## Interrupted trials and CPU selection (16 September 2026)
+
+The earlier runner accumulated all 200 Reference trials in memory and only
+saved the final result afterwards. An interruption could therefore discard
+completed trial data. A trial-ended log entry was not evidence of a disk save.
+The scalar Reference path now writes each completed trial atomically under
+`<artifact-directory>/trial-checkpoints/<attempt-id>/trial-000000.json`, with
+`progress.json` recording its run identity, configuration and saved trial count.
+A new attempt uses a new directory. These files are explicitly `status: partial`;
+they are audit/recovery data, not completed experiments or an automatic resume
+mechanism. Custom AMIA/LOSS trial adapters do not use this incremental writer.
+Existing stopped runs cannot be reconstructed from scalar progress logs alone.
+
+Final results still go to local `result.json` and optionally Firestore. Before
+concluding that a past completed run saved nothing, inspect both local output
+locations on the server:
+
+```bash
+find master_script/outputs master_script/artifacts -type f -name result.json
+```
+
+The CLI's `GPU selection: forced CPU` message means `EXPERIMENT_GPU=cpu` was
+selected from the process environment or `.env`. Setting `CUDA_VISIBLE_DEVICES`
+alone does not override that explicit preference. The dashboard child now
+applies the same GPU selection as the CLI. A run requesting `sim_num_gpus > 0`
+now fails with interpreter, PyTorch/CUDA and visibility details if CUDA is
+unavailable, rather than silently training on CPU. Reference clients check
+visibility inside the Ray worker as well as in the driver. A logical CPU
+resource used to limit worker concurrency does not force model training to CPU.
+
+Run this in the same server shell/environment used to launch the CLI. It does
+not start an experiment or change the parent shell's settings:
+
+```bash
+python - <<'PY'
+import os, sys
+from master_script.core.gpu import apply_gpu_selection, _read_env_file_var
+print('Python:', sys.executable)
+print('EXPERIMENT_GPU shell:', os.environ.get('EXPERIMENT_GPU'))
+print('EXPERIMENT_GPU .env:', _read_env_file_var('EXPERIMENT_GPU'))
+apply_gpu_selection()
+import torch
+print('PyTorch:', torch.__version__, 'CUDA build:', torch.version.cuda)
+print('CUDA_VISIBLE_DEVICES:', os.environ.get('CUDA_VISIBLE_DEVICES'))
+print('CUDA available:', torch.cuda.is_available())
+print('Visible GPU count:', torch.cuda.device_count())
+PY
+```
+
+If CPU was explicitly selected, change that setting to an allocated GPU index
+(or UUID) before launching a new process. If the selected environment has a CPU
+PyTorch build or cannot access an allocated GPU, fix that environment/allocation
+first. Do not launch another full sweep until the CUDA diagnostic succeeds.

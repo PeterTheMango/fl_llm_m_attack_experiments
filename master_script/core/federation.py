@@ -193,8 +193,8 @@ def run_hf_federated_finetune(config: AttackConfig, truth_member: bool, pipeline
     from flwr.server.strategy import FedAvg
     from .runtime_memory import run_simulation, simulation_backend
 
-    use_cuda = config.sim_num_gpus > 0 and torch.cuda.is_available()
-    client_dev = "cuda" if use_cuda else "cpu"
+    from .gpu import training_device
+    training_device(config)  # Fail on the driver before starting a simulation.
     eval_dev = "cuda" if torch.cuda.is_available() else "cpu"
 
     world = build_membership_world(config, truth_member=truth_member)
@@ -226,6 +226,7 @@ def run_hf_federated_finetune(config: AttackConfig, truth_member: bool, pipeline
             self.texts = texts
 
         def fit(self, parameters, fit_config):
+            client_dev = training_device(config)  # Check visibility inside the Ray worker too.
             round_id = int(fit_config["server_round"])
             if self.partition_id not in selected_clients(config, round_id):
                 return parameters, 0, {"partition_id": self.partition_id}

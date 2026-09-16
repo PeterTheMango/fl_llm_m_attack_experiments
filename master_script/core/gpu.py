@@ -57,10 +57,28 @@ def apply_gpu_selection() -> str | None:
         print("GPU selection: no GPU detected; using default device visibility.")
     elif chosen.lower() == "cpu":
         os.environ["CUDA_VISIBLE_DEVICES"] = ""
-        print("GPU selection: forced CPU (CUDA_VISIBLE_DEVICES='').")
+        print("GPU selection: forced CPU by EXPERIMENT_GPU (shell or .env); CUDA_VISIBLE_DEVICES=''.")
     else:
         os.environ["CUDA_VISIBLE_DEVICES"] = chosen
         _free = dict(_gpu_free_memory()).get(chosen)
         _detail = f" ({_free} MiB free)" if _free is not None else ""
         print(f"GPU selection: pinned to physical GPU {chosen}{_detail}; it appears as cuda:0 in this process.")
     return chosen
+
+
+def training_device(config) -> str:
+    """A requested GPU must be usable; never silently run that job on CPU."""
+    import sys
+    import torch
+    if config.sim_num_gpus <= 0:
+        return "cpu"
+    if not torch.cuda.is_available():
+        raise RuntimeError(
+            "GPU training requested (sim_num_gpus > 0), but PyTorch cannot access CUDA. "
+            f"python={sys.executable}; torch={torch.__version__}; "
+            f"torch.version.cuda={torch.version.cuda}; "
+            f"CUDA_VISIBLE_DEVICES={os.environ.get('CUDA_VISIBLE_DEVICES')!r}; "
+            f"EXPERIMENT_GPU={os.environ.get('EXPERIMENT_GPU')!r}. "
+            "Check the Python environment, GPU allocation and EXPERIMENT_GPU in the shell/.env. "
+            "Refusing to silently fall back to CPU.")
+    return "cuda"

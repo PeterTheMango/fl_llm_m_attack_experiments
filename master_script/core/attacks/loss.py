@@ -236,8 +236,8 @@ def set_parameters(model, parameters: list) -> None:
 def client_device(config) -> str:
     import torch
 
-    use_cuda = config.sim_num_gpus > 0 and torch.cuda.is_available()
-    return "cuda" if use_cuda else "cpu"
+    from ..gpu import training_device
+    return training_device(config)
 
 
 def _loss_flower_client_cls():

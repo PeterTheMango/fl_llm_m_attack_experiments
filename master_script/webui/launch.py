@@ -30,6 +30,8 @@ def _run_in_child(pairs, use_firestore: bool, keep_artifacts, messages, batch=No
     if os.name == "posix":
         os.setsid()
 
+    from ..core.gpu import apply_gpu_selection
+    apply_gpu_selection()
     setup_session_logging("INFO")
     reporter = RunStateReporter() if use_firestore else None
     try:
