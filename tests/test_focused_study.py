@@ -18,14 +18,14 @@ from master_script.core.yaml_config import ConfigError, load_config_file, load_c
 from master_script.paths import CONFIGS_DIR
 
 
-def test_archive_preserves_original_files_and_only_focused_config_is_active():
+def test_archive_preserves_original_files_and_only_focused_configs_are_active():
     archive = CONFIGS_DIR / "archive"
     manifest = json.loads((archive / "manifest.json").read_text())
     assert len(manifest) == 19
     for row in manifest:
         assert sha256((archive / row["filename"]).read_bytes()).hexdigest() == row["sha256"]
     from master_script.webui.configs import listing
-    assert [f["name"] for f in listing()] == ["amia_reference_rag_master.yaml"]
+    assert {f["name"] for f in listing()} == {"amia_reference_rag_master.yaml", "amia_reference_rag_light.yaml"}
 
 
 def test_focused_file_matches_seeds_and_keeps_defense_variants_distinct():

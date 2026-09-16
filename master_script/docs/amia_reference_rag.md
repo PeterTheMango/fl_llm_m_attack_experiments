@@ -1,7 +1,7 @@
 # AMIA / Reference federated RAG study
 
 Use [`configs/amia_reference_rag_master.yaml`](../configs/amia_reference_rag_master.yaml).
-It is the only active saved configuration. The 18 previous YAML files and their
+It is the full research configuration; a lighter pilot is also available. The 18 previous YAML files and their
 shared demo study are preserved byte for byte in [`configs/archive`](../configs/archive/README.md),
 with a SHA-256 manifest. The other attack implementations remain available for
 historical reproduction.
@@ -303,3 +303,37 @@ If CPU was explicitly selected, change that setting to an allocated GPU index
 (or UUID) before launching a new process. If the selected environment has a CPU
 PyTorch build or cannot access an allocated GPU, fix that environment/allocation
 first. Do not launch another full sweep until the CUDA diagnostic succeeds.
+
+
+## Lighter pilot configuration
+
+Use `configs/amia_reference_rag_light.yaml` for an initial comparison of all
+nine AMIA and five Reference conditions at seed 7. It uses 20 attack trials per
+experiment; AMIA splits them across two targets with ten observations each.
+The full configuration is preserved and remains the CLI default, so select the
+light file explicitly:
+
+```bash
+python -m master_script.perform_experiments \
+  --queue master_script/configs/amia_reference_rag_light.yaml \
+  --attack amia --attack reference --no-charts
+```
+
+This expands to 14 experiments, 280 attack trials and 118 federated model fits
+(100 Reference and 18 AMIA), versus 42 experiments, 8,400 trials and 3,135 fits
+in the full sweep. It preserves the model, dataset, four clients, three FL
+rounds, defense strengths, probe training, 200 calibration negatives and the
+full RAG study. RAG still runs on two models per experiment, so it remains a
+noticeable part of runtime. Reference-only selection gives five experiments.
+
+At the observed baseline rate of about 3.5 minutes per ordinary Reference
+trial plus roughly 24 minutes of additional RAG work on the first pair, budget
+about 90–100 minutes per baseline Reference experiment. Private training may
+be slower; this is not a runtime guarantee for every condition or for AMIA.
+
+Use this pilot to find promising conditions and check utility, not to establish
+reliability. There are only ten member and ten nonmember Reference trials, so
+measured test FPR changes in ten-percentage-point steps, despite calibration at
+5%. One seed and two AMIA targets provide limited evidence of generalization.
+Keep pilot and full-sweep results separate. Starting the light file creates a
+new run; it does not shorten or resume a currently running full experiment.

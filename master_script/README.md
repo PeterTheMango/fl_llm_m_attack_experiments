@@ -90,12 +90,14 @@ python -m master_script.perform_experiments --config master_script/configs/archi
 
 ### AMIA / Reference research sweep
 
-The only active configuration is
+The full research configuration is
 [`configs/amia_reference_rag_master.yaml`](configs/amia_reference_rag_master.yaml).
 Select AMIA and Reference to run 42 conditions/seeds with held-out threshold
 calibration, attack-specific defenses, and RAG evaluation. The prepared study is
 included. See the [study guide](docs/amia_reference_rag.md) for the matrix,
 privacy scopes, workload, validation settings and result interpretation.
+For a smaller 14-experiment pilot, select `configs/amia_reference_rag_light.yaml`
+explicitly: it keeps all defense conditions but uses one seed and 20 trials.
 
 ```bash
 python -m master_script.perform_experiments \
