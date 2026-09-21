@@ -400,6 +400,8 @@ def federated_fine_tune(config, artifact_dir=None, pipeline=None):
     history = capture["history"]
     model_path = artifact_dir / "federated_model"
     tokenizer.save_pretrained(model_path)
+    from ..storage import check_model_save
+    check_model_save(global_model, model_path)
     global_model.save_pretrained(model_path)
     return global_model, tokenizer, clients, history, str(model_path)
 

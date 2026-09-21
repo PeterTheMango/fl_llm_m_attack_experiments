@@ -415,6 +415,8 @@ def federated_fine_tune(client_texts: list, config, artifact_dir: Path, pipeline
     artifact_dir = Path(artifact_dir)
     artifact_dir.mkdir(parents=True, exist_ok=True)
     model_path = artifact_dir / "federated_model"
+    from ..storage import check_model_save
+    check_model_save(global_model, model_path)
     global_model.save_pretrained(model_path)
     tokenizer.save_pretrained(model_path)
     return global_model, tokenizer, capture["history"], {"federated_model_path": str(model_path), "training_provenance": provenance}

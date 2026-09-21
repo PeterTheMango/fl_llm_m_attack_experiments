@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 import sqlite3
 import time
+from zipfile import BadZipFile
 import numpy as np
 from .guard_features import FEATURE_SCHEMA, parameter_features
 from .guard_detector import load_detector, detector_score
@@ -85,12 +86,21 @@ def prepare_guard(settings, scope, parameters, *, rounds):
     path = root / (key + ".npz")
     # Never silently change the approved checkpoint for an existing scope.
     if not path.exists():
-        with path.open("xb") as stream:
-            np.savez(stream, *parameters)
-    else:
+        from .storage import require_space, atomic_binary
+        require_space(root, sum(np.asarray(p).nbytes + 65536 for p in parameters))
+        try:
+            with atomic_binary(path, exclusive=True) as stream:
+                np.savez(stream, *parameters)
+        except FileExistsError:
+            # Another preparer published the same scope; validate below.
+            pass
+    try:
         with np.load(path, allow_pickle=False) as stored:
             if len(stored.files) != len(parameters) or any(not np.array_equal(stored[f"arr_{i}"], p) for i, p in enumerate(parameters)):
                 raise ValueError("Approved checkpoint changed within guard scope")
+    except (OSError, EOFError, ValueError, BadZipFile) as exc:
+        raise ValueError(f"Invalid or changed guard checkpoint {path}. Preserve its ledger; "
+                         "do not reuse a partial snapshot or reset accounting to retry.") from exc
     return GuardRuntime(settings, scope, str(path), rounds)
 
 

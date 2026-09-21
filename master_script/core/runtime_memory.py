@@ -26,6 +26,11 @@ def release_memory():
 
 
 def run_simulation(**kwargs):
+    import os
+    import tempfile
+    from .storage import require_space
+    init = kwargs.get("backend_config", {}).get("init_args", {})
+    require_space(init.get("_temp_dir") or os.environ.get("RAY_TMPDIR") or tempfile.gettempdir())
     import ray
     from flwr.simulation import run_simulation as flower_run
     already_initialized = ray.is_initialized()

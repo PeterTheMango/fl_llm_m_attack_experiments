@@ -182,6 +182,8 @@ def run_single_experiment(config, spec, *, use_firestore: bool = True, keep_arti
             return cached
 
     artifact_dir = Path(artifact_directory) if artifact_directory is not None else artifact_dir_for(config, spec)
+    from .storage import require_space
+    require_space(artifact_dir)
     artifact_dir.mkdir(parents=True, exist_ok=True)
     if spec.pipeline is not None and spec.pipeline.client_guard is not None:
         from .pipeline import validate_pipeline_run
@@ -208,15 +210,21 @@ def run_single_experiment(config, spec, *, use_firestore: bool = True, keep_arti
         if spec.pipeline is not None and spec.pipeline.client_guard is not None:
             from .queue import write_json
             from .guard_runtime import read_guard_events
-            failure = failed_sweep_result(config, spec, run_id, exc)
-            failure["guard_events"] = read_guard_events(spec.pipeline.client_guard.runtime_directory)
-            write_json(artifact_dir / "result.json", failure)
+            try:
+                failure = failed_sweep_result(config, spec, run_id, exc)
+                failure["guard_events"] = read_guard_events(spec.pipeline.client_guard.runtime_directory)
+                write_json(artifact_dir / "result.json", failure)
+            except Exception:
+                log.exception("Failure details could not be persisted; preserving original error")
         if use_firestore:
             from .guard_runtime import PolicyAbortedRound
-            if isinstance(exc, PolicyAbortedRound):
-                firestore.save_result(config, failed_sweep_result(config, spec, run_id, exc), spec)
-            else:
-                firestore.mark_result_failed(config, str(exc), spec)
+            try:
+                if isinstance(exc, PolicyAbortedRound):
+                    firestore.save_result(config, failed_sweep_result(config, spec, run_id, exc), spec)
+                else:
+                    firestore.mark_result_failed(config, str(exc), spec)
+            except Exception:
+                log.exception("Failure status could not reach Firestore; preserving original error")
         raise  # NOTE: no cleanup -- a failed run keeps its artifacts.
 
     if spec.build_payload is not None:
@@ -342,6 +350,18 @@ def run_sweep(pairs, *, use_firestore: bool = True, keep_artifacts=None,
                    if artifact_base is not None else {}),
             )
         except Exception as exc:
+            from .storage import storage_exhausted, require_space
+            if storage_exhausted(exc):
+                log.error("Stopping sweep because storage is exhausted: %s", exc)
+                reset_ray_after_failure()
+                raise
+            # Ray can mask ENOSPC with a missing startup log. Check both volumes.
+            import os
+            import tempfile
+            output_path = artifact_base or getattr(config, "artifact_root", None) or getattr(config, "local_artifact_dir", None)
+            if output_path is not None:
+                require_space(output_path)
+            require_space(os.environ.get("RAY_TMPDIR") or tempfile.gettempdir())
             # run_single_experiment logs the traceback and persists the failed
             # status for execution failures.  The sweep boundary is deliberately
             # fail-soft: retain a compact local result, reset a possibly broken

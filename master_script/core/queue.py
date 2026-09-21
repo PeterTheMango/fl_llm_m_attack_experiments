@@ -5,6 +5,8 @@ import json
 import math
 from pathlib import Path
 import time
+import logging
+import sys
 from uuid import uuid4
 
 import yaml
@@ -61,9 +63,9 @@ def _json_safe(value):
 def write_json(path, payload):
     """Atomic replacement within a newly allocated batch directory."""
     path = Path(path)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(_json_safe(payload), indent=2, allow_nan=False) + "\n")
-    temporary.replace(path)
+    from .storage import atomic_binary
+    with atomic_binary(path) as stream:
+        stream.write((json.dumps(_json_safe(payload), indent=2, allow_nan=False) + "\n").encode())
 
 
 def interrupt_batch(directory):
@@ -97,6 +99,11 @@ def run_batch(batch, *, output_root=None, use_firestore=True, keep_artifacts=Non
     directory = Path(batch.directory) if batch.directory else reserve_directory(output_root)
     if any(directory.iterdir()):
         raise FileExistsError("Refusing to overwrite an existing batch directory")
+    from .storage import require_space, storage_exhausted
+    require_space(directory)
+    # Physically reserve a small emergency allowance for a terminal manifest.
+    reserve = directory / ".manifest-reserve"
+    reserve.write_bytes(b"\0" * (1024 * 1024))
     manifest = {"batch_id": directory.name, "status": "running",
                 "started_unix": time.time(), "entries": [dict(e) for e in batch.entries]}
     index = 0
@@ -123,8 +130,8 @@ def run_batch(batch, *, output_root=None, use_firestore=True, keep_artifacts=Non
         index += 1
         persist()
 
-    persist()
     try:
+        persist()
         results = run_sweep(batch.pairs, use_firestore=use_firestore,
                             keep_artifacts=keep_artifacts, on_run_start=start,
                             on_run_end=on_run_end, on_result=result_ready,
@@ -132,14 +139,23 @@ def run_batch(batch, *, output_root=None, use_firestore=True, keep_artifacts=Non
         manifest["status"] = "complete" if all(r.get("status") == "complete" for r in results) else "failed"
         return results, directory
     except BaseException as exc:
-        manifest["status"] = "interrupted" if isinstance(exc, (KeyboardInterrupt, SystemExit)) else "failed"
+        reserve.unlink(missing_ok=True)
+        manifest["status"] = ("storage_exhausted" if storage_exhausted(exc) else
+                              "interrupted" if isinstance(exc, (KeyboardInterrupt, SystemExit)) else "failed")
         manifest["error"] = f"{type(exc).__name__}: {exc}"[:2000]
         for entry in manifest["entries"]:
             if entry["status"] == "running":
-                entry.update(status="interrupted", ended_unix=time.time())
+                entry.update(status="storage_exhausted" if storage_exhausted(exc) else "interrupted", ended_unix=time.time())
             elif entry["status"] == "pending":
                 entry["status"] = "not_run"
         raise
     finally:
+        reserve.unlink(missing_ok=True)
         manifest["ended_unix"] = time.time()
-        persist()
+        original_error = sys.exc_info()[0] is not None
+        try:
+            persist()
+        except Exception:
+            if not original_error:
+                raise
+            logging.getLogger(__name__).exception("Could not finalize queue manifest; original failure preserved")
