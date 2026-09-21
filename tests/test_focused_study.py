@@ -25,7 +25,7 @@ def test_archive_preserves_original_files_and_only_focused_configs_are_active():
     for row in manifest:
         assert sha256((archive / row["filename"]).read_bytes()).hexdigest() == row["sha256"]
     from master_script.webui.configs import listing
-    assert {f["name"] for f in listing()} == {"amia_reference_rag_master.yaml", "amia_reference_rag_light.yaml"}
+    assert {f["name"] for f in listing()} == {"amia_reference_rag_master.yaml", "amia_reference_rag_light.yaml", "client_guard_privacy_pilot.yaml"}
 
 
 def test_focused_file_matches_seeds_and_keeps_defense_variants_distinct():

@@ -55,7 +55,10 @@ def publish_manifest(pairs) -> bool:
         return False
     return publish_monitor_state({
         "manifest": [
-            {"run_id": experiment_key(cfg, spec), "attack": spec.name}
+            {"run_id": experiment_key(cfg, spec), "attack": spec.name,
+             **({"client_guard": spec.pipeline.client_guard.mode,
+                 "detector_sha256": spec.pipeline.client_guard.detector_sha256}
+                if getattr(spec, "pipeline", None) is not None and spec.pipeline.client_guard is not None else {})}
             for cfg, spec in pairs
         ]
     })

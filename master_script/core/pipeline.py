@@ -27,6 +27,7 @@ class Rag:
     prompt_format: str = "plain"
     evaluation_trials: int | None = None
     defenses: tuple = ("ordinary", "mirabel")
+    membership_overlap: bool = False
 
 
 @dataclass(frozen=True)
@@ -34,14 +35,21 @@ class Pipeline:
     defense: Defense
     rag: Rag | None = None
     condition: str = ""
+    client_guard: object | None = None
 
     def metadata(self):
         data = asdict(self)
+        if self.client_guard is None:
+            data.pop("client_guard")
+        else:
+            data["client_guard"] = self.client_guard.metadata()
         if not data["condition"]:
             data.pop("condition")
         if data["rag"]:
             # Record provenance, never private document contents, in results.
             data["rag"].pop("study_json")
+            if not data["rag"]["membership_overlap"]:
+                data["rag"].pop("membership_overlap")
             if data["rag"]["prompt_format"] == "plain":
                 data["rag"].pop("prompt_format")  # Preserve existing pipeline identities.
             if data["rag"]["evaluation_trials"] is None:
@@ -56,6 +64,9 @@ class Pipeline:
         data = self.metadata()
         if data["rag"]:
             data["rag"].pop("study_file")
+        if self.client_guard is not None:
+            for key in ("policy_file", "detector_file"):
+                data["client_guard"].pop(key, None)
         return data
 
 
@@ -76,7 +87,7 @@ def _positive(value, name):
 def parse_pipeline(value, source="<config>"):
     if value is None:
         return None
-    value = _mapping(value, ("defense", "rag", "condition"), "pipeline")
+    value = _mapping(value, ("defense", "rag", "condition", "client_guard"), "pipeline")
     condition = value.get("condition", "")
     if not isinstance(condition, str):
         raise ValueError("pipeline.condition must be a string")
@@ -92,7 +103,7 @@ def parse_pipeline(value, source="<config>"):
     if value.get("rag") is not None:
         r = _mapping(value["rag"], ("study_file", "embedding_model", "top_k", "max_context_tokens",
                                      "max_new_tokens", "significance", "prompt_format",
-                                     "evaluation_trials", "defenses"), "pipeline.rag")
+                                     "evaluation_trials", "defenses", "membership_overlap"), "pipeline.rag")
         if not isinstance(r.get("study_file"), str) or not r["study_file"]:
             raise ValueError("rag.study_file is required")
         base = Path(source).resolve().parent if source != "<config>" else Path.cwd()
@@ -103,6 +114,8 @@ def parse_pipeline(value, source="<config>"):
         validate_study(study)
         rag = Rag(**{**r, "study_file": str(path), "study_sha256": sha256(raw).hexdigest(),
                      "study_json": raw.decode("utf-8")})
+        if type(rag.membership_overlap) is not bool:
+            raise ValueError("rag.membership_overlap must be a boolean")
         for name in ("top_k", "max_context_tokens", "max_new_tokens"):
             v = getattr(rag, name)
             if type(v) is not int or v <= 0:
@@ -120,9 +133,11 @@ def parse_pipeline(value, source="<config>"):
                 or any(d not in ("ordinary", "mirabel", "instruction", "mirabel_instruction") for d in rag.defenses)
                 or len(set(rag.defenses)) != len(rag.defenses)):
             raise ValueError("rag.defenses must contain distinct ordinary/mirabel/instruction/mirabel_instruction values")
-    if defense.mechanism == "none" and rag is None:
+    from .guard_runtime import parse_guard
+    guard = parse_guard(value["client_guard"], source) if value.get("client_guard") is not None else None
+    if defense.mechanism == "none" and rag is None and guard is None:
         return None
-    return Pipeline(defense, rag, condition)
+    return Pipeline(defense, rag, condition, guard)
 
 
 def validate_pipeline_run(config, spec, pipeline):
@@ -141,3 +156,13 @@ def validate_pipeline_run(config, spec, pipeline):
         raise ValueError("max_length must be at least 2")
     if not getattr(config, "use_hf_models", True):
         raise ValueError("Defense/RAG pipeline runs require real models; the toy model is not a DP or RAG implementation")
+
+    if pipeline.client_guard is not None:
+        guard = pipeline.client_guard
+        if spec.name not in ("amia", "reference"):
+            raise ValueError("Client guard currently supports AMIA and Reference only")
+        if not guard.diagnostic and guard.mode != "shadow":
+            if pipeline.defense.mechanism != "dp_sgd":
+                raise ValueError("Enforced guarded training requires client-side dp_sgd or explicit diagnostic ablation")
+            if spec.name == "amia" and config.observation_defense != "gaussian":
+                raise ValueError("Guarded AMIA requires Gaussian observation noise or explicit diagnostic ablation")

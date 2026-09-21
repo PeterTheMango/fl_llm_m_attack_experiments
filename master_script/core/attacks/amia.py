@@ -210,11 +210,12 @@ def _ami_flower_client_cls():
     from flwr.client import NumPyClient
 
     class AMIFlowerClient(NumPyClient):
-        def __init__(self, partition_id: int, client_texts: list, config, defense=None):
+        def __init__(self, partition_id: int, client_texts: list, config, defense=None, guard_runtime=None):
             self.partition_id = partition_id
             self.client_texts = client_texts
             self.config = config
             self.defense = defense
+            self.guard_runtime = guard_runtime
 
         def fit(self, parameters, fit_config):
             from ..federation import selected_clients, seed_training
@@ -224,6 +225,8 @@ def _ami_flower_client_cls():
             seed_training(self.config.seed + 1009 * self.partition_id + round_id)
             device = client_device(self.config)
             model, tokenizer = build_model_and_tokenizer(self.config)
+            if self.guard_runtime is not None and not self.guard_runtime.check(parameters, self.partition_id, round_id):
+                return [], 0, {"partition_id": self.partition_id, "guard_decision": "rejected"}
             set_parameters(model, parameters)
             model.to(device)
             model.train()
@@ -288,8 +291,13 @@ def federated_fine_tune(config, artifact_dir=None, pipeline=None):
         target=dataset_sources.target_record_for(config, TARGET_TEXT),
         calibration=adversary_records(config) + (calibration_records(config) if config.threshold_mode == "calibrated" else []),
         expected_membership=True)
-    initial_parameters = ndarrays_to_parameters(get_parameters(init_model))
-    del init_model
+    from ..guard_runtime import prepare_guard
+    initial_arrays = get_parameters(init_model)
+    guard_runtime = prepare_guard(pipeline.client_guard if pipeline else None,
+                                  f"training:{config.seed}:True", initial_arrays,
+                                  rounds=config.federated_rounds)
+    initial_parameters = ndarrays_to_parameters(initial_arrays)
+    del initial_arrays, init_model
 
     clients_per_round = min(config.clients_per_round, config.num_clients)
     fraction_fit = clients_per_round / config.num_clients
@@ -298,6 +306,15 @@ def federated_fine_tune(config, artifact_dir=None, pipeline=None):
 
     class SaveModelFedAvg(FedAvg):
         def aggregate_fit(self, server_round, results, failures):
+            if guard_runtime is not None:
+                from ..guard_runtime import reject_training_round
+                try:
+                    reject_training_round(results, failures)
+                except RuntimeError as exc:
+                    from ..guard_runtime import PolicyAbortedRound
+                    if isinstance(exc, PolicyAbortedRound):
+                        capture["policy_aborted"] = True
+                    raise
             results = [(client, result) for client, result in results if result.num_examples > 0]
             if failures or len(results) != clients_per_round:
                 raise RuntimeError("FL round did not return every scheduled client update")
@@ -315,6 +332,11 @@ def federated_fine_tune(config, artifact_dir=None, pipeline=None):
             aggregated_parameters, aggregated_metrics = self.aggregate_updates(server_round, results, failures)
             if aggregated_parameters is not None:
                 capture["parameters"] = aggregated_parameters
+            if pipeline is not None:
+                import time
+                capture["history"][-1]["round_seconds"] = time.perf_counter() - capture["round_started"]
+                capture["history"][-1]["received_parameter_bytes"] = sum(
+                    len(tensor) for _, response in results for tensor in response.parameters.tensors)
             return aggregated_parameters, aggregated_metrics
 
         def aggregate_updates(self, server_round, results, failures):
@@ -323,7 +345,13 @@ def federated_fine_tune(config, artifact_dir=None, pipeline=None):
     def client_fn(context: Context):
         partition_id = int(context.node_config["partition-id"])
         return AMIFlowerClient(partition_id, clients[partition_id], config,
-                               **({"defense": defense} if defense is not None else {})).to_client()
+                               **({"defense": defense} if defense is not None else {}),
+                               **({"guard_runtime": guard_runtime} if guard_runtime is not None else {})).to_client()
+
+    def round_config(round_id):
+        import time
+        capture["round_started"] = time.perf_counter()
+        return {"server_round": round_id}
 
     def server_fn(context: Context):
         strategy_type = SaveModelFedAvg
@@ -337,18 +365,26 @@ def federated_fine_tune(config, artifact_dir=None, pipeline=None):
             min_fit_clients=config.num_clients,
             min_available_clients=config.num_clients,
             initial_parameters=initial_parameters,
-            on_fit_config_fn=lambda round_id: {"server_round": round_id},
+            on_fit_config_fn=round_config,
             accept_failures=False,
         )
+        if guard_runtime is not None:
+            capture["strategy"] = strategy
         return ServerAppComponents(strategy=strategy, config=ServerConfig(num_rounds=config.federated_rounds))
 
     backend_config = simulation_backend(config)
-    run_simulation(
-        server_app=ServerApp(server_fn=server_fn),
-        client_app=ClientApp(client_fn=client_fn),
-        num_supernodes=config.num_clients,
-        backend_config=backend_config,
-    )
+    try:
+        run_simulation(
+            server_app=ServerApp(server_fn=server_fn),
+            client_app=ClientApp(client_fn=client_fn),
+            num_supernodes=config.num_clients,
+            backend_config=backend_config,
+        )
+    except Exception as exc:
+        if capture.get("policy_aborted") or getattr(capture.get("strategy"), "guard_policy_aborted", False):
+            from ..guard_runtime import PolicyAbortedRound
+            raise PolicyAbortedRound("Scheduled client refused; training aborted") from exc
+        raise
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     global_model, tokenizer = build_model_and_tokenizer(config)
@@ -535,7 +571,7 @@ def sample_attack_batch(client_texts, config, include_target, rng):
     return batch
 
 
-def run_attack_trials(model_path, probe, clients, config, calibration=None):
+def run_attack_trials(model_path, probe, clients, config, calibration=None, guard_runtime=None, checkpoint_dir=None):
     """Send the same malicious parameters to the victim in each observed round.
 
     The harness owns private partitions and ground truth. Only the client_fn
@@ -554,6 +590,16 @@ def run_attack_trials(model_path, probe, clients, config, calibration=None):
     width = probe.fc1.out_features
     trials = []
 
+    checkpoint_header = None
+    if checkpoint_dir is not None:
+        from ..queue import write_json
+        Path(checkpoint_dir).mkdir(parents=True, exist_ok=True)
+        checkpoint_header = {"status": "partial", "planned_trials": config.attack_trials,
+                             "target_seed": config.seed, "audit_outputs_private": True,
+                             "policy_sha256": guard_runtime.settings.policy_sha256,
+                             "detector_sha256": guard_runtime.settings.detector_sha256}
+        write_json(Path(checkpoint_dir) / "progress.json", {**checkpoint_header, "completed_trials": 0})
+
     class VictimClient(NumPyClient):
         def __init__(self, partition_id, private_texts):
             self.partition_id, self.private_texts = partition_id, private_texts
@@ -561,7 +607,18 @@ def run_attack_trials(model_path, probe, clients, config, calibration=None):
         def fit(self, parameters, fit_config):
             if self.partition_id != config.target_client_id:
                 return parameters, 0, {"partition_id": self.partition_id}
+            import time
+            response_start = time.perf_counter()
             trial_id = int(fit_config["trial_id"])
+            if guard_runtime is not None:
+                # Matched counterfactual worlds get identical request histories.
+                # These harness identities are ledger keys, never detector features.
+                from dataclasses import replace as dc_replace
+                world_guard = dc_replace(guard_runtime, scope=f"{guard_runtime.scope}:world-{trial_id % 2}")
+                if not world_guard.check(parameters, self.partition_id, trial_id // 2 + 1,
+                                         architecture="amia_probe", observation=True):
+                    return [], 0, {"partition_id": self.partition_id, "guard_decision": "rejected",
+                                   "response_seconds": time.perf_counter() - response_start}
             from ..federation import seed_training
             seed_training(config.seed + trial_id // 2)
             device = client_device(config)
@@ -573,20 +630,25 @@ def run_attack_trials(model_path, probe, clients, config, calibration=None):
             batch = sample_attack_batch(self.private_texts, config, trial_id % 2 == 0,
                                         random.Random(config.seed + 1009 + trial_id // 2))
             gradients = client_loss_gradients(model, tokenizer, malicious, batch, config)
-            return gradients, len(batch), {"partition_id": self.partition_id}
+            return gradients, len(batch), {"partition_id": self.partition_id,
+                                           **({"guard_decision": "accepted", "response_seconds": time.perf_counter() - response_start}
+                                              if guard_runtime is not None else {})}
 
     class ObserveGradient(FedAvg):
         def aggregate_fit(self, server_round, results, failures):
-            active = [result for _, result in results if result.num_examples > 0]
+            active = [result for _, result in results if result.num_examples > 0 or result.metrics.get("guard_decision") == "rejected"]
             if failures or len(active) != 1:
                 raise RuntimeError("AMIA did not receive exactly one victim update")
             update = active[0]
             if int(update.metrics["partition_id"]) != config.target_client_id:
                 raise RuntimeError("Unexpected AMIA victim")
-            score = gradient_score(parameters_to_ndarrays(update.parameters))
+            rejected = update.metrics.get("guard_decision") == "rejected"
+            if rejected and parameters_to_ndarrays(update.parameters):
+                raise RuntimeError("A rejected observation must not carry gradient arrays")
+            score = None if rejected else gradient_score(parameters_to_ndarrays(update.parameters))
             trial_id = server_round - 1
             threshold = calibration["threshold"] if calibration is not None else config.gradient_threshold
-            predicted = bool(score >= threshold) if calibration is not None else predict_member(score, config)
+            predicted = None if rejected else (bool(score >= threshold) if calibration is not None else predict_member(score, config))
             trials.append({"trial_id": trial_id, "truth_member": trial_id % 2 == 0,
                            "score": score, "pred_member": predicted,
                            "threshold": threshold,
@@ -595,6 +657,15 @@ def run_attack_trials(model_path, probe, clients, config, calibration=None):
                            "membership_target": "private_client_batch",
                            "target_client_id": config.target_client_id,
                            "batch_pair_seed": config.seed + 1009 + trial_id // 2})
+            if guard_runtime is not None:
+                trials[-1].update(decision="rejected" if rejected else "accepted", gradient_available=not rejected,
+                                  evaluation_validity="prevented" if rejected else "gradient_observed",
+                                  response_seconds=update.metrics.get("response_seconds"))
+            if checkpoint_dir is not None:
+                from ..queue import write_json
+                Path(checkpoint_dir).mkdir(parents=True, exist_ok=True)
+                write_json(Path(checkpoint_dir) / f"trial-{trial_id:06d}.json", {**checkpoint_header, "trial": trials[-1]})
+                write_json(Path(checkpoint_dir) / "progress.json", {**checkpoint_header, "completed_trials": len(trials)})
             # This is an observation round, never FedAvg over gradient payloads.
             return initial, {}
 
@@ -616,10 +687,16 @@ def run_attack_trials(model_path, probe, clients, config, calibration=None):
                    backend_config=simulation_backend(config))
     if len(trials) != config.attack_trials:
         raise RuntimeError("Incomplete AMIA observation rounds")
+    if checkpoint_dir is not None:
+        write_json(Path(checkpoint_dir) / "progress.json", {**checkpoint_header, "status": "complete", "completed_trials": len(trials)})
     return trials
 
 
 def _summarize_attack(trials):
+    if any("decision" in t for t in trials):
+        from ..metrics import guarded_metrics
+        from ..guard_replay import repeated_query_curve
+        return {**guarded_metrics(trials), "repeated_query_curve": repeated_query_curve(trials)}
     from ..metrics import base_metrics, scientific_metrics
     metrics = base_metrics(trials)
     metrics.update(scientific_metrics([t["truth_member"] for t in trials], [t["score"] for t in trials]))
@@ -661,17 +738,43 @@ def _run_target(config, artifact_dir, pipeline=None):
     certificate = finite_set_bounds(
         probe, sentence_embedding(model, tokenizer, [target], config),
         sentence_embedding(model, tokenizer, adversary_records(config), config), config)
-    calibration = calibrate_probe(model, tokenizer, probe, config) if config.threshold_mode == "calibrated" else None
+    guard_runtime = None
+    if pipeline is not None and pipeline.client_guard is not None:
+        from ..guard_runtime import prepare_guard
+        import torch
+        # A public, fixed template independent of the optimized incoming probe.
+        with torch.random.fork_rng():
+            torch.manual_seed(0)
+            approved_probe = _ami_probe_cls()(probe.fc1.in_features, probe.fc1.out_features)
+        guard_runtime = prepare_guard(pipeline.client_guard, f"observation:{config.seed}",
+                                      get_parameters(approved_probe), rounds=config.attack_trials // 2)
+        del approved_probe
+    calibration = None
+    if config.threshold_mode == "calibrated":
+        accepted = True
+        if guard_runtime is not None:
+            from dataclasses import replace as dc_replace
+            public_guard = dc_replace(guard_runtime, scope=f"public_calibration:{config.seed}")
+            accepted = public_guard.check(get_parameters(probe), "public", 1,
+                                          architecture="amia_probe", observation=True, reserve=False)
+        calibration = (calibrate_probe(model, tokenizer, probe, config) if accepted
+                       else {"threshold": None, "status": "all_public_requests_rejected"})
+        if guard_runtime is not None:
+            calibration.update(interface_decision="accepted" if accepted else "rejected",
+                               scope="public_negative_batches_with_frozen_guard; private_budget_excluded")
     evaluation = None
     if pipeline is not None:
         from ..rag import evaluate_pipeline
         evaluation = evaluate_pipeline(
             {"model": model, "tokenizer": tokenizer, "device": next(model.parameters()).device,
              "privacy": getattr(model, "_training_privacy", {}),
+             "target_record": target,
              "training_records": [text for part in clients for text in part]}, config, pipeline)
     del model, tokenizer
     trials = run_attack_trials(model_path, probe, clients, config,
-                              **({"calibration": calibration} if calibration is not None else {}))
+                              **({"calibration": calibration} if calibration is not None else {}),
+                              **({"guard_runtime": guard_runtime, "checkpoint_dir": Path(artifact_dir) / "observations"}
+                                 if guard_runtime is not None else {}))
     if evaluation is not None:
         trials[0]["pipeline_evaluation"] = evaluation
     return {"trials": trials, "context": {"fed_history": fed_history, "probe_history": probe_history,
@@ -709,7 +812,7 @@ def custom_trials_adapter(config, artifact_dir, pipeline=None):
         output["context"] = {"target_contexts": contexts,
                              "unique_target_count": len({c["target_sha256"] for c in contexts})}
     if config.observation_defense == "gaussian":
-        bound = privacy_bound(config.attack_trials, config.observation_noise_multiplier, config.observation_delta)
+        bound = privacy_bound(sum(t.get("decision") != "rejected" for t in output["trials"]), config.observation_noise_multiplier, config.observation_delta)
         bound.update(privacy_unit="private_batch", protected_release="noised_probe_gradients",
                      trusted_server=False,
                      scope="Observation releases only; excludes training, feature LDP and retrieval releases")

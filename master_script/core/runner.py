@@ -56,10 +56,11 @@ def failed_sweep_result(config, spec, run_id: str, exc: Exception) -> dict:
         # orchestration boundary tolerant of lightweight callers and tests.
         config_payload = dict(config) if isinstance(config, dict) else {}
 
+    from .guard_runtime import PolicyAbortedRound
     message = f"{type(exc).__name__}: {exc}"
     return {
         "run_id": run_id,
-        "status": "failed",
+        "status": "policy_aborted" if isinstance(exc, PolicyAbortedRound) else "failed",
         "updated_at_unix": int(time.time()),
         "attack_name": getattr(config, "attack_name", spec.name),
         "config": config_payload,
@@ -182,6 +183,12 @@ def run_single_experiment(config, spec, *, use_firestore: bool = True, keep_arti
 
     artifact_dir = Path(artifact_directory) if artifact_directory is not None else artifact_dir_for(config, spec)
     artifact_dir.mkdir(parents=True, exist_ok=True)
+    if spec.pipeline is not None and spec.pipeline.client_guard is not None:
+        from .pipeline import validate_pipeline_run
+        validate_pipeline_run(config, spec, spec.pipeline)
+        guard = replace(spec.pipeline.client_guard, runtime_directory=str(artifact_dir / "client-guard"))
+        spec = replace(spec, pipeline=replace(spec.pipeline, client_guard=guard))
+    computation_start = time.perf_counter()
     try:
         context = None
         if spec.custom_trials is not None:
@@ -191,12 +198,25 @@ def run_single_experiment(config, spec, *, use_firestore: bool = True, keep_arti
                 context, trials = trials["context"], trials["trials"]
         else:
             trials = run_attack_trials(config, spec, trial_directory=artifact_dir / "trial-checkpoints")
-        if not trials or not all(math.isfinite(float(t["score"])) for t in trials):
+        if spec.pipeline is not None and spec.pipeline.client_guard is not None:
+            from .metrics import validate_observations
+            validate_observations(trials)
+        elif not trials or not all(math.isfinite(float(t["score"])) for t in trials):
             raise FloatingPointError("A completed experiment requires finite nonempty trial scores")
     except Exception as exc:
         log.exception("run %s (%s) failed", run_id, spec.name)
+        if spec.pipeline is not None and spec.pipeline.client_guard is not None:
+            from .queue import write_json
+            from .guard_runtime import read_guard_events
+            failure = failed_sweep_result(config, spec, run_id, exc)
+            failure["guard_events"] = read_guard_events(spec.pipeline.client_guard.runtime_directory)
+            write_json(artifact_dir / "result.json", failure)
         if use_firestore:
-            firestore.mark_result_failed(config, str(exc), spec)
+            from .guard_runtime import PolicyAbortedRound
+            if isinstance(exc, PolicyAbortedRound):
+                firestore.save_result(config, failed_sweep_result(config, spec, run_id, exc), spec)
+            else:
+                firestore.mark_result_failed(config, str(exc), spec)
         raise  # NOTE: no cleanup -- a failed run keeps its artifacts.
 
     if spec.build_payload is not None:
@@ -242,14 +262,24 @@ def run_single_experiment(config, spec, *, use_firestore: bool = True, keep_arti
         from .metrics import scientific_metrics
         result["run_id"] = run_id
         result["pipeline"] = spec.pipeline.metadata()
+        result["computation_seconds"] = time.perf_counter() - computation_start
         result["pipeline_evaluation_scope"] = "Study-specific FL defense/RAG adaptation; not a source benchmark reproduction"
         result["pipeline_evaluations"] = [
             {"trial_id": t["trial_id"], **t["pipeline_evaluation"]}
             for t in trials if "pipeline_evaluation" in t
         ]
-        labels = [t["truth_member"] for t in trials]
-        scores = [(-1 if spec.name == "loss" else 1) * t["score"] for t in trials]
-        result["batch_membership_metrics" if spec.name == "amia" else "training_membership_metrics"] = scientific_metrics(labels, scores)
+        if spec.pipeline.client_guard is not None:
+            from .guard_runtime import read_guard_events
+            from .metrics import guard_event_summary, guarded_metrics
+            events = read_guard_events(spec.pipeline.client_guard.runtime_directory)
+            result["guard_events"] = events
+            result["guard_summary"] = guard_event_summary(events)
+        observed = [t for t in trials if t.get("decision") != "rejected"]
+        labels = [t["truth_member"] for t in observed]
+        scores = [(-1 if spec.name == "loss" else 1) * t["score"] for t in observed]
+        result["batch_membership_metrics" if spec.name == "amia" else "training_membership_metrics"] = (
+            guarded_metrics(trials) if spec.pipeline.client_guard is not None and spec.name == "amia"
+            else scientific_metrics(labels, scores))
         # Sequentially released models on overlapping records must compose.
         from .defenses import privacy_bound
         protected = [e.get("training_privacy", {}) for e in result["pipeline_evaluations"]]

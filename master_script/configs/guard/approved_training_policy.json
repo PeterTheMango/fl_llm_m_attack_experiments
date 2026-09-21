@@ -1,0 +1,4 @@
+{
+  "schema": "client_guard_v1",
+  "observation_architecture": "causal_lm"
+}

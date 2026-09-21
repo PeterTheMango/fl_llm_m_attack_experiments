@@ -9,7 +9,7 @@ import json
 import zlib
 
 
-DETAIL_FIELDS = ("attack_trials", "pipeline_evaluations", "target_evaluations",
+DETAIL_FIELDS = ("guard_events", "attack_trials", "pipeline_evaluations", "target_evaluations",
                  "federated_history", "probe_training_loss")
 
 

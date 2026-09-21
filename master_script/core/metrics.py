@@ -96,3 +96,58 @@ def scientific_metrics(labels, scores):
             tpr_at_fpr(labels, scores, fpr) if n_pos and n_neg >= math.ceil(1 / fpr) else None)
     result["low_fpr_note"] = "Null denotes insufficient empirical FPR resolution; no population guarantee."
     return result
+
+
+def validate_observations(trials):
+    if not trials:
+        raise ValueError("A completed evaluation requires observations")
+    for row in trials:
+        if row.get("decision") == "rejected":
+            if row.get("score") is not None or row.get("pred_member") is not None or row.get("gradient_available", False):
+                raise ValueError("Rejected observations cannot carry gradient scores or predictions")
+        elif (row.get("decision", "accepted") != "accepted" or row.get("score") is None
+              or not math.isfinite(float(row["score"])) or type(row.get("pred_member")) is not bool):
+            raise ValueError("Accepted observations require finite scores and boolean predictions")
+
+
+def guarded_metrics(trials):
+    """Conditional gradient metrics; refusals are never negative predictions."""
+    validate_observations(trials)
+    accepted = [t for t in trials if t.get("decision") != "rejected"]
+    labels = [t["truth_member"] for t in trials]
+    decisions = [float(t.get("decision") == "rejected") for t in trials]
+    result = base_metrics(accepted)
+    if accepted:
+        result.update(scientific_metrics([t["truth_member"] for t in accepted], [t["score"] for t in accepted]))
+    else:
+        result.update({k: None for k in ("accuracy", "precision", "recall", "f1", "roc_auc")})
+    result.update(total_requests=len(trials), accepted_requests=len(accepted),
+                  rejected_requests=len(trials) - len(accepted), release_coverage=len(accepted) / len(trials),
+                  metric_scope="conditional_on_accepted_gradients", adv_definition="balanced_accuracy",
+                  gradient_status="evaluated" if accepted else "unavailable_all_rejected",
+                  decision_transcript_metrics=scientific_metrics(labels, decisions),
+                  transcript_scope="refusal-only score; not a full adaptive transcript attack")
+    timings = [t for t in trials if t.get("response_seconds") is not None]
+    if timings:
+        result["timing_transcript_metrics"] = scientific_metrics(
+            [t["truth_member"] for t in timings], [t["response_seconds"] for t in timings])
+        result["timing_scope"] = "client processing time; excludes transport; descriptive score, no fitted timing attacker"
+    return result
+
+
+def guard_event_summary(events):
+    training = [e for e in events if e["accounting_scope"] == "training"]
+    by_client = {}
+    for e in training:
+        key = str(e["client_id"])
+        item = by_client.setdefault(key, {"requests": 0, "rejected": 0, "shadow_rejections": 0})
+        item["requests"] += 1
+        item["rejected"] += e["decision"] == "rejected"
+        item["shadow_rejections"] += not e["would_accept"]
+    return {"training_requests": len(training),
+            "training_rejected": sum(e["decision"] == "rejected" for e in training),
+            "legitimate_false_rejection_rate": sum(e["decision"] == "rejected" for e in training) / len(training) if training else None,
+            "policy_flag_rate": sum(not e["would_accept"] for e in training) / len(training) if training else None,
+            "per_client": by_client,
+            "guard_seconds": sum(e["seconds"] for e in events),
+            "sample_size_note": "Repeated rounds are not independent evidence for a 1% population false-positive rate"}

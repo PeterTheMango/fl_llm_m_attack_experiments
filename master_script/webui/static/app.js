@@ -716,12 +716,14 @@ function resultsView() {
 // ---------- detail view ----------
 function pipelinePanel(d) {
   if (!d.pipeline) return '';
+  const guard = d.pipeline.client_guard;
+  const guardInfo = guard ? `<p>Client guard: <b>${esc(guard.mode)}</b>${guard.diagnostic ? ' · diagnostic ablation' : ''}. Detector: ${esc(guard.detector_sha256 || 'rules only')}. Training refusals: ${esc(d.guard_summary?.training_rejected ?? 'not recorded')}. Gradient release coverage: ${fmt3(d.metrics?.release_coverage)}.</p>` : '<p>Client guard: off.</p>';
   const privacy = d.training_privacy_composed;
   const rows = (d.pipeline_evaluations || []).flatMap((e) => Object.entries(e.rag_conditions || {}).map(([name, c]) =>
     `<tr><td>${esc(e.trial_id)}</td><td>${esc(name.replaceAll('_', ' '))}</td><td>${fmt3(c.metrics?.roc_auc)}</td><td>${fmt3(c.utility?.exact_match)}</td><td>${fmt3(c.utility?.token_f1)}</td><td>${fmt3(c.utility?.answer_nll)}</td><td>${esc(c.hidden_document_queries)}</td></tr>`)).join('');
   return `<section aria-label="Defense and retrieval evaluation" style="background:var(--pn,#15191f);border:1px solid var(--bd,#252c36);border-radius:12px;padding:16px;margin-bottom:14px">
     <h2 style="font-size:13px;margin:0 0 10px">Defense and retrieval evaluation</h2>
-    <p style="font-size:12px;color:var(--fd,#9aa6b2)">Training defense: <b>${esc(d.pipeline.defense.mechanism)}</b>. Training-membership AUC: ${fmt3(d.training_membership_metrics?.roc_auc)}.${privacy ? ` Composed training bound: ε ${fmt3(privacy.epsilon)}, δ ${esc(privacy.delta)}.` : ''}</p>
+    ${guardInfo}<p style="font-size:12px;color:var(--fd,#9aa6b2)">Training defense: <b>${esc(d.pipeline.defense.mechanism)}</b>. Training-membership AUC: ${fmt3(d.training_membership_metrics?.roc_auc)}.${privacy ? ` Composed training bound: ε ${fmt3(privacy.epsilon)}, δ ${esc(privacy.delta)}.` : ''}</p>
     ${privacy ? `<p style="font-size:11px;color:var(--fm,#5f6b78)">${esc(privacy.scope)}</p>` : ''}
     ${rows ? `<div style="overflow:auto"><table style="width:100%;font-size:11px;text-align:left;border-spacing:10px"><thead><tr><th>Model trial</th><th>Retrieval condition</th><th>Datastore AUC</th><th>Answer EM</th><th>Answer F1</th><th>Answer NLL</th><th>Queries filtered</th></tr></thead><tbody>${rows}</tbody></table></div><p style="font-size:11px;color:var(--fm,#5f6b78)">Datastore membership is evaluated separately from training membership. Mirabel is an empirical defense. Small smoke samples do not establish privacy or utility.</p>` : ''}
   </section>`;

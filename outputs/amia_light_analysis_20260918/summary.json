@@ -1,0 +1,1144 @@
+{
+  "archive_sha256": "e480f62a8679583dfdd90ae70184f482cf797839aae0a2d229a3b235fb96cab9",
+  "hours": 4.879106902413898,
+  "excluded_noncomplete": 0,
+  "runs": [
+    {
+      "condition": "baseline",
+      "source": "0000-theory_v2_c05016e0f007_pipeline_v1_14c08febebff998c9ccfb39c.json",
+      "metrics": {
+        "tp": 10,
+        "tn": 9,
+        "fp": 1,
+        "fn": 0,
+        "tpr": 1.0,
+        "tnr": 0.9,
+        "adv": 0.95,
+        "accuracy": 0.95,
+        "precision": 0.9090909090909091,
+        "recall": 1.0,
+        "f1": 0.9523809523809523,
+        "num_trials": 20,
+        "roc_auc": 1.0,
+        "nonmember_count": 10,
+        "member_count": 10,
+        "low_fpr_resolution": 0.1,
+        "tpr_at_fpr_0_1": 1.0,
+        "tpr_at_fpr_0_05": null,
+        "tpr_at_fpr_0_01": null,
+        "tpr_at_fpr_0_001": null,
+        "low_fpr_note": "Null denotes insufficient empirical FPR resolution; no population guarantee.",
+        "roc_auc_from_scores": 1.0
+      },
+      "per_target": {
+        "0": {
+          "correct": 9,
+          "count": 10,
+          "auc": 1.0
+        },
+        "1": {
+          "correct": 10,
+          "count": 10,
+          "auc": 1.0
+        }
+      },
+      "rag": {
+        "public_ordinary": {
+          "adv": 0.575,
+          "tpr": 0.515,
+          "tnr": 0.635,
+          "token_f1": 0.15265200391006845,
+          "exact_match": 0.05,
+          "answer_nll": 3.8074111461639406,
+          "recognition_rate": 1.0
+        },
+        "public_mirabel": {
+          "adv": 0.515,
+          "tpr": 0.37,
+          "tnr": 0.66,
+          "token_f1": 0.08839682771371576,
+          "exact_match": 0.0,
+          "answer_nll": 5.240643954277038,
+          "recognition_rate": 1.0
+        },
+        "public_instruction": {
+          "adv": 0.58,
+          "tpr": 0.37,
+          "tnr": 0.79,
+          "token_f1": 0.07683718909525361,
+          "exact_match": 0.0,
+          "answer_nll": 3.823972392082214,
+          "recognition_rate": 1.0
+        },
+        "public_mirabel_instruction": {
+          "adv": 0.4875,
+          "tpr": 0.18000000000000002,
+          "tnr": 0.7949999999999999,
+          "token_f1": 0.0548221670802316,
+          "exact_match": 0.0,
+          "answer_nll": 5.268213021755219,
+          "recognition_rate": 1.0
+        },
+        "private_ordinary": {
+          "adv": 0.5700000000000001,
+          "tpr": 0.5,
+          "tnr": 0.64,
+          "token_f1": 0.4786080586080586,
+          "exact_match": 0.4,
+          "answer_nll": 2.746120774745941,
+          "recognition_rate": 1.0
+        },
+        "private_mirabel": {
+          "adv": 0.53,
+          "tpr": 0.38,
+          "tnr": 0.6799999999999999,
+          "token_f1": 0.1892156862745098,
+          "exact_match": 0.15000000000000002,
+          "answer_nll": 5.665313982963562,
+          "recognition_rate": 1.0
+        },
+        "private_instruction": {
+          "adv": 0.5974999999999999,
+          "tpr": 0.37,
+          "tnr": 0.825,
+          "token_f1": 0.515,
+          "exact_match": 0.35,
+          "answer_nll": 2.7107351452112196,
+          "recognition_rate": 1.0
+        },
+        "private_mirabel_instruction": {
+          "adv": 0.525,
+          "tpr": 0.195,
+          "tnr": 0.855,
+          "token_f1": 0.21497326203208555,
+          "exact_match": 0.15000000000000002,
+          "answer_nll": 5.678154870867729,
+          "recognition_rate": 1.0
+        }
+      },
+      "firestore_saved": true,
+      "observation_privacy": null,
+      "training_privacy": null,
+      "training_defense": {
+        "mechanism": "none",
+        "clip_norm": 1.0,
+        "noise_multiplier": 1.0,
+        "delta": 1e-05
+      }
+    },
+    {
+      "condition": "gradient_clip_only",
+      "source": "0001-theory_v2_c05016e0f007_pipeline_v1_bf13ae22e99747faa8549c0e.json",
+      "metrics": {
+        "tp": 10,
+        "tn": 9,
+        "fp": 1,
+        "fn": 0,
+        "tpr": 1.0,
+        "tnr": 0.9,
+        "adv": 0.95,
+        "accuracy": 0.95,
+        "precision": 0.9090909090909091,
+        "recall": 1.0,
+        "f1": 0.9523809523809523,
+        "num_trials": 20,
+        "roc_auc": 1.0,
+        "nonmember_count": 10,
+        "member_count": 10,
+        "low_fpr_resolution": 0.1,
+        "tpr_at_fpr_0_1": 1.0,
+        "tpr_at_fpr_0_05": null,
+        "tpr_at_fpr_0_01": null,
+        "tpr_at_fpr_0_001": null,
+        "low_fpr_note": "Null denotes insufficient empirical FPR resolution; no population guarantee.",
+        "roc_auc_from_scores": 1.0
+      },
+      "per_target": {
+        "0": {
+          "correct": 9,
+          "count": 10,
+          "auc": 1.0
+        },
+        "1": {
+          "correct": 10,
+          "count": 10,
+          "auc": 1.0
+        }
+      },
+      "rag": {
+        "public_ordinary": {
+          "adv": 0.575,
+          "tpr": 0.515,
+          "tnr": 0.635,
+          "token_f1": 0.15265200391006845,
+          "exact_match": 0.05,
+          "answer_nll": 3.8074183344841,
+          "recognition_rate": 1.0
+        },
+        "public_mirabel": {
+          "adv": 0.515,
+          "tpr": 0.37,
+          "tnr": 0.66,
+          "token_f1": 0.08839682771371576,
+          "exact_match": 0.0,
+          "answer_nll": 5.2406504362821575,
+          "recognition_rate": 1.0
+        },
+        "public_instruction": {
+          "adv": 0.58,
+          "tpr": 0.37,
+          "tnr": 0.79,
+          "token_f1": 0.07683718909525361,
+          "exact_match": 0.0,
+          "answer_nll": 3.823983186483383,
+          "recognition_rate": 1.0
+        },
+        "public_mirabel_instruction": {
+          "adv": 0.4875,
+          "tpr": 0.18000000000000002,
+          "tnr": 0.7949999999999999,
+          "token_f1": 0.0548221670802316,
+          "exact_match": 0.0,
+          "answer_nll": 5.268213859200477,
+          "recognition_rate": 1.0
+        },
+        "private_ordinary": {
+          "adv": 0.5700000000000001,
+          "tpr": 0.5,
+          "tnr": 0.64,
+          "token_f1": 0.4786080586080586,
+          "exact_match": 0.4,
+          "answer_nll": 2.7461133003234863,
+          "recognition_rate": 1.0
+        },
+        "private_mirabel": {
+          "adv": 0.53,
+          "tpr": 0.38,
+          "tnr": 0.6799999999999999,
+          "token_f1": 0.1892156862745098,
+          "exact_match": 0.15000000000000002,
+          "answer_nll": 5.665323013067246,
+          "recognition_rate": 1.0
+        },
+        "private_instruction": {
+          "adv": 0.5974999999999999,
+          "tpr": 0.37,
+          "tnr": 0.825,
+          "token_f1": 0.515,
+          "exact_match": 0.35,
+          "answer_nll": 2.710728168487549,
+          "recognition_rate": 1.0
+        },
+        "private_mirabel_instruction": {
+          "adv": 0.525,
+          "tpr": 0.195,
+          "tnr": 0.855,
+          "token_f1": 0.21497326203208555,
+          "exact_match": 0.15000000000000002,
+          "answer_nll": 5.678163015842438,
+          "recognition_rate": 1.0
+        }
+      },
+      "firestore_saved": true,
+      "observation_privacy": null,
+      "training_privacy": null,
+      "training_defense": {
+        "mechanism": "none",
+        "clip_norm": 1.0,
+        "noise_multiplier": 1.0,
+        "delta": 1e-05
+      }
+    },
+    {
+      "condition": "gradient_gaussian_sigma1",
+      "source": "0002-theory_v2_c05016e0f007_pipeline_v1_bb33eb438d3409ac53d739fb.json",
+      "metrics": {
+        "tp": 1,
+        "tn": 9,
+        "fp": 1,
+        "fn": 9,
+        "tpr": 0.1,
+        "tnr": 0.9,
+        "adv": 0.5,
+        "accuracy": 0.5,
+        "precision": 0.5,
+        "recall": 0.1,
+        "f1": 0.16666666666666666,
+        "num_trials": 20,
+        "roc_auc": 0.56,
+        "nonmember_count": 10,
+        "member_count": 10,
+        "low_fpr_resolution": 0.1,
+        "tpr_at_fpr_0_1": 0.1,
+        "tpr_at_fpr_0_05": null,
+        "tpr_at_fpr_0_01": null,
+        "tpr_at_fpr_0_001": null,
+        "low_fpr_note": "Null denotes insufficient empirical FPR resolution; no population guarantee.",
+        "roc_auc_from_scores": 0.56
+      },
+      "per_target": {
+        "0": {
+          "correct": 5,
+          "count": 10,
+          "auc": 0.52
+        },
+        "1": {
+          "correct": 5,
+          "count": 10,
+          "auc": 0.56
+        }
+      },
+      "rag": {
+        "public_ordinary": {
+          "adv": 0.575,
+          "tpr": 0.515,
+          "tnr": 0.635,
+          "token_f1": 0.15265200391006845,
+          "exact_match": 0.05,
+          "answer_nll": 3.807433462142944,
+          "recognition_rate": 1.0
+        },
+        "public_mirabel": {
+          "adv": 0.515,
+          "tpr": 0.37,
+          "tnr": 0.66,
+          "token_f1": 0.08839682771371576,
+          "exact_match": 0.0,
+          "answer_nll": 5.240656459331513,
+          "recognition_rate": 1.0
+        },
+        "public_instruction": {
+          "adv": 0.58,
+          "tpr": 0.37,
+          "tnr": 0.79,
+          "token_f1": 0.07683718909525361,
+          "exact_match": 0.0,
+          "answer_nll": 3.8239945083856584,
+          "recognition_rate": 1.0
+        },
+        "public_mirabel_instruction": {
+          "adv": 0.4875,
+          "tpr": 0.18000000000000002,
+          "tnr": 0.7949999999999999,
+          "token_f1": 0.0548221670802316,
+          "exact_match": 0.0,
+          "answer_nll": 5.268219900131226,
+          "recognition_rate": 1.0
+        },
+        "private_ordinary": {
+          "adv": 0.5700000000000001,
+          "tpr": 0.5,
+          "tnr": 0.64,
+          "token_f1": 0.4786080586080586,
+          "exact_match": 0.4,
+          "answer_nll": 2.746155005693436,
+          "recognition_rate": 1.0
+        },
+        "private_mirabel": {
+          "adv": 0.53,
+          "tpr": 0.38,
+          "tnr": 0.6799999999999999,
+          "token_f1": 0.1892156862745098,
+          "exact_match": 0.15000000000000002,
+          "answer_nll": 5.6653586566448215,
+          "recognition_rate": 1.0
+        },
+        "private_instruction": {
+          "adv": 0.5974999999999999,
+          "tpr": 0.37,
+          "tnr": 0.825,
+          "token_f1": 0.515,
+          "exact_match": 0.35,
+          "answer_nll": 2.7107662916183473,
+          "recognition_rate": 1.0
+        },
+        "private_mirabel_instruction": {
+          "adv": 0.525,
+          "tpr": 0.195,
+          "tnr": 0.855,
+          "token_f1": 0.21497326203208555,
+          "exact_match": 0.15000000000000002,
+          "answer_nll": 5.678188544511794,
+          "recognition_rate": 1.0
+        }
+      },
+      "firestore_saved": true,
+      "observation_privacy": {
+        "rho": 40.0,
+        "epsilon": 82.91932052578694,
+        "delta": 1e-05,
+        "steps": 20,
+        "accountant": "gaussian_zcdp_no_amplification",
+        "adjacency": "fixed_cardinality_replace_one",
+        "privacy_unit": "private_batch",
+        "protected_release": "noised_probe_gradients",
+        "trusted_server": false,
+        "scope": "Observation releases only; excludes training, feature LDP and retrieval releases"
+      },
+      "training_privacy": null,
+      "training_defense": {
+        "mechanism": "none",
+        "clip_norm": 1.0,
+        "noise_multiplier": 1.0,
+        "delta": 1e-05
+      }
+    },
+    {
+      "condition": "gradient_gaussian_sigma2",
+      "source": "0003-theory_v2_c05016e0f007_pipeline_v1_a07a3dd0fb7d896c30fb6a43.json",
+      "metrics": {
+        "tp": 0,
+        "tn": 10,
+        "fp": 0,
+        "fn": 10,
+        "tpr": 0.0,
+        "tnr": 1.0,
+        "adv": 0.5,
+        "accuracy": 0.5,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "num_trials": 20,
+        "roc_auc": 0.59,
+        "nonmember_count": 10,
+        "member_count": 10,
+        "low_fpr_resolution": 0.1,
+        "tpr_at_fpr_0_1": 0.1,
+        "tpr_at_fpr_0_05": null,
+        "tpr_at_fpr_0_01": null,
+        "tpr_at_fpr_0_001": null,
+        "low_fpr_note": "Null denotes insufficient empirical FPR resolution; no population guarantee.",
+        "roc_auc_from_scores": 0.59
+      },
+      "per_target": {
+        "0": {
+          "correct": 5,
+          "count": 10,
+          "auc": 0.6
+        },
+        "1": {
+          "correct": 5,
+          "count": 10,
+          "auc": 0.6
+        }
+      },
+      "rag": {
+        "public_ordinary": {
+          "adv": 0.575,
+          "tpr": 0.515,
+          "tnr": 0.635,
+          "token_f1": 0.15265200391006845,
+          "exact_match": 0.05,
+          "answer_nll": 3.807435488700867,
+          "recognition_rate": 1.0
+        },
+        "public_mirabel": {
+          "adv": 0.515,
+          "tpr": 0.37,
+          "tnr": 0.66,
+          "token_f1": 0.08839682771371576,
+          "exact_match": 0.0,
+          "answer_nll": 5.240655493736266,
+          "recognition_rate": 1.0
+        },
+        "public_instruction": {
+          "adv": 0.58,
+          "tpr": 0.37,
+          "tnr": 0.79,
+          "token_f1": 0.07683718909525361,
+          "exact_match": 0.0,
+          "answer_nll": 3.8240006506443027,
+          "recognition_rate": 1.0
+        },
+        "public_mirabel_instruction": {
+          "adv": 0.4875,
+          "tpr": 0.18000000000000002,
+          "tnr": 0.7949999999999999,
+          "token_f1": 0.0548221670802316,
+          "exact_match": 0.0,
+          "answer_nll": 5.268215391039849,
+          "recognition_rate": 1.0
+        },
+        "private_ordinary": {
+          "adv": 0.5700000000000001,
+          "tpr": 0.5,
+          "tnr": 0.64,
+          "token_f1": 0.4786080586080586,
+          "exact_match": 0.4,
+          "answer_nll": 2.7461347460746763,
+          "recognition_rate": 1.0
+        },
+        "private_mirabel": {
+          "adv": 0.53,
+          "tpr": 0.38,
+          "tnr": 0.6799999999999999,
+          "token_f1": 0.1892156862745098,
+          "exact_match": 0.15000000000000002,
+          "answer_nll": 5.665346288681031,
+          "recognition_rate": 1.0
+        },
+        "private_instruction": {
+          "adv": 0.5974999999999999,
+          "tpr": 0.37,
+          "tnr": 0.825,
+          "token_f1": 0.515,
+          "exact_match": 0.35,
+          "answer_nll": 2.7107552945613858,
+          "recognition_rate": 1.0
+        },
+        "private_mirabel_instruction": {
+          "adv": 0.525,
+          "tpr": 0.195,
+          "tnr": 0.855,
+          "token_f1": 0.21497326203208555,
+          "exact_match": 0.15000000000000002,
+          "answer_nll": 5.6781956434249885,
+          "recognition_rate": 1.0
+        }
+      },
+      "firestore_saved": true,
+      "observation_privacy": {
+        "rho": 10.0,
+        "epsilon": 31.459660262893472,
+        "delta": 1e-05,
+        "steps": 20,
+        "accountant": "gaussian_zcdp_no_amplification",
+        "adjacency": "fixed_cardinality_replace_one",
+        "privacy_unit": "private_batch",
+        "protected_release": "noised_probe_gradients",
+        "trusted_server": false,
+        "scope": "Observation releases only; excludes training, feature LDP and retrieval releases"
+      },
+      "training_privacy": null,
+      "training_defense": {
+        "mechanism": "none",
+        "clip_norm": 1.0,
+        "noise_multiplier": 1.0,
+        "delta": 1e-05
+      }
+    },
+    {
+      "condition": "feature_bitrand_epsilon5",
+      "source": "0004-theory_v2_c05016e0f007_pipeline_v1_a7719df2d48842bf67e85a94.json",
+      "metrics": {
+        "tp": 10,
+        "tn": 7,
+        "fp": 3,
+        "fn": 0,
+        "tpr": 1.0,
+        "tnr": 0.7,
+        "adv": 0.85,
+        "accuracy": 0.85,
+        "precision": 0.7692307692307693,
+        "recall": 1.0,
+        "f1": 0.8695652173913043,
+        "num_trials": 20,
+        "roc_auc": 1.0,
+        "nonmember_count": 10,
+        "member_count": 10,
+        "low_fpr_resolution": 0.1,
+        "tpr_at_fpr_0_1": 1.0,
+        "tpr_at_fpr_0_05": null,
+        "tpr_at_fpr_0_01": null,
+        "tpr_at_fpr_0_001": null,
+        "low_fpr_note": "Null denotes insufficient empirical FPR resolution; no population guarantee.",
+        "roc_auc_from_scores": 1.0
+      },
+      "per_target": {
+        "0": {
+          "correct": 9,
+          "count": 10,
+          "auc": 1.0
+        },
+        "1": {
+          "correct": 8,
+          "count": 10,
+          "auc": 1.0
+        }
+      },
+      "rag": {
+        "public_ordinary": {
+          "adv": 0.575,
+          "tpr": 0.515,
+          "tnr": 0.635,
+          "token_f1": 0.15265200391006845,
+          "exact_match": 0.05,
+          "answer_nll": 3.807406011223793,
+          "recognition_rate": 1.0
+        },
+        "public_mirabel": {
+          "adv": 0.515,
+          "tpr": 0.37,
+          "tnr": 0.66,
+          "token_f1": 0.08839682771371576,
+          "exact_match": 0.0,
+          "answer_nll": 5.240637430548668,
+          "recognition_rate": 1.0
+        },
+        "public_instruction": {
+          "adv": 0.58,
+          "tpr": 0.37,
+          "tnr": 0.79,
+          "token_f1": 0.07683718909525361,
+          "exact_match": 0.0,
+          "answer_nll": 3.8239668756723404,
+          "recognition_rate": 1.0
+        },
+        "public_mirabel_instruction": {
+          "adv": 0.4875,
+          "tpr": 0.18000000000000002,
+          "tnr": 0.7949999999999999,
+          "token_f1": 0.0548221670802316,
+          "exact_match": 0.0,
+          "answer_nll": 5.268198537826538,
+          "recognition_rate": 1.0
+        },
+        "private_ordinary": {
+          "adv": 0.5700000000000001,
+          "tpr": 0.5,
+          "tnr": 0.64,
+          "token_f1": 0.4786080586080586,
+          "exact_match": 0.4,
+          "answer_nll": 2.7461165875196456,
+          "recognition_rate": 1.0
+        },
+        "private_mirabel": {
+          "adv": 0.53,
+          "tpr": 0.38,
+          "tnr": 0.6799999999999999,
+          "token_f1": 0.1892156862745098,
+          "exact_match": 0.15000000000000002,
+          "answer_nll": 5.665322300791741,
+          "recognition_rate": 1.0
+        },
+        "private_instruction": {
+          "adv": 0.5974999999999999,
+          "tpr": 0.37,
+          "tnr": 0.825,
+          "token_f1": 0.515,
+          "exact_match": 0.35,
+          "answer_nll": 2.7107280403375626,
+          "recognition_rate": 1.0
+        },
+        "private_mirabel_instruction": {
+          "adv": 0.525,
+          "tpr": 0.195,
+          "tnr": 0.855,
+          "token_f1": 0.21497326203208555,
+          "exact_match": 0.15000000000000002,
+          "answer_nll": 5.678156676888466,
+          "recognition_rate": 1.0
+        }
+      },
+      "firestore_saved": true,
+      "observation_privacy": null,
+      "training_privacy": null,
+      "training_defense": {
+        "mechanism": "none",
+        "clip_norm": 1.0,
+        "noise_multiplier": 1.0,
+        "delta": 1e-05
+      }
+    },
+    {
+      "condition": "feature_bitrand_epsilon20",
+      "source": "0005-theory_v2_c05016e0f007_pipeline_v1_f5e1fd047b27387e8d697e5d.json",
+      "metrics": {
+        "tp": 10,
+        "tn": 8,
+        "fp": 2,
+        "fn": 0,
+        "tpr": 1.0,
+        "tnr": 0.8,
+        "adv": 0.9,
+        "accuracy": 0.9,
+        "precision": 0.8333333333333334,
+        "recall": 1.0,
+        "f1": 0.9090909090909091,
+        "num_trials": 20,
+        "roc_auc": 1.0,
+        "nonmember_count": 10,
+        "member_count": 10,
+        "low_fpr_resolution": 0.1,
+        "tpr_at_fpr_0_1": 1.0,
+        "tpr_at_fpr_0_05": null,
+        "tpr_at_fpr_0_01": null,
+        "tpr_at_fpr_0_001": null,
+        "low_fpr_note": "Null denotes insufficient empirical FPR resolution; no population guarantee.",
+        "roc_auc_from_scores": 1.0
+      },
+      "per_target": {
+        "0": {
+          "correct": 9,
+          "count": 10,
+          "auc": 1.0
+        },
+        "1": {
+          "correct": 9,
+          "count": 10,
+          "auc": 1.0
+        }
+      },
+      "rag": {
+        "public_ordinary": {
+          "adv": 0.575,
+          "tpr": 0.515,
+          "tnr": 0.635,
+          "token_f1": 0.15265200391006845,
+          "exact_match": 0.05,
+          "answer_nll": 3.8074483662843708,
+          "recognition_rate": 1.0
+        },
+        "public_mirabel": {
+          "adv": 0.515,
+          "tpr": 0.37,
+          "tnr": 0.66,
+          "token_f1": 0.08839682771371576,
+          "exact_match": 0.0,
+          "answer_nll": 5.240658295154572,
+          "recognition_rate": 1.0
+        },
+        "public_instruction": {
+          "adv": 0.58,
+          "tpr": 0.37,
+          "tnr": 0.79,
+          "token_f1": 0.07683718909525361,
+          "exact_match": 0.0,
+          "answer_nll": 3.824000298976898,
+          "recognition_rate": 1.0
+        },
+        "public_mirabel_instruction": {
+          "adv": 0.4875,
+          "tpr": 0.18000000000000002,
+          "tnr": 0.7949999999999999,
+          "token_f1": 0.0548221670802316,
+          "exact_match": 0.0,
+          "answer_nll": 5.2682114213705065,
+          "recognition_rate": 1.0
+        },
+        "private_ordinary": {
+          "adv": 0.5700000000000001,
+          "tpr": 0.5,
+          "tnr": 0.64,
+          "token_f1": 0.4786080586080586,
+          "exact_match": 0.4,
+          "answer_nll": 2.746146777272225,
+          "recognition_rate": 1.0
+        },
+        "private_mirabel": {
+          "adv": 0.53,
+          "tpr": 0.38,
+          "tnr": 0.6799999999999999,
+          "token_f1": 0.1892156862745098,
+          "exact_match": 0.15000000000000002,
+          "answer_nll": 5.665351164340973,
+          "recognition_rate": 1.0
+        },
+        "private_instruction": {
+          "adv": 0.5974999999999999,
+          "tpr": 0.37,
+          "tnr": 0.825,
+          "token_f1": 0.515,
+          "exact_match": 0.35,
+          "answer_nll": 2.710755941271782,
+          "recognition_rate": 1.0
+        },
+        "private_mirabel_instruction": {
+          "adv": 0.525,
+          "tpr": 0.195,
+          "tnr": 0.855,
+          "token_f1": 0.21497326203208555,
+          "exact_match": 0.15000000000000002,
+          "answer_nll": 5.678181612491608,
+          "recognition_rate": 1.0
+        }
+      },
+      "firestore_saved": true,
+      "observation_privacy": null,
+      "training_privacy": null,
+      "training_defense": {
+        "mechanism": "none",
+        "clip_norm": 1.0,
+        "noise_multiplier": 1.0,
+        "delta": 1e-05
+      }
+    },
+    {
+      "condition": "feature_ome_epsilon5",
+      "source": "0006-theory_v2_c05016e0f007_pipeline_v1_aa3efdd8da47f0a2ffa93d8e.json",
+      "metrics": {
+        "tp": 10,
+        "tn": 9,
+        "fp": 1,
+        "fn": 0,
+        "tpr": 1.0,
+        "tnr": 0.9,
+        "adv": 0.95,
+        "accuracy": 0.95,
+        "precision": 0.9090909090909091,
+        "recall": 1.0,
+        "f1": 0.9523809523809523,
+        "num_trials": 20,
+        "roc_auc": 1.0,
+        "nonmember_count": 10,
+        "member_count": 10,
+        "low_fpr_resolution": 0.1,
+        "tpr_at_fpr_0_1": 1.0,
+        "tpr_at_fpr_0_05": null,
+        "tpr_at_fpr_0_01": null,
+        "tpr_at_fpr_0_001": null,
+        "low_fpr_note": "Null denotes insufficient empirical FPR resolution; no population guarantee.",
+        "roc_auc_from_scores": 1.0
+      },
+      "per_target": {
+        "0": {
+          "correct": 9,
+          "count": 10,
+          "auc": 1.0
+        },
+        "1": {
+          "correct": 10,
+          "count": 10,
+          "auc": 1.0
+        }
+      },
+      "rag": {
+        "public_ordinary": {
+          "adv": 0.575,
+          "tpr": 0.515,
+          "tnr": 0.635,
+          "token_f1": 0.15265200391006845,
+          "exact_match": 0.05,
+          "answer_nll": 3.807428801059723,
+          "recognition_rate": 1.0
+        },
+        "public_mirabel": {
+          "adv": 0.515,
+          "tpr": 0.37,
+          "tnr": 0.66,
+          "token_f1": 0.08839682771371576,
+          "exact_match": 0.0,
+          "answer_nll": 5.240654328465462,
+          "recognition_rate": 1.0
+        },
+        "public_instruction": {
+          "adv": 0.58,
+          "tpr": 0.37,
+          "tnr": 0.79,
+          "token_f1": 0.07683718909525361,
+          "exact_match": 0.0,
+          "answer_nll": 3.823982149362564,
+          "recognition_rate": 1.0
+        },
+        "public_mirabel_instruction": {
+          "adv": 0.4875,
+          "tpr": 0.18000000000000002,
+          "tnr": 0.7949999999999999,
+          "token_f1": 0.0548221670802316,
+          "exact_match": 0.0,
+          "answer_nll": 5.268210944533348,
+          "recognition_rate": 1.0
+        },
+        "private_ordinary": {
+          "adv": 0.5700000000000001,
+          "tpr": 0.5,
+          "tnr": 0.64,
+          "token_f1": 0.4786080586080586,
+          "exact_match": 0.4,
+          "answer_nll": 2.746147167682648,
+          "recognition_rate": 1.0
+        },
+        "private_mirabel": {
+          "adv": 0.53,
+          "tpr": 0.38,
+          "tnr": 0.6799999999999999,
+          "token_f1": 0.1892156862745098,
+          "exact_match": 0.15000000000000002,
+          "answer_nll": 5.665343338251114,
+          "recognition_rate": 1.0
+        },
+        "private_instruction": {
+          "adv": 0.5974999999999999,
+          "tpr": 0.37,
+          "tnr": 0.825,
+          "token_f1": 0.515,
+          "exact_match": 0.35,
+          "answer_nll": 2.710755717754364,
+          "recognition_rate": 1.0
+        },
+        "private_mirabel_instruction": {
+          "adv": 0.525,
+          "tpr": 0.195,
+          "tnr": 0.855,
+          "token_f1": 0.21497326203208555,
+          "exact_match": 0.15000000000000002,
+          "answer_nll": 5.6781719535589215,
+          "recognition_rate": 1.0
+        }
+      },
+      "firestore_saved": true,
+      "observation_privacy": null,
+      "training_privacy": null,
+      "training_defense": {
+        "mechanism": "none",
+        "clip_norm": 1.0,
+        "noise_multiplier": 1.0,
+        "delta": 1e-05
+      }
+    },
+    {
+      "condition": "feature_ome_epsilon20",
+      "source": "0007-theory_v2_c05016e0f007_pipeline_v1_3b5d84311614aeb2a6f6d972.json",
+      "metrics": {
+        "tp": 10,
+        "tn": 9,
+        "fp": 1,
+        "fn": 0,
+        "tpr": 1.0,
+        "tnr": 0.9,
+        "adv": 0.95,
+        "accuracy": 0.95,
+        "precision": 0.9090909090909091,
+        "recall": 1.0,
+        "f1": 0.9523809523809523,
+        "num_trials": 20,
+        "roc_auc": 1.0,
+        "nonmember_count": 10,
+        "member_count": 10,
+        "low_fpr_resolution": 0.1,
+        "tpr_at_fpr_0_1": 1.0,
+        "tpr_at_fpr_0_05": null,
+        "tpr_at_fpr_0_01": null,
+        "tpr_at_fpr_0_001": null,
+        "low_fpr_note": "Null denotes insufficient empirical FPR resolution; no population guarantee.",
+        "roc_auc_from_scores": 1.0
+      },
+      "per_target": {
+        "0": {
+          "correct": 9,
+          "count": 10,
+          "auc": 1.0
+        },
+        "1": {
+          "correct": 10,
+          "count": 10,
+          "auc": 1.0
+        }
+      },
+      "rag": {
+        "public_ordinary": {
+          "adv": 0.575,
+          "tpr": 0.515,
+          "tnr": 0.635,
+          "token_f1": 0.15265200391006845,
+          "exact_match": 0.05,
+          "answer_nll": 3.807434320449829,
+          "recognition_rate": 1.0
+        },
+        "public_mirabel": {
+          "adv": 0.515,
+          "tpr": 0.37,
+          "tnr": 0.66,
+          "token_f1": 0.08839682771371576,
+          "exact_match": 0.0,
+          "answer_nll": 5.24064114689827,
+          "recognition_rate": 1.0
+        },
+        "public_instruction": {
+          "adv": 0.58,
+          "tpr": 0.37,
+          "tnr": 0.79,
+          "token_f1": 0.07683718909525361,
+          "exact_match": 0.0,
+          "answer_nll": 3.8240044623613354,
+          "recognition_rate": 1.0
+        },
+        "public_mirabel_instruction": {
+          "adv": 0.4875,
+          "tpr": 0.18000000000000002,
+          "tnr": 0.7949999999999999,
+          "token_f1": 0.0548221670802316,
+          "exact_match": 0.0,
+          "answer_nll": 5.268214932084083,
+          "recognition_rate": 1.0
+        },
+        "private_ordinary": {
+          "adv": 0.5700000000000001,
+          "tpr": 0.5,
+          "tnr": 0.64,
+          "token_f1": 0.4786080586080586,
+          "exact_match": 0.4,
+          "answer_nll": 2.746126118302345,
+          "recognition_rate": 1.0
+        },
+        "private_mirabel": {
+          "adv": 0.53,
+          "tpr": 0.38,
+          "tnr": 0.6799999999999999,
+          "token_f1": 0.1892156862745098,
+          "exact_match": 0.15000000000000002,
+          "answer_nll": 5.665328973531723,
+          "recognition_rate": 1.0
+        },
+        "private_instruction": {
+          "adv": 0.5974999999999999,
+          "tpr": 0.37,
+          "tnr": 0.825,
+          "token_f1": 0.515,
+          "exact_match": 0.35,
+          "answer_nll": 2.7107444554567337,
+          "recognition_rate": 1.0
+        },
+        "private_mirabel_instruction": {
+          "adv": 0.525,
+          "tpr": 0.195,
+          "tnr": 0.855,
+          "token_f1": 0.21497326203208555,
+          "exact_match": 0.15000000000000002,
+          "answer_nll": 5.678191387653351,
+          "recognition_rate": 1.0
+        }
+      },
+      "firestore_saved": true,
+      "observation_privacy": null,
+      "training_privacy": null,
+      "training_defense": {
+        "mechanism": "none",
+        "clip_norm": 1.0,
+        "noise_multiplier": 1.0,
+        "delta": 1e-05
+      }
+    },
+    {
+      "condition": "training_dp_sgd_only",
+      "source": "0008-theory_v2_c05016e0f007_pipeline_v1_e5819e0cb0087e5266d44ad5.json",
+      "metrics": {
+        "tp": 10,
+        "tn": 10,
+        "fp": 0,
+        "fn": 0,
+        "tpr": 1.0,
+        "tnr": 1.0,
+        "adv": 1.0,
+        "accuracy": 1.0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "num_trials": 20,
+        "roc_auc": 1.0,
+        "nonmember_count": 10,
+        "member_count": 10,
+        "low_fpr_resolution": 0.1,
+        "tpr_at_fpr_0_1": 1.0,
+        "tpr_at_fpr_0_05": null,
+        "tpr_at_fpr_0_01": null,
+        "tpr_at_fpr_0_001": null,
+        "low_fpr_note": "Null denotes insufficient empirical FPR resolution; no population guarantee.",
+        "roc_auc_from_scores": 1.0
+      },
+      "per_target": {
+        "0": {
+          "correct": 10,
+          "count": 10,
+          "auc": 1.0
+        },
+        "1": {
+          "correct": 10,
+          "count": 10,
+          "auc": 1.0
+        }
+      },
+      "rag": {
+        "public_ordinary": {
+          "adv": 0.6975,
+          "tpr": 0.865,
+          "tnr": 0.53,
+          "token_f1": 0.2199959977474209,
+          "exact_match": 0.0,
+          "answer_nll": 5.919446843862533,
+          "recognition_rate": 1.0
+        },
+        "public_mirabel": {
+          "adv": 0.5475000000000001,
+          "tpr": 0.53,
+          "tnr": 0.565,
+          "token_f1": 0.20274802785239215,
+          "exact_match": 0.0,
+          "answer_nll": 7.047361463308334,
+          "recognition_rate": 1.0
+        },
+        "public_instruction": {
+          "adv": 0.7375,
+          "tpr": 0.78,
+          "tnr": 0.6950000000000001,
+          "token_f1": 0.23551438186874618,
+          "exact_match": 0.0,
+          "answer_nll": 5.25049814581871,
+          "recognition_rate": 1.0
+        },
+        "public_mirabel_instruction": {
+          "adv": 0.4875,
+          "tpr": 0.28,
+          "tnr": 0.6950000000000001,
+          "token_f1": 0.20072452985930295,
+          "exact_match": 0.0,
+          "answer_nll": 6.494426810741425,
+          "recognition_rate": 1.0
+        },
+        "private_ordinary": {
+          "adv": 0.71,
+          "tpr": 0.87,
+          "tnr": 0.55,
+          "token_f1": 0.14611971205692645,
+          "exact_match": 0.0,
+          "answer_nll": 5.735458117723465,
+          "recognition_rate": 1.0
+        },
+        "private_mirabel": {
+          "adv": 0.555,
+          "tpr": 0.51,
+          "tnr": 0.6,
+          "token_f1": 0.054656771799628946,
+          "exact_match": 0.0,
+          "answer_nll": 9.287004482746124,
+          "recognition_rate": 1.0
+        },
+        "private_instruction": {
+          "adv": 0.7224999999999999,
+          "tpr": 0.78,
+          "tnr": 0.665,
+          "token_f1": 0.2682595182595182,
+          "exact_match": 0.15000000000000002,
+          "answer_nll": 3.6966911435127257,
+          "recognition_rate": 1.0
+        },
+        "private_mirabel_instruction": {
+          "adv": 0.5225,
+          "tpr": 0.29500000000000004,
+          "tnr": 0.75,
+          "token_f1": 0.08378205128205127,
+          "exact_match": 0.0,
+          "answer_nll": 7.621059143543244,
+          "recognition_rate": 1.0
+        }
+      },
+      "firestore_saved": true,
+      "observation_privacy": null,
+      "training_privacy": {
+        "rho": 51.0,
+        "epsilon": 99.46273614700192,
+        "delta": 1e-05,
+        "steps": 102,
+        "accountant": "gaussian_zcdp_no_amplification",
+        "adjacency": "fixed_cardinality_replace_one",
+        "scope": "Training releases in this experiment only; audit scores, probe training, private retrieval outputs and repeated experiments are not covered."
+      },
+      "training_defense": {
+        "mechanism": "dp_sgd",
+        "clip_norm": 1.0,
+        "noise_multiplier": 2.0,
+        "delta": 1e-05
+      }
+    }
+  ]
+}

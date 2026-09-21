@@ -133,6 +133,10 @@ def strategy_class(base, defense, initial_arrays, privacy):
             self.rounds_released = 0
 
         def aggregate_fit(self, server_round, results, failures):
+            if not failures and any(r.metrics.get("guard_decision") == "rejected" for _, r in results):
+                self.guard_policy_aborted = True
+                from .guard_runtime import PolicyAbortedRound
+                raise PolicyAbortedRound("Scheduled client refused before private aggregation")
             results = [(client, result) for client, result in results if result.num_examples > 0]
             if failures or not results:
                 kinds = ", ".join(sorted({type(f).__name__ for f in failures})) or "none"

@@ -25,7 +25,7 @@ def render_adv_by_factor(results: List[Dict], factor: str, out_name: Optional[st
     series = defaultdict(list)
     for r in results:
         cfg, met = r.get("config", {}), r.get("metrics", {})
-        if factor in cfg and "adv" in met:
+        if factor in cfg and met.get("adv") is not None:
             series[cfg.get("attack_name", "unknown")].append((cfg[factor], met["adv"]))
 
     fig, ax = plt.subplots(figsize=(7, 4.5))
@@ -49,7 +49,7 @@ def render_adv_by_factor(results: List[Dict], factor: str, out_name: Optional[st
 
 def render_score_distribution(result: Dict, out_name: Optional[str] = None) -> Path:
     """Score distribution split by true membership (ideation doc §3.3)."""
-    trials = result.get("attack_trials", [])
+    trials = [t for t in result.get("attack_trials", []) if t.get("score") is not None]
     members = [t["score"] for t in trials if t["truth_member"]]
     nonmembers = [t["score"] for t in trials if not t["truth_member"]]
     fig, ax = plt.subplots(figsize=(7, 4.5))

@@ -66,6 +66,8 @@ def _row(run: dict) -> dict:
     pipeline = run.get("pipeline")
     if pipeline:
         cfg["condition"] = pipeline.get("condition", "")
+        cfg["client_guard"] = (pipeline.get("client_guard") or {}).get("mode", "off")
+        cfg["detector_sha256"] = (pipeline.get("client_guard") or {}).get("detector_sha256")
         cfg["defense_mechanism"] = pipeline["defense"]["mechanism"]
         cfg["training_epsilon"] = (run.get("training_privacy_composed") or {}).get("epsilon")
     return {
@@ -145,7 +147,7 @@ def normalize_history(history: Any) -> List[dict]:
 def _trials(run: dict) -> List[dict]:
     out = []
     for trial in run.get("attack_trials") or []:
-        if not isinstance(trial, dict) or "score" not in trial:
+        if not isinstance(trial, dict) or trial.get("score") is None:
             continue
         out.append({
             "trial_id": trial.get("trial_id"),
@@ -202,6 +204,7 @@ def detail_payload(state, run_id: str) -> Optional[dict]:
         "error": current_error(run),
         "prior_error": prior_error(run),
         "pipeline": run.get("pipeline"),
+        "guard_summary": run.get("guard_summary"),
         "pipeline_evaluations": run.get("pipeline_evaluations", []),
         "training_membership_metrics": run.get("training_membership_metrics"),
         "training_privacy_composed": run.get("training_privacy_composed"),

@@ -232,6 +232,8 @@ def run_hf_federated_finetune(config: AttackConfig, truth_member: bool, pipeline
                 return parameters, 0, {"partition_id": self.partition_id}
             seed_training(config.seed + 1009 * self.partition_id + round_id)
             model, tokenizer = load_model_and_tokenizer()
+            if guard_runtime is not None and not guard_runtime.check(parameters, self.partition_id, round_id):
+                return [], 0, {"partition_id": self.partition_id, "guard_decision": "rejected"}
             set_parameters(model, parameters)
             model.to(client_dev)
             model.train()
@@ -276,8 +278,13 @@ def run_hf_federated_finetune(config: AttackConfig, truth_member: bool, pipeline
     provenance = validate_partition_tokens(partitions, init_tokenizer, config.max_length,
                                             world.target_record, world.held_out_record,
                                             expected_membership=truth_member)
-    initial_parameters = ndarrays_to_parameters(get_parameters(init_model))
-    del init_model
+    from .guard_runtime import prepare_guard
+    initial_arrays = get_parameters(init_model)
+    guard_runtime = prepare_guard(pipeline.client_guard if pipeline else None,
+                                  f"training:{config.seed}:{truth_member}", initial_arrays,
+                                  rounds=config.federated_rounds)
+    initial_parameters = ndarrays_to_parameters(initial_arrays)
+    del initial_arrays, init_model
 
     clients_per_round = min(config.clients_per_round, num_clients)
     fraction_fit = clients_per_round / num_clients
@@ -286,6 +293,15 @@ def run_hf_federated_finetune(config: AttackConfig, truth_member: bool, pipeline
 
     class SaveModelFedAvg(FedAvg):
         def aggregate_fit(self, server_round, results, failures):
+            if guard_runtime is not None:
+                from .guard_runtime import reject_training_round
+                try:
+                    reject_training_round(results, failures)
+                except RuntimeError as exc:
+                    from .guard_runtime import PolicyAbortedRound
+                    if isinstance(exc, PolicyAbortedRound):
+                        capture["policy_aborted"] = True
+                    raise
             results = [(client, result) for client, result in results if result.num_examples > 0]
             if failures or len(results) != clients_per_round:
                 raise RuntimeError("FL round did not return every scheduled client update")
@@ -295,6 +311,11 @@ def run_hf_federated_finetune(config: AttackConfig, truth_member: bool, pipeline
             aggregated_parameters, aggregated_metrics = self.aggregate_updates(server_round, results, failures)
             if aggregated_parameters is not None:
                 capture["parameters"] = aggregated_parameters
+            if pipeline is not None:
+                import time
+                capture["history"][-1]["round_seconds"] = time.perf_counter() - capture["round_started"]
+                capture["history"][-1]["received_parameter_bytes"] = sum(
+                    len(tensor) for _, response in results for tensor in response.parameters.tensors)
             return aggregated_parameters, aggregated_metrics
 
         def aggregate_updates(self, server_round, results, failures):
@@ -303,6 +324,11 @@ def run_hf_federated_finetune(config: AttackConfig, truth_member: bool, pipeline
     def client_fn(context: Context):
         partition_id = int(context.node_config["partition-id"])
         return FlowerClient(partition_id, partitions[partition_id]).to_client()
+
+    def round_config(round_id):
+        import time
+        capture["round_started"] = time.perf_counter()
+        return {"server_round": round_id}
 
     def server_fn(context: Context):
         strategy_type = SaveModelFedAvg
@@ -316,18 +342,26 @@ def run_hf_federated_finetune(config: AttackConfig, truth_member: bool, pipeline
             min_fit_clients=num_clients,
             min_available_clients=num_clients,
             initial_parameters=initial_parameters,
-            on_fit_config_fn=lambda round_id: {"server_round": round_id},
+            on_fit_config_fn=round_config,
             accept_failures=False,
         )
+        if guard_runtime is not None:
+            capture["strategy"] = strategy
         return ServerAppComponents(strategy=strategy, config=ServerConfig(num_rounds=config.federated_rounds))
 
     backend_config = simulation_backend(config)
-    run_simulation(
-        server_app=ServerApp(server_fn=server_fn),
-        client_app=ClientApp(client_fn=client_fn),
-        num_supernodes=num_clients,
-        backend_config=backend_config,
-    )
+    try:
+        run_simulation(
+            server_app=ServerApp(server_fn=server_fn),
+            client_app=ClientApp(client_fn=client_fn),
+            num_supernodes=num_clients,
+            backend_config=backend_config,
+        )
+    except Exception as exc:
+        if capture.get("policy_aborted") or getattr(capture.get("strategy"), "guard_policy_aborted", False):
+            from .guard_runtime import PolicyAbortedRound
+            raise PolicyAbortedRound("Scheduled client refused; training aborted") from exc
+        raise
 
     global_model, tokenizer = load_model_and_tokenizer()
     if capture["parameters"] is None or len(capture["history"]) != config.federated_rounds:
