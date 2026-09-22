@@ -172,6 +172,21 @@ def validate_attack_config(config, spec=None):
         if (isinstance(config.calibration_fpr, bool) or not 0 < config.calibration_fpr < 1
                 or config.calibration_nonmember_count < math.ceil(1 / config.calibration_fpr)):
             raise ValueError("calibration_nonmember_count must resolve calibration_fpr in (0, 1)")
+    if hasattr(config, "attack_variant"):
+        if type(config.counterbalance_trials) is not bool:
+            raise ValueError("counterbalance_trials must be a boolean")
+        if type(config.adaptive_public_steps) is not int or not 0 <= config.adaptive_public_steps <= 100:
+            raise ValueError("adaptive_public_steps must be an integer in [0,100]")
+        if config.adaptive_public_steps and config.attack_variant != "causal_gradient_alignment":
+            raise ValueError("Adaptive interpolation is only supported for the causal variant")
+        if config.attack_variant not in ("probe_head", "causal_gradient_alignment"):
+            raise ValueError("Unknown AMIA attack_variant")
+        if type(config.request_interpolation) not in (int, float) or not 0 <= config.request_interpolation <= 1:
+            raise ValueError("request_interpolation must lie in [0,1]")
+        if config.attack_variant == "probe_head" and config.request_interpolation != 1:
+            raise ValueError("Interpolation is only supported for the distinct causal variant")
+        if config.attack_variant == "causal_gradient_alignment" and config.ldp_mechanism != "none":
+            raise ValueError("Causal gradient variant does not use AMIA frozen-feature LDP")
     if hasattr(config, "attack_targets"):
         if config.attack_trials % (2 * config.attack_targets):
             raise ValueError("AMIA attack_trials must be divisible by 2 * attack_targets for paired batches")

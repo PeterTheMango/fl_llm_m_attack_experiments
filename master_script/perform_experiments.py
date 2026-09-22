@@ -169,7 +169,9 @@ def _run(pairs, args) -> int:
     print(f"\n{ok}/{len(pairs)} run(s) complete")
     for r in results:
         if r and r.get("metrics"):
-            print(f"  {r.get('run_id')}  adv={r['metrics'].get('adv'):.3f}")
+            adv = r["metrics"].get("adv")
+            display = "N/A" if adv is None else f"{adv:.3f}"
+            print(f"  {r.get('run_id')}  adv={display}")
     return 0 if ok == len(pairs) else 1
 
 

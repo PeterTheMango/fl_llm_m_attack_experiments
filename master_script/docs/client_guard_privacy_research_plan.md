@@ -1,6 +1,6 @@
 # Client-side request validation and gradient protection: research and implementation plan
 
-Status: proposed work, not implemented. Prepared 18 September 2026 from the current source and completed AMIA/Reference light pilots. This document does not authorize or start new experiments.
+Status: historical proposal prepared 18 September 2026. Parts were implemented before the 21 September pilot and extended on 22 September. For current executable workflows, implemented boundaries, test evidence and remaining GPU work, see [the v2 handoff](client_guard_v2_handoff.md). The sections below preserve the original proposal; they are not an inventory of missing code or authorization to start experiments.
 
 ## 1. Objective and proposed contribution
 

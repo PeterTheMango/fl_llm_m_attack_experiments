@@ -11,6 +11,7 @@ import eagerly.
 """
 import math
 import random
+from hashlib import sha256
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Optional
@@ -60,6 +61,10 @@ class AmiaConfig(AttackConfig):
     observation_clip_norm: float = 1.0
     observation_noise_multiplier: float = 1.0
     observation_delta: float = 1e-5
+    attack_variant: str = "probe_head"
+    request_interpolation: float = 1.0
+    adaptive_public_steps: int = 0
+    counterbalance_trials: bool = False
 
 
 METHODOLOGY = {
@@ -224,9 +229,14 @@ def _ami_flower_client_cls():
                 return parameters, 0, {"partition_id": self.partition_id}
             seed_training(self.config.seed + 1009 * self.partition_id + round_id)
             device = client_device(self.config)
+            if self.guard_runtime is not None:
+                parameters = self.guard_runtime.authorize(parameters, self.partition_id, round_id)
+                if parameters is None:
+                    return [], 0, {"partition_id": self.partition_id, "guard_decision": "rejected"}
+            import time
+            load_start = time.perf_counter()
             model, tokenizer = build_model_and_tokenizer(self.config)
-            if self.guard_runtime is not None and not self.guard_runtime.check(parameters, self.partition_id, round_id):
-                return [], 0, {"partition_id": self.partition_id, "guard_decision": "rejected"}
+            model_load_seconds = time.perf_counter() - load_start
             set_parameters(model, parameters)
             model.to(device)
             model.train()
@@ -255,7 +265,7 @@ def _ami_flower_client_cls():
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
             # Weight client updates by their actual training record counts.
-            return updated, len(self.client_texts), {"partition_id": self.partition_id, "train_loss": mean_loss}
+            return updated, len(self.client_texts), {"partition_id": self.partition_id, "train_loss": mean_loss, "model_load_seconds": model_load_seconds}
 
     return AMIFlowerClient
 
@@ -307,11 +317,15 @@ def federated_fine_tune(config, artifact_dir=None, pipeline=None):
     class SaveModelFedAvg(FedAvg):
         def aggregate_fit(self, server_round, results, failures):
             if guard_runtime is not None:
-                from ..guard_runtime import reject_training_round
+                from ..guard_runtime import reject_training_round, record_training_round
                 try:
                     reject_training_round(results, failures)
                 except RuntimeError as exc:
                     from ..guard_runtime import PolicyAbortedRound
+                    import time
+                    record_training_round(guard_runtime, server_round, results,
+                                          status="policy_aborted" if isinstance(exc, PolicyAbortedRound) else "failed",
+                                          seconds=time.perf_counter() - capture["round_started"], failures=len(failures))
                     if isinstance(exc, PolicyAbortedRound):
                         capture["policy_aborted"] = True
                     raise
@@ -335,8 +349,15 @@ def federated_fine_tune(config, artifact_dir=None, pipeline=None):
             if pipeline is not None:
                 import time
                 capture["history"][-1]["round_seconds"] = time.perf_counter() - capture["round_started"]
+                capture["history"][-1]["client_outcomes"] = [
+                    {"client_id": r.metrics.get("partition_id"), "examples": r.num_examples,
+                     "train_loss": r.metrics.get("train_loss"), "model_load_seconds": r.metrics.get("model_load_seconds")}
+                    for _, r in results]
                 capture["history"][-1]["received_parameter_bytes"] = sum(
                     len(tensor) for _, response in results for tensor in response.parameters.tensors)
+            if guard_runtime is not None:
+                record_training_round(guard_runtime, server_round, results, status="completed",
+                                      seconds=capture["history"][-1]["round_seconds"])
             return aggregated_parameters, aggregated_metrics
 
         def aggregate_updates(self, server_round, results, failures):
@@ -453,7 +474,11 @@ def calibrate_probe(model, tokenizer, probe, config):
     for index in range(config.calibration_nonmember_count):
         batch = random.Random(config.seed + 500009 + index).sample(
             records, min(config.attack_batch_size, len(records)))
-        scores.append(gradient_score(client_loss_gradients(model, tokenizer, probe, batch, config)))
+        if config.attack_variant == "causal_gradient_alignment":
+            from .causal_probe import protected_gradients, alignment_score
+            scores.append(alignment_score(protected_gradients(probe, tokenizer, batch, config), probe._public_direction))
+        else:
+            scores.append(gradient_score(client_loss_gradients(model, tokenizer, probe, batch, config)))
     result = nonmember_threshold(scores, config.calibration_fpr)
     result["scope"] = "public_negative_batches_disjoint_from_probe_fit_and_victim"
     return result
@@ -573,7 +598,15 @@ def sample_attack_batch(client_texts, config, include_target, rng):
     return batch
 
 
-def run_attack_trials(model_path, probe, clients, config, calibration=None, guard_runtime=None, checkpoint_dir=None):
+
+def trial_member(config, trial_id):
+    """Counterbalance within pairs using public design RNG, never measured scores."""
+    flip = (random.Random(config.seed + 88111 + trial_id // 2).getrandbits(1)
+            if getattr(config, "counterbalance_trials", False) else 0)
+    return bool((trial_id % 2) == flip)
+
+
+def run_attack_trials(model_path, probe, clients, config, calibration=None, guard_runtime=None, checkpoint_dir=None, checkpoint_metadata=None):
     """Send the same malicious parameters to the victim in each observed round.
 
     The harness owns private partitions and ground truth. Only the client_fn
@@ -588,18 +621,27 @@ def run_attack_trials(model_path, probe, clients, config, calibration=None, guar
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     initial = ndarrays_to_parameters(get_parameters(probe))
-    hidden_size = probe.fc1.in_features
-    width = probe.fc1.out_features
+    preserving = getattr(config, "attack_variant", "probe_head") == "causal_gradient_alignment"
+    if preserving:
+        from .causal_probe import alignment_score
+        public_direction = probe._public_direction
+    else:
+        hidden_size = probe.fc1.in_features
+        width = probe.fc1.out_features
     trials = []
 
     checkpoint_header = None
     if checkpoint_dir is not None:
         from ..queue import write_json
-        Path(checkpoint_dir).mkdir(parents=True, exist_ok=True)
+        from uuid import uuid4
+        # Retry attempts never overwrite an earlier accepted observation.
+        checkpoint_dir = Path(checkpoint_dir) / uuid4().hex
+        checkpoint_dir.mkdir(parents=True, exist_ok=False)
         checkpoint_header = {"status": "partial", "planned_trials": config.attack_trials,
                              "target_seed": config.seed, "audit_outputs_private": True,
-                             "policy_sha256": guard_runtime.settings.policy_sha256,
-                             "detector_sha256": guard_runtime.settings.detector_sha256}
+                             **(checkpoint_metadata or {}),
+                             "policy_sha256": guard_runtime.settings.policy_sha256 if guard_runtime else None,
+                             "detector_sha256": guard_runtime.settings.detector_sha256 if guard_runtime else None}
         write_json(Path(checkpoint_dir) / "progress.json", {**checkpoint_header, "completed_trials": 0})
 
     class VictimClient(NumPyClient):
@@ -616,9 +658,10 @@ def run_attack_trials(model_path, probe, clients, config, calibration=None, guar
                 # Matched counterfactual worlds get identical request histories.
                 # These harness identities are ledger keys, never detector features.
                 from dataclasses import replace as dc_replace
-                world_guard = dc_replace(guard_runtime, scope=f"{guard_runtime.scope}:world-{trial_id % 2}")
-                if not world_guard.check(parameters, self.partition_id, trial_id // 2 + 1,
-                                         architecture="amia_probe", observation=True):
+                world_guard = dc_replace(guard_runtime, scope=f"{guard_runtime.scope}:world-{int(trial_member(config, trial_id))}")
+                parameters = world_guard.authorize(parameters, self.partition_id, trial_id // 2 + 1,
+                                                   architecture="causal_lm" if preserving else "amia_probe", observation=True)
+                if parameters is None:
                     return [], 0, {"partition_id": self.partition_id, "guard_decision": "rejected",
                                    "response_seconds": time.perf_counter() - response_start}
             from ..federation import seed_training
@@ -627,14 +670,21 @@ def run_attack_trials(model_path, probe, clients, config, calibration=None, guar
             from ..model_io import load_causal_model
             model = load_causal_model(model_path).to(device).eval()
             tokenizer = AutoTokenizer.from_pretrained(model_path)
-            malicious = _ami_probe_cls()(hidden_size, width).to(device)
-            set_parameters(malicious, parameters)
-            batch = sample_attack_batch(self.private_texts, config, trial_id % 2 == 0,
+            if preserving:
+                set_parameters(model, parameters)
+            else:
+                malicious = _ami_probe_cls()(hidden_size, width).to(device)
+                set_parameters(malicious, parameters)
+            batch = sample_attack_batch(self.private_texts, config, trial_member(config, trial_id),
                                         random.Random(config.seed + 1009 + trial_id // 2))
-            gradients = client_loss_gradients(model, tokenizer, malicious, batch, config)
+            if preserving:
+                from .causal_probe import protected_gradients
+                gradients = protected_gradients(model, tokenizer, batch, config)
+            else:
+                gradients = client_loss_gradients(model, tokenizer, malicious, batch, config)
             return gradients, len(batch), {"partition_id": self.partition_id,
-                                           **({"guard_decision": "accepted", "response_seconds": time.perf_counter() - response_start}
-                                              if guard_runtime is not None else {})}
+                                           "response_seconds": time.perf_counter() - response_start,
+                                           **({"guard_decision": "accepted"} if guard_runtime is not None else {})}
 
     class ObserveGradient(FedAvg):
         def aggregate_fit(self, server_round, results, failures):
@@ -647,17 +697,21 @@ def run_attack_trials(model_path, probe, clients, config, calibration=None, guar
             rejected = update.metrics.get("guard_decision") == "rejected"
             if rejected and parameters_to_ndarrays(update.parameters):
                 raise RuntimeError("A rejected observation must not carry gradient arrays")
-            score = None if rejected else gradient_score(parameters_to_ndarrays(update.parameters))
+            score = None if rejected else (alignment_score(parameters_to_ndarrays(update.parameters), public_direction)
+                                           if preserving else gradient_score(parameters_to_ndarrays(update.parameters)))
             trial_id = server_round - 1
             threshold = calibration["threshold"] if calibration is not None else config.gradient_threshold
             predicted = None if rejected else (bool(score >= threshold) if calibration is not None else predict_member(score, config))
-            trials.append({"trial_id": trial_id, "truth_member": trial_id % 2 == 0,
+            trials.append({"trial_id": trial_id, "truth_member": trial_member(config, trial_id),
                            "score": score, "pred_member": predicted,
                            "threshold": threshold,
                            "threshold_comparator": ">=" if calibration is not None else ">",
                            "batch_size": update.num_examples,
+                           "response_seconds": update.metrics.get("response_seconds"),
                            "membership_target": "private_client_batch",
                            "target_client_id": config.target_client_id,
+                           "attack_variant": getattr(config, "attack_variant", "probe_head"),
+                           "calibration_scope": "fixed_higher_score_direction; independent_direction_validation_required",
                            "batch_pair_seed": config.seed + 1009 + trial_id // 2})
             if guard_runtime is not None:
                 trials[-1].update(decision="rejected" if rejected else "accepted", gradient_available=not rejected,
@@ -735,22 +789,54 @@ def _run_target(config, artifact_dir, pipeline=None):
     model, tokenizer, clients, fed_history, model_path = federated_fine_tune(
         config, artifact_dir, **({"pipeline": pipeline} if pipeline is not None else {}))
     provenance = getattr(model, "_training_provenance", {})
-    probe, probe_history, probe_path = train_ami_probe(model, tokenizer, config, artifact_dir)
     target = dataset_sources.target_record_for(config, TARGET_TEXT)
-    certificate = finite_set_bounds(
-        probe, sentence_embedding(model, tokenizer, [target], config),
-        sentence_embedding(model, tokenizer, adversary_records(config), config), config)
+    preserving = config.attack_variant == "causal_gradient_alignment"
+    if preserving:
+        from .causal_probe import optimize_request, raw_gradients
+        from ..model_io import load_causal_model
+        from ..guard_replay import interpolate_request
+        probe = load_causal_model(model_path).to(next(model.parameters()).device)
+        approved_parameters = get_parameters(model)
+        probe_history = optimize_request(probe, tokenizer, target, config)
+        set_parameters(probe, interpolate_request(approved_parameters, get_parameters(probe), config.request_interpolation))
+        probe._public_direction = raw_gradients(probe, tokenizer, [target], config)
+        probe_path = None
+        certificate = {"status": "not_applicable", "reason": "Distinct architecture-preserving attack; no AMIA guarantee"}
+    else:
+        probe, probe_history, probe_path = train_ami_probe(model, tokenizer, config, artifact_dir)
+        certificate = finite_set_bounds(
+            probe, sentence_embedding(model, tokenizer, [target], config),
+            sentence_embedding(model, tokenizer, adversary_records(config), config), config)
     guard_runtime = None
     if pipeline is not None and pipeline.client_guard is not None:
         from ..guard_runtime import prepare_guard
         import torch
         # A public, fixed template independent of the optimized incoming probe.
-        with torch.random.fork_rng():
-            torch.manual_seed(0)
-            approved_probe = _ami_probe_cls()(probe.fc1.in_features, probe.fc1.out_features)
+        if not preserving:
+            with torch.random.fork_rng():
+                torch.manual_seed(0)
+                approved_probe = _ami_probe_cls()(probe.fc1.in_features, probe.fc1.out_features)
+            approved_parameters = get_parameters(approved_probe)
+            del approved_probe
         guard_runtime = prepare_guard(pipeline.client_guard, f"observation:{config.seed}",
-                                      get_parameters(approved_probe), rounds=config.attack_trials // 2)
-        del approved_probe
+                                      approved_parameters, rounds=config.attack_trials // 2)
+        del approved_parameters
+    adaptive_trace = []
+    if config.adaptive_public_steps:
+        from ..guard_replay import adaptive_public_requests
+        from ..guard_detector import load_detector
+        from .causal_probe import raw_gradients
+        if guard_runtime is None or not guard_runtime.settings.detector_file:
+            raise ValueError("Adaptive public evasion requires a pinned detector")
+        detector = load_detector(guard_runtime.settings.detector_file, guard_runtime.settings.detector_sha256)
+        approved = get_parameters(model)
+        chosen = approved
+        for candidate in adaptive_public_requests(approved, get_parameters(probe), detector, config.adaptive_public_steps):
+            adaptive_trace.append({k: v for k, v in candidate.items() if k != "parameters"})
+            if candidate["public_decision"]:
+                chosen = candidate["parameters"]
+        set_parameters(probe, chosen)
+        probe._public_direction = raw_gradients(probe, tokenizer, [target], config)
     calibration = None
     if config.threshold_mode == "calibrated":
         accepted = True
@@ -758,36 +844,57 @@ def _run_target(config, artifact_dir, pipeline=None):
             from dataclasses import replace as dc_replace
             public_guard = dc_replace(guard_runtime, scope=f"public_calibration:{config.seed}")
             accepted = public_guard.check(get_parameters(probe), "public", 1,
-                                          architecture="amia_probe", observation=True, reserve=False)
+                                          architecture="causal_lm" if preserving else "amia_probe", observation=True, reserve=False)
         calibration = (calibrate_probe(model, tokenizer, probe, config) if accepted
                        else {"threshold": None, "status": "all_public_requests_rejected"})
         if guard_runtime is not None:
             calibration.update(interface_decision="accepted" if accepted else "rejected",
                                scope="public_negative_batches_with_frozen_guard; private_budget_excluded")
+    if preserving:
+        # Do not retain a second LM on the GPU during RAG or Ray execution.
+        probe.to("cpu")
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        probe_path = str(Path(artifact_dir) / "causal_request")
+        from ..storage import check_model_save
+        check_model_save(probe, probe_path)
+        probe.save_pretrained(probe_path)
     evaluation = None
     if pipeline is not None:
+        if pipeline.rag is not None:
+            pipeline = replace(pipeline, rag=replace(pipeline.rag, runtime_audit_directory=str(Path(artifact_dir) / "private-audit")))
         from ..rag import evaluate_pipeline
         evaluation = evaluate_pipeline(
             {"model": model, "tokenizer": tokenizer, "device": next(model.parameters()).device,
              "privacy": getattr(model, "_training_privacy", {}),
              "target_record": target,
-             "training_records": [text for part in clients for text in part]}, config, pipeline)
+             "training_records": [text for part in clients for text in part],
+             "training_provenance": provenance}, config, pipeline)
     del model, tokenizer
     trials = run_attack_trials(model_path, probe, clients, config,
                               **({"calibration": calibration} if calibration is not None else {}),
-                              **({"guard_runtime": guard_runtime, "checkpoint_dir": Path(artifact_dir) / "observations"}
-                                 if guard_runtime is not None else {}))
+                              **({"guard_runtime": guard_runtime} if guard_runtime is not None else {}),
+                              checkpoint_dir=Path(artifact_dir) / "observations",
+                              checkpoint_metadata={"target_sha256": sha256(target.encode()).hexdigest(),
+                                                   "attack_variant": config.attack_variant})
     if evaluation is not None:
         trials[0]["pipeline_evaluation"] = evaluation
     return {"trials": trials, "context": {"fed_history": fed_history, "probe_history": probe_history,
             "model_path": model_path, "probe_path": probe_path, "certificate": certificate,
-            "calibration": calibration, "training_provenance": provenance}}
+            "calibration": calibration, "training_provenance": provenance, "attack_variant": config.attack_variant,
+            "adaptive_public_trace": adaptive_trace}}
 
 
 def custom_trials_adapter(config, artifact_dir, pipeline=None):
     """Train a fresh target-specific probe per target; preserve batch pairing."""
     from hashlib import sha256
     from ..defenses import privacy_bound
+    from ..queue import write_json
+    from uuid import uuid4
+    progress_dir = Path(artifact_dir) / "target-progress" / uuid4().hex
+    progress_dir.mkdir(parents=True, exist_ok=False)
+    write_json(progress_dir / "progress.json", {"status": "partial", "planned_targets": config.attack_targets, "completed_targets": 0})
     if config.attack_targets == 1:
         output = _run_target(config, artifact_dir, pipeline)
         target_hash = sha256(dataset_sources.target_record_for(config, TARGET_TEXT).encode()).hexdigest()
@@ -795,6 +902,7 @@ def custom_trials_adapter(config, artifact_dir, pipeline=None):
             trial.update(target_index=0, target_sha256=target_hash, target_seed=config.seed,
                          target_trial_id=trial["trial_id"])
         output["context"]["unique_target_count"] = 1
+        write_json(progress_dir / "target-000.json", output)
     else:
         output = {"trials": [], "context": {}}
         contexts = []
@@ -811,11 +919,15 @@ def custom_trials_adapter(config, artifact_dir, pipeline=None):
                 trial["trial_id"] = len(output["trials"])
                 output["trials"].append(trial)
             contexts.append({"target_index": index, "target_sha256": target_hash, **part["context"]})
+            write_json(progress_dir / f"target-{index:03d}.json", part)
+            write_json(progress_dir / "progress.json", {"status": "partial", "planned_targets": config.attack_targets,
+                                                       "completed_targets": index + 1})
         output["context"] = {"target_contexts": contexts,
                              "unique_target_count": len({c["target_sha256"] for c in contexts})}
+    write_json(progress_dir / "progress.json", {"status": "complete", "planned_targets": config.attack_targets, "completed_targets": config.attack_targets})
     if config.observation_defense == "gaussian":
         bound = privacy_bound(sum(t.get("decision") != "rejected" for t in output["trials"]), config.observation_noise_multiplier, config.observation_delta)
-        bound.update(privacy_unit="private_batch", protected_release="noised_probe_gradients",
+        bound.update(privacy_unit="private_batch", protected_release="noised_lm_gradients" if config.attack_variant == "causal_gradient_alignment" else "noised_probe_gradients",
                      trusted_server=False,
                      scope="Observation releases only; excludes training, feature LDP and retrieval releases")
         output["context"]["observation_privacy"] = bound
@@ -825,7 +937,8 @@ def custom_trials_adapter(config, artifact_dir, pipeline=None):
 def build_payload_adapter(config, trials, artifact_dir, context):
     clean_trials = [{k: v for k, v in t.items() if k != "pipeline_evaluation"} for t in trials]
     if "target_contexts" in context:
-        result = {"status": "complete", "methodology": dict(METHODOLOGY),
+        result = {"status": "complete", "methodology": dict(METHODOLOGY) if config.attack_variant == "probe_head" else {"attack": "causal_gradient_alignment", "guarantee": "No original AMIA guarantee applies"},
+                  "attack_variant": config.attack_variant,
                   "metrics": _summarize_attack(trials), "attack_trials": clean_trials,
                   "target_evaluations": context["target_contexts"],
                   "unique_target_count": context["unique_target_count"],
@@ -838,6 +951,13 @@ def build_payload_adapter(config, trials, artifact_dir, context):
     result["activation_confidence"] = context["certificate"]
     result["training_provenance"] = context.get("training_provenance", {})
     result["calibration"] = context.get("calibration")
+    result["attack_variant"] = config.attack_variant
+    result["adaptive_public_trace"] = context.get("adaptive_public_trace", [])
+    if config.attack_variant != "probe_head":
+        result["methodology"] = {"attack": "causal_gradient_alignment",
+                                 "observation": "full protected LM gradients only",
+                                 "status": "experimental variant; baseline success must be established",
+                                 "guarantee": "No original AMIA guarantee applies"}
     result["unique_target_count"] = context.get("unique_target_count", 1)
     if "observation_privacy" in context:
         result["observation_privacy_composed"] = context["observation_privacy"]

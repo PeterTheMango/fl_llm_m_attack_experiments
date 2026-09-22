@@ -115,7 +115,7 @@ def test_early_flower_rejection_never_loads_victim_model(monkeypatch, tmp_path):
     probe = SimpleNamespace(fc1=SimpleNamespace(in_features=2, out_features=2))
     rows = amia.run_attack_trials("unused", probe, [["private"]], config, guard_runtime=runtime, checkpoint_dir=tmp_path / "checkpoints")
     assert len(rows) == 2 and all(r["score"] is None for r in rows)
-    assert len(list((tmp_path / "checkpoints").glob("trial-*.json"))) == 2
+    assert len(list((tmp_path / "checkpoints").rglob("trial-*.json"))) == 2
 
 
 def test_matched_worlds_exhaust_identically(tmp_path):

@@ -1,0 +1,9 @@
+{
+  "schema": "guard_stage_v2", "stage": "collection", "seed": 2000,
+  "targets": 8, "queries_per_world": 2, "rounds": 3, "clients": 4,
+  "probe_epochs": 12, "calibration_nonmembers": 20,
+  "conditions": ["shadow"], "variants": ["probe_head", "causal_gradient_alignment"],
+  "reference_conditions": ["shadow"], "retrieval_defenses": ["ordinary"],
+  "membership_attack": "yes_no", "requires_detector": false,
+  "purpose": "Real benign/malicious request collection; assign target hashes to grouped splits before fitting"
+}

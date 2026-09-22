@@ -25,8 +25,8 @@ def parameter_features(parameters, reference):
         for start in range(0, v.size, 65536):
             a = v[start:start + 65536].astype(np.float64) / scale
             b = p[start:start + 65536].astype(np.float64) / scale
-            delta2 += float(np.dot(a - b, a - b))
-            prior2 += float(np.dot(b, b)); value2 += float(np.dot(a, a))
+            delta2 += float(np.sum((a - b) ** 2))
+            prior2 += float(np.sum(b * b)); value2 += float(np.sum(a * a))
             maximum = max(maximum, float(np.max(np.abs(a), initial=0)))
         deltas.append(float(min(np.sqrt(delta2) / max(np.sqrt(prior2), 1e-12), 1e6)))
         concentrations.append(float(maximum / max(np.sqrt(value2), 1e-12)))

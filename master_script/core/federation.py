@@ -231,9 +231,14 @@ def run_hf_federated_finetune(config: AttackConfig, truth_member: bool, pipeline
             if self.partition_id not in selected_clients(config, round_id):
                 return parameters, 0, {"partition_id": self.partition_id}
             seed_training(config.seed + 1009 * self.partition_id + round_id)
+            if guard_runtime is not None:
+                parameters = guard_runtime.authorize(parameters, self.partition_id, round_id)
+                if parameters is None:
+                    return [], 0, {"partition_id": self.partition_id, "guard_decision": "rejected"}
+            import time
+            load_start = time.perf_counter()
             model, tokenizer = load_model_and_tokenizer()
-            if guard_runtime is not None and not guard_runtime.check(parameters, self.partition_id, round_id):
-                return [], 0, {"partition_id": self.partition_id, "guard_decision": "rejected"}
+            model_load_seconds = time.perf_counter() - load_start
             set_parameters(model, parameters)
             model.to(client_dev)
             model.train()
@@ -255,6 +260,7 @@ def run_hf_federated_finetune(config: AttackConfig, truth_member: bool, pipeline
             dataset = TensorDataset(encoded["input_ids"], encoded["attention_mask"])
             loader = DataLoader(dataset, batch_size=config.local_batch_size, shuffle=True)
             optimizer = torch.optim.AdamW(model.parameters(), lr=config.client_lr)
+            losses = []
             for _ in range(config.local_epochs):
                 for input_ids, attention_mask in loader:
                     input_ids = input_ids.to(client_dev)
@@ -262,6 +268,7 @@ def run_hf_federated_finetune(config: AttackConfig, truth_member: bool, pipeline
                     labels = input_ids.clone()
                     labels[attention_mask == 0] = -100
                     outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
+                    losses.append(float(outputs.loss.detach().cpu()))
                     outputs.loss.backward()
                     optimizer.step()
                     optimizer.zero_grad(set_to_none=True)
@@ -270,7 +277,9 @@ def run_hf_federated_finetune(config: AttackConfig, truth_member: bool, pipeline
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
             # FedAvg weights this update by its training record count.
-            return updated, len(self.texts), {"partition_id": self.partition_id}
+            return updated, len(self.texts), {"partition_id": self.partition_id,
+                                               "train_loss": sum(losses) / len(losses),
+                                               "model_load_seconds": model_load_seconds}
 
     seed_training(config.seed)
     init_model, init_tokenizer = load_model_and_tokenizer()
@@ -294,11 +303,15 @@ def run_hf_federated_finetune(config: AttackConfig, truth_member: bool, pipeline
     class SaveModelFedAvg(FedAvg):
         def aggregate_fit(self, server_round, results, failures):
             if guard_runtime is not None:
-                from .guard_runtime import reject_training_round
+                from .guard_runtime import reject_training_round, record_training_round
                 try:
                     reject_training_round(results, failures)
                 except RuntimeError as exc:
                     from .guard_runtime import PolicyAbortedRound
+                    import time
+                    record_training_round(guard_runtime, server_round, results,
+                                          status="policy_aborted" if isinstance(exc, PolicyAbortedRound) else "failed",
+                                          seconds=time.perf_counter() - capture["round_started"], failures=len(failures))
                     if isinstance(exc, PolicyAbortedRound):
                         capture["policy_aborted"] = True
                     raise
@@ -314,8 +327,15 @@ def run_hf_federated_finetune(config: AttackConfig, truth_member: bool, pipeline
             if pipeline is not None:
                 import time
                 capture["history"][-1]["round_seconds"] = time.perf_counter() - capture["round_started"]
+                capture["history"][-1]["client_outcomes"] = [
+                    {"client_id": r.metrics.get("partition_id"), "examples": r.num_examples,
+                     "train_loss": r.metrics.get("train_loss"), "model_load_seconds": r.metrics.get("model_load_seconds")}
+                    for _, r in results]
                 capture["history"][-1]["received_parameter_bytes"] = sum(
                     len(tensor) for _, response in results for tensor in response.parameters.tensors)
+            if guard_runtime is not None:
+                record_training_round(guard_runtime, server_round, results, status="completed",
+                                      seconds=capture["history"][-1]["round_seconds"])
             return aggregated_parameters, aggregated_metrics
 
         def aggregate_updates(self, server_round, results, failures):

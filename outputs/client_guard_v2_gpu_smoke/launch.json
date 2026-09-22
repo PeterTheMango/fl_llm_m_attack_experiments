@@ -1,0 +1,155 @@
+{
+  "schema": "guard_launch_v2",
+  "stage": {
+    "schema": "guard_stage_v2",
+    "stage": "smoke",
+    "seed": 1000,
+    "targets": 1,
+    "queries_per_world": 2,
+    "rounds": 3,
+    "clients": 4,
+    "probe_epochs": 4,
+    "calibration_nonmembers": 20,
+    "conditions": [
+      "baseline",
+      "rules_only",
+      "noise_only",
+      "shadow"
+    ],
+    "variants": [
+      "probe_head",
+      "causal_gradient_alignment"
+    ],
+    "reference_conditions": [
+      "baseline",
+      "rules_only",
+      "shadow"
+    ],
+    "retrieval_defenses": [
+      "ordinary"
+    ],
+    "membership_attack": "yes_no",
+    "requires_detector": false,
+    "purpose": "GPU mechanics and genuine multi-round training; not effectiveness evidence"
+  },
+  "stage_sha256": "aa9ed565030693dfdec518229d7f7a3db7d064d64076021902493b618647b179",
+  "gpu": "0",
+  "attacks": [
+    "amia",
+    "reference"
+  ],
+  "expected_runs": 11,
+  "checkpoint_reuse": "disabled; each target/world is freshly trained, never shared as independent evidence",
+  "output_root": "/Users/pyeshuajs23/Documents/MITACS/Research Documents/outputs/client_guard_v2_gpu_smoke/results",
+  "runs": [
+    {
+      "attack": "amia",
+      "condition": "baseline",
+      "variant": "probe_head",
+      "seed": 1000,
+      "rounds": 3,
+      "trials": 4,
+      "targets": 1
+    },
+    {
+      "attack": "amia",
+      "condition": "rules_only",
+      "variant": "probe_head",
+      "seed": 1000,
+      "rounds": 3,
+      "trials": 4,
+      "targets": 1
+    },
+    {
+      "attack": "amia",
+      "condition": "noise_only",
+      "variant": "probe_head",
+      "seed": 1000,
+      "rounds": 3,
+      "trials": 4,
+      "targets": 1
+    },
+    {
+      "attack": "amia",
+      "condition": "shadow",
+      "variant": "probe_head",
+      "seed": 1000,
+      "rounds": 3,
+      "trials": 4,
+      "targets": 1
+    },
+    {
+      "attack": "amia",
+      "condition": "baseline",
+      "variant": "causal_gradient_alignment",
+      "seed": 1000,
+      "rounds": 3,
+      "trials": 4,
+      "targets": 1
+    },
+    {
+      "attack": "amia",
+      "condition": "rules_only",
+      "variant": "causal_gradient_alignment",
+      "seed": 1000,
+      "rounds": 3,
+      "trials": 4,
+      "targets": 1
+    },
+    {
+      "attack": "amia",
+      "condition": "noise_only",
+      "variant": "causal_gradient_alignment",
+      "seed": 1000,
+      "rounds": 3,
+      "trials": 4,
+      "targets": 1
+    },
+    {
+      "attack": "amia",
+      "condition": "shadow",
+      "variant": "causal_gradient_alignment",
+      "seed": 1000,
+      "rounds": 3,
+      "trials": 4,
+      "targets": 1
+    },
+    {
+      "attack": "reference",
+      "condition": "baseline",
+      "variant": null,
+      "seed": 1000,
+      "rounds": 3,
+      "trials": 2,
+      "targets": 1
+    },
+    {
+      "attack": "reference",
+      "condition": "rules_only",
+      "variant": null,
+      "seed": 1000,
+      "rounds": 3,
+      "trials": 2,
+      "targets": 1
+    },
+    {
+      "attack": "reference",
+      "condition": "shadow",
+      "variant": null,
+      "seed": 1000,
+      "rounds": 3,
+      "trials": 2,
+      "targets": 1
+    }
+  ],
+  "runtime_estimate": {
+    "source": "20260921 pilot",
+    "historical_amia_seconds_per_target": 330,
+    "historical_reference_seconds_per_target_pair": 367.0,
+    "historical_round_seconds": [
+      75,
+      81
+    ],
+    "status": "not transferable to new causal probe; measure smoke stage first"
+  }
+}

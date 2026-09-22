@@ -28,6 +28,8 @@ class Rag:
     evaluation_trials: int | None = None
     defenses: tuple = ("ordinary", "mirabel")
     membership_overlap: bool = False
+    membership_attack: str = "yes_no"
+    runtime_audit_directory: str | None = None
 
 
 @dataclass(frozen=True)
@@ -48,6 +50,9 @@ class Pipeline:
         if data["rag"]:
             # Record provenance, never private document contents, in results.
             data["rag"].pop("study_json")
+            data["rag"].pop("runtime_audit_directory")
+            if data["rag"]["membership_attack"] == "yes_no":
+                data["rag"].pop("membership_attack")
             if not data["rag"]["membership_overlap"]:
                 data["rag"].pop("membership_overlap")
             if data["rag"]["prompt_format"] == "plain":
@@ -103,7 +108,7 @@ def parse_pipeline(value, source="<config>"):
     if value.get("rag") is not None:
         r = _mapping(value["rag"], ("study_file", "embedding_model", "top_k", "max_context_tokens",
                                      "max_new_tokens", "significance", "prompt_format",
-                                     "evaluation_trials", "defenses", "membership_overlap"), "pipeline.rag")
+                                     "evaluation_trials", "defenses", "membership_overlap", "membership_attack"), "pipeline.rag")
         if not isinstance(r.get("study_file"), str) or not r["study_file"]:
             raise ValueError("rag.study_file is required")
         base = Path(source).resolve().parent if source != "<config>" else Path.cwd()
@@ -114,6 +119,8 @@ def parse_pipeline(value, source="<config>"):
         validate_study(study)
         rag = Rag(**{**r, "study_file": str(path), "study_sha256": sha256(raw).hexdigest(),
                      "study_json": raw.decode("utf-8")})
+        if rag.membership_attack not in ("yes_no", "continuation"):
+            raise ValueError("rag.membership_attack must be yes_no or continuation")
         if type(rag.membership_overlap) is not bool:
             raise ValueError("rag.membership_overlap must be a boolean")
         for name in ("top_k", "max_context_tokens", "max_new_tokens"):

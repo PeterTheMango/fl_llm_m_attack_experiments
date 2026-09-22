@@ -1,0 +1,26 @@
+{
+  "schema": "guard_stage_v2",
+  "stage": "smoke",
+  "seed": 1000,
+  "targets": 1,
+  "queries_per_world": 2,
+  "rounds": 3,
+  "clients": 4,
+  "probe_epochs": 4,
+  "calibration_nonmembers": 20,
+  "conditions": [
+    "baseline"
+  ],
+  "variants": [
+    "causal_gradient_alignment"
+  ],
+  "reference_conditions": [
+    "baseline"
+  ],
+  "retrieval_defenses": [
+    "ordinary"
+  ],
+  "membership_attack": "yes_no",
+  "requires_detector": false,
+  "purpose": "GPU mechanics and genuine multi-round training; not effectiveness evidence"
+}

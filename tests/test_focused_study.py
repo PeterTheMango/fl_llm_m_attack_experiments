@@ -184,7 +184,9 @@ def test_rag_unrecognized_answers_are_flagged_and_all_defenses_evaluated(monkeyp
     assert True in seen and False in seen
     assert not output["rag_validity"]["ordinary_conditions_informative"]
     for condition in output["rag_conditions"].values():
-        assert condition["metrics"]["adv"] == .5
+        assert condition["metrics"]["adv"] is None
+        assert condition["metrics"]["roc_auc"] is None
+        assert all(r["pred_member"] is None for r in condition["membership_trials"])
         assert condition["diagnostics"]["attack_status"] == "no_recognized_answers"
         assert condition["diagnostics"]["utility_status"] == "no_correct_answers"
 

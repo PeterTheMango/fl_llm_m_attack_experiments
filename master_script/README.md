@@ -675,3 +675,5 @@ directory.
   and results pages exist; a live GPU-utilization and tailing-log panel
   described in the original design (§2.5) was scoped out and is not part
   of this package.
+
+Client-side privacy defense continuation: see [the v2 handoff](docs/client_guard_v2_handoff.md) for guarded multi-round instrumentation, distinct causal-gradient probes, dataset/split assembly, frozen attacker calibration, RAG auditing, and staged AMIA/Reference commands. GPU stages are prepared but have not been executed locally.

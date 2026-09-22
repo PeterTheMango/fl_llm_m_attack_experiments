@@ -1,0 +1,102 @@
+defaults:
+  use_hf_models: true
+  model_id: Qwen/Qwen2.5-0.5B-Instruct
+  model_revision: 7ae557604adf67be50417f59c2c2f167def9a775
+  reference_model_id: Qwen/Qwen2.5-0.5B-Instruct
+  dataset_name: squad_research
+  dataset_revision: 7b6d24c440a36b6815f21b70d25016731768db1f
+  num_clients: 4
+  clients_per_round: 4
+  federated_rounds: 3
+  local_epochs: 1
+  local_batch_size: 2
+  client_lr: 2.0e-05
+  attack_trials: 4
+  max_length: 128
+  seed: 1000
+  sim_num_gpus: 1.0
+  sim_max_concurrent_clients: 1
+  keep_artifacts: true
+  threshold_mode: calibrated
+  calibration_nonmember_count: 20
+  calibration_fpr: 0.05
+pipeline:
+  condition: baseline
+  defense:
+    mechanism: none
+  rag:
+    study_file: /Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/configs/research_data/squad_rag_study.json
+    embedding_model: sentence-transformers/all-MiniLM-L6-v2
+    top_k: 4
+    max_context_tokens: 768
+    max_new_tokens: 64
+    prompt_format: chat
+    significance: 0.05
+    evaluation_trials: 2
+    defenses:
+    - ordinary
+    membership_overlap: true
+    membership_attack: yes_no
+attacks:
+  amia:
+    base:
+      attack_targets: 1
+      attack_batch_size: 4
+      probe_epochs: 4
+      probe_lr: 0.005
+      adversary_negative_count: 16
+      ldp_target_samples: 128
+      certificate_samples: 256
+      ldp_mechanism: none
+      observation_defense: none
+      observation_clip_norm: 1.0
+      observation_delta: 1.0e-05
+    sweep: {}
+    variants:
+    - base:
+        attack_variant: causal_gradient_alignment
+        attack_targets: 1
+        probe_epochs: 4
+        counterbalance_trials: true
+        observation_defense: none
+        observation_noise_multiplier: 1.0
+      pipeline:
+        condition: baseline
+        defense:
+          mechanism: none
+        rag:
+          study_file: /Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/configs/research_data/squad_rag_study.json
+          embedding_model: sentence-transformers/all-MiniLM-L6-v2
+          top_k: 4
+          max_context_tokens: 768
+          max_new_tokens: 64
+          prompt_format: chat
+          significance: 0.05
+          evaluation_trials: 2
+          defenses:
+          - ordinary
+          membership_overlap: true
+          membership_attack: yes_no
+  reference:
+    base:
+      threshold: -0.75
+      attack_trials: 2
+    sweep: {}
+    variants:
+    - pipeline:
+        condition: baseline
+        defense:
+          mechanism: none
+        rag:
+          study_file: /Users/pyeshuajs23/Documents/MITACS/Research Documents/master_script/configs/research_data/squad_rag_study.json
+          embedding_model: sentence-transformers/all-MiniLM-L6-v2
+          top_k: 4
+          max_context_tokens: 768
+          max_new_tokens: 64
+          prompt_format: chat
+          significance: 0.05
+          evaluation_trials: 2
+          defenses:
+          - ordinary
+          membership_overlap: true
+          membership_attack: yes_no

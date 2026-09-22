@@ -97,3 +97,23 @@ def test_failed_run_does_not_block_later_cli_runs(tmp_path, capsys, monkeypatch)
     ]) == 1
     assert called == ["zlib", "min_k"]
     assert "1/2 run(s) complete" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("metrics, expected", [
+    ({"adv": None, "tpr": None}, "N/A"),
+    ({"tpr": None}, "N/A"),
+    ({"adv": 0.0}, "0.000"),
+    ({"adv": 1.0}, "1.000"),
+])
+def test_completed_run_summary_handles_unavailable_adv(metrics, expected, monkeypatch, capsys):
+    from master_script import perform_experiments as cli
+    from master_script.core import runner
+
+    results = [{"run_id": "completed", "status": "complete", "metrics": metrics}]
+    monkeypatch.setattr(runner, "run_sweep", lambda *a, **kw: results)
+    args = build_parser().parse_args(["--no-firestore", "--no-charts"])
+    assert cli._run([object()], args) == 0
+    output = capsys.readouterr().out
+    assert "1/1 run(s) complete" in output
+    assert f"completed  adv={expected}" in output
+    assert results[0]["metrics"] == metrics

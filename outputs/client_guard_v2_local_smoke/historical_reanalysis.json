@@ -1,0 +1,1664 @@
+{
+  "conditions": [
+    {
+      "run_id": "theory_v2_f48ee1ad4062_pipeline_v1_f28c8b73fc04889e4c9063f4",
+      "attack": "amia",
+      "condition": "baseline",
+      "status": "complete",
+      "gradient_auc": 1.0,
+      "balanced_accuracy": 1.0,
+      "release_coverage": null,
+      "no_retrieval_f1": 0.06433035714285715,
+      "utility_valid": true,
+      "guard": null,
+      "exclusion": null
+    },
+    {
+      "run_id": "theory_v2_f48ee1ad4062_pipeline_v1_729946455b3464302e0e5af6",
+      "attack": "amia",
+      "condition": "rules_only",
+      "status": "complete",
+      "gradient_auc": null,
+      "balanced_accuracy": null,
+      "release_coverage": 0.0,
+      "no_retrieval_f1": 0.06433035714285715,
+      "utility_valid": true,
+      "guard": {
+        "training_requests": 4,
+        "training_rejected": 0,
+        "legitimate_false_rejection_rate": 0.0,
+        "policy_flag_rate": 0.0,
+        "per_client": {
+          "0": {
+            "requests": 1,
+            "rejected": 0,
+            "shadow_rejections": 0
+          },
+          "1": {
+            "requests": 1,
+            "rejected": 0,
+            "shadow_rejections": 0
+          },
+          "2": {
+            "requests": 1,
+            "rejected": 0,
+            "shadow_rejections": 0
+          },
+          "3": {
+            "requests": 1,
+            "rejected": 0,
+            "shadow_rejections": 0
+          }
+        },
+        "guard_seconds": 56.128348155878484,
+        "sample_size_note": "Repeated rounds are not independent evidence for a 1% population false-positive rate"
+      },
+      "exclusion": null
+    },
+    {
+      "run_id": "theory_v2_f48ee1ad4062_pipeline_v1_3f44b561a7c50a1b581fc093",
+      "attack": "amia",
+      "condition": "noise_only",
+      "status": "complete",
+      "gradient_auc": 0.0,
+      "balanced_accuracy": 0.25,
+      "release_coverage": null,
+      "no_retrieval_f1": 0.06433035714285715,
+      "utility_valid": true,
+      "guard": null,
+      "exclusion": null
+    },
+    {
+      "run_id": "theory_v2_f48ee1ad4062_pipeline_v1_11d1a63db8c436f1f3234c93",
+      "attack": "amia",
+      "condition": "shadow",
+      "status": "complete",
+      "gradient_auc": 1.0,
+      "balanced_accuracy": 1.0,
+      "release_coverage": 1.0,
+      "no_retrieval_f1": 0.06433035714285715,
+      "utility_valid": true,
+      "guard": {
+        "training_requests": 4,
+        "training_rejected": 0,
+        "legitimate_false_rejection_rate": 0.0,
+        "policy_flag_rate": 0.0,
+        "per_client": {
+          "0": {
+            "requests": 1,
+            "rejected": 0,
+            "shadow_rejections": 0
+          },
+          "1": {
+            "requests": 1,
+            "rejected": 0,
+            "shadow_rejections": 0
+          },
+          "2": {
+            "requests": 1,
+            "rejected": 0,
+            "shadow_rejections": 0
+          },
+          "3": {
+            "requests": 1,
+            "rejected": 0,
+            "shadow_rejections": 0
+          }
+        },
+        "guard_seconds": 55.85813822411001,
+        "sample_size_note": "Repeated rounds are not independent evidence for a 1% population false-positive rate"
+      },
+      "exclusion": null
+    },
+    {
+      "run_id": "theory_v2_f48ee1ad4062_pipeline_v1_131a82c8ae4bd9050b9683ce",
+      "attack": "reference",
+      "condition": "baseline",
+      "status": "complete",
+      "gradient_auc": 1.0,
+      "balanced_accuracy": 1.0,
+      "release_coverage": null,
+      "no_retrieval_f1": 0.06636421783625732,
+      "utility_valid": true,
+      "guard": null,
+      "exclusion": null
+    },
+    {
+      "run_id": "theory_v2_f48ee1ad4062_pipeline_v1_e11354aa7dcc9f8b135a8399",
+      "attack": "reference",
+      "condition": "shadow",
+      "status": "complete",
+      "gradient_auc": 1.0,
+      "balanced_accuracy": 1.0,
+      "release_coverage": null,
+      "no_retrieval_f1": 0.06636421783625732,
+      "utility_valid": true,
+      "guard": {
+        "training_requests": 16,
+        "training_rejected": 0,
+        "legitimate_false_rejection_rate": 0.0,
+        "policy_flag_rate": 0.0,
+        "per_client": {
+          "0": {
+            "requests": 4,
+            "rejected": 0,
+            "shadow_rejections": 0
+          },
+          "1": {
+            "requests": 4,
+            "rejected": 0,
+            "shadow_rejections": 0
+          },
+          "2": {
+            "requests": 4,
+            "rejected": 0,
+            "shadow_rejections": 0
+          },
+          "3": {
+            "requests": 4,
+            "rejected": 0,
+            "shadow_rejections": 0
+          }
+        },
+        "guard_seconds": 220.6512933317572,
+        "sample_size_note": "Repeated rounds are not independent evidence for a 1% population false-positive rate"
+      },
+      "exclusion": null
+    }
+  ],
+  "total_runs": 6,
+  "excluded_runs": 0,
+  "interpretation": "Utility validity here is a screening floor, not the predeclared matched-baseline engineering gate. No averaged privacy score.",
+  "inputs": [
+    {
+      "path": "/Users/pyeshuajs23/Documents/MITACS/Research Documents/outputs/recovered_results/20260921-203124-7ccbe481bf2d/0000-theory_v2_f48ee1ad4062_pipeline_v1_f28c8b73fc04889e4c9063f4.json",
+      "sha256": "1ad296b144e76177942a09ef554f4c49f095a26fd32ee445b95ee6dc6b45891e"
+    },
+    {
+      "path": "/Users/pyeshuajs23/Documents/MITACS/Research Documents/outputs/recovered_results/20260921-203124-7ccbe481bf2d/0001-theory_v2_f48ee1ad4062_pipeline_v1_729946455b3464302e0e5af6.json",
+      "sha256": "2a0154621a7658ba59f355804b7eb0755b091f89ebb9031b0bdeb3798fc929f2"
+    },
+    {
+      "path": "/Users/pyeshuajs23/Documents/MITACS/Research Documents/outputs/recovered_results/20260921-203124-7ccbe481bf2d/0002-theory_v2_f48ee1ad4062_pipeline_v1_3f44b561a7c50a1b581fc093.json",
+      "sha256": "7d6baded200f96cfcd32fdd911e10f2cee2c76c3ee26ef1e53944d1381014c2d"
+    },
+    {
+      "path": "/Users/pyeshuajs23/Documents/MITACS/Research Documents/outputs/recovered_results/20260921-203124-7ccbe481bf2d/0003-theory_v2_f48ee1ad4062_pipeline_v1_11d1a63db8c436f1f3234c93.json",
+      "sha256": "75a83797e1add87513ab5b6565212ef4f5d8de3c3184635207c601213206050e"
+    },
+    {
+      "path": "/Users/pyeshuajs23/Documents/MITACS/Research Documents/outputs/recovered_results/20260921-203124-7ccbe481bf2d/0004-theory_v2_f48ee1ad4062_pipeline_v1_131a82c8ae4bd9050b9683ce.json",
+      "sha256": "e6db2a06ea3168dc750df2d3decdf9722fc94ba381d8bbc75134ef77e83b22dc"
+    },
+    {
+      "path": "/Users/pyeshuajs23/Documents/MITACS/Research Documents/outputs/recovered_results/20260921-203124-7ccbe481bf2d/0005-theory_v2_f48ee1ad4062_pipeline_v1_e11354aa7dcc9f8b135a8399.json",
+      "sha256": "2d181776f910499dd8b536163c58e9ace625310e0a06ae10dfc482df6a145e1c"
+    }
+  ],
+  "provenance": [
+    {
+      "run_id": "theory_v2_f48ee1ad4062_pipeline_v1_f28c8b73fc04889e4c9063f4",
+      "implementation_fingerprint": "f48ee1ad4062",
+      "method_version": "theory_v2",
+      "pipeline": {
+        "defense": {
+          "mechanism": "none",
+          "clip_norm": 1.0,
+          "noise_multiplier": 1.0,
+          "delta": 1e-05
+        },
+        "rag": {
+          "study_file": "/home/calc08/projects/LLMPrivacy/fl_llm_m_attack_experiments/master_script/configs/research_data/squad_rag_study.json",
+          "study_sha256": "6fbf28e75fb64a4f43fe4b39e32e0822fe77e46107d726b93e6a258449db2a03",
+          "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+          "top_k": 4,
+          "max_context_tokens": 768,
+          "max_new_tokens": 64,
+          "significance": 0.05,
+          "prompt_format": "chat",
+          "evaluation_trials": 2,
+          "defenses": [
+            "ordinary"
+          ],
+          "membership_overlap": true
+        },
+        "condition": "baseline"
+      },
+      "config": {
+        "model_revision": "7ae557604adf67be50417f59c2c2f167def9a775",
+        "reference_revision": "7ae557604adf67be50417f59c2c2f167def9a775",
+        "dataset_revision": "7b6d24c440a36b6815f21b70d25016731768db1f",
+        "sim_max_concurrent_clients": 1,
+        "experiment_name": "ami_federated_llm_adaptation_v1",
+        "paper_repo": "https://github.com/trucndt/ami",
+        "model_id": "Qwen/Qwen2.5-0.5B-Instruct",
+        "dataset_name": "squad_research",
+        "seed": 7,
+        "num_clients": 4,
+        "clients_per_round": 4,
+        "federated_rounds": 1,
+        "local_epochs": 1,
+        "local_batch_size": 2,
+        "max_length": 128,
+        "client_lr": 2e-05,
+        "probe_lr": 0.005,
+        "probe_epochs": 4,
+        "attack_trials": 4,
+        "attack_batch_size": 4,
+        "gradient_threshold": 1e-08,
+        "target_client_id": 0,
+        "firestore_collection": "ami_federated_llm_results",
+        "firebase_project_id": null,
+        "local_artifact_dir": "artifacts/adaptation",
+        "fl_framework": "flower",
+        "sim_num_gpus": 1.0,
+        "keep_artifacts": true,
+        "adversary_negative_count": 16,
+        "ldp_mechanism": "none",
+        "epsilon": 10.0,
+        "ldp_target_samples": 128,
+        "certificate_samples": 256,
+        "certificate_delta": 0.05,
+        "attack_targets": 1,
+        "threshold_mode": "calibrated",
+        "calibration_nonmember_count": 20,
+        "calibration_fpr": 0.05,
+        "observation_defense": "none",
+        "observation_clip_norm": 1.0,
+        "observation_noise_multiplier": 1.0,
+        "observation_delta": 1e-05
+      }
+    },
+    {
+      "run_id": "theory_v2_f48ee1ad4062_pipeline_v1_729946455b3464302e0e5af6",
+      "implementation_fingerprint": "f48ee1ad4062",
+      "method_version": "theory_v2",
+      "pipeline": {
+        "defense": {
+          "mechanism": "none",
+          "clip_norm": 1.0,
+          "noise_multiplier": 1.0,
+          "delta": 1e-05
+        },
+        "rag": {
+          "study_file": "/home/calc08/projects/LLMPrivacy/fl_llm_m_attack_experiments/master_script/configs/research_data/squad_rag_study.json",
+          "study_sha256": "6fbf28e75fb64a4f43fe4b39e32e0822fe77e46107d726b93e6a258449db2a03",
+          "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+          "top_k": 4,
+          "max_context_tokens": 768,
+          "max_new_tokens": 64,
+          "significance": 0.05,
+          "prompt_format": "chat",
+          "evaluation_trials": 2,
+          "defenses": [
+            "ordinary"
+          ],
+          "membership_overlap": true
+        },
+        "condition": "rules_only",
+        "client_guard": {
+          "mode": "rules",
+          "policy_file": "/home/calc08/projects/LLMPrivacy/fl_llm_m_attack_experiments/master_script/configs/guard/approved_training_policy.json",
+          "policy_sha256": "1cb4187c49c7f173d274e9e434b6c3f70301b263b4f551ab647a2785bed32189",
+          "release_budget": 10,
+          "detector_file": null,
+          "detector_sha256": null,
+          "diagnostic": true,
+          "rejection_action": "refuse"
+        }
+      },
+      "config": {
+        "model_revision": "7ae557604adf67be50417f59c2c2f167def9a775",
+        "reference_revision": "7ae557604adf67be50417f59c2c2f167def9a775",
+        "dataset_revision": "7b6d24c440a36b6815f21b70d25016731768db1f",
+        "sim_max_concurrent_clients": 1,
+        "experiment_name": "ami_federated_llm_adaptation_v1",
+        "paper_repo": "https://github.com/trucndt/ami",
+        "model_id": "Qwen/Qwen2.5-0.5B-Instruct",
+        "dataset_name": "squad_research",
+        "seed": 7,
+        "num_clients": 4,
+        "clients_per_round": 4,
+        "federated_rounds": 1,
+        "local_epochs": 1,
+        "local_batch_size": 2,
+        "max_length": 128,
+        "client_lr": 2e-05,
+        "probe_lr": 0.005,
+        "probe_epochs": 4,
+        "attack_trials": 4,
+        "attack_batch_size": 4,
+        "gradient_threshold": 1e-08,
+        "target_client_id": 0,
+        "firestore_collection": "ami_federated_llm_results",
+        "firebase_project_id": null,
+        "local_artifact_dir": "artifacts/adaptation",
+        "fl_framework": "flower",
+        "sim_num_gpus": 1.0,
+        "keep_artifacts": true,
+        "adversary_negative_count": 16,
+        "ldp_mechanism": "none",
+        "epsilon": 10.0,
+        "ldp_target_samples": 128,
+        "certificate_samples": 256,
+        "certificate_delta": 0.05,
+        "attack_targets": 1,
+        "threshold_mode": "calibrated",
+        "calibration_nonmember_count": 20,
+        "calibration_fpr": 0.05,
+        "observation_defense": "none",
+        "observation_clip_norm": 1.0,
+        "observation_noise_multiplier": 1.0,
+        "observation_delta": 1e-05
+      }
+    },
+    {
+      "run_id": "theory_v2_f48ee1ad4062_pipeline_v1_3f44b561a7c50a1b581fc093",
+      "implementation_fingerprint": "f48ee1ad4062",
+      "method_version": "theory_v2",
+      "pipeline": {
+        "defense": {
+          "mechanism": "none",
+          "clip_norm": 1.0,
+          "noise_multiplier": 1.0,
+          "delta": 1e-05
+        },
+        "rag": {
+          "study_file": "/home/calc08/projects/LLMPrivacy/fl_llm_m_attack_experiments/master_script/configs/research_data/squad_rag_study.json",
+          "study_sha256": "6fbf28e75fb64a4f43fe4b39e32e0822fe77e46107d726b93e6a258449db2a03",
+          "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+          "top_k": 4,
+          "max_context_tokens": 768,
+          "max_new_tokens": 64,
+          "significance": 0.05,
+          "prompt_format": "chat",
+          "evaluation_trials": 2,
+          "defenses": [
+            "ordinary"
+          ],
+          "membership_overlap": true
+        },
+        "condition": "noise_only"
+      },
+      "config": {
+        "model_revision": "7ae557604adf67be50417f59c2c2f167def9a775",
+        "reference_revision": "7ae557604adf67be50417f59c2c2f167def9a775",
+        "dataset_revision": "7b6d24c440a36b6815f21b70d25016731768db1f",
+        "sim_max_concurrent_clients": 1,
+        "experiment_name": "ami_federated_llm_adaptation_v1",
+        "paper_repo": "https://github.com/trucndt/ami",
+        "model_id": "Qwen/Qwen2.5-0.5B-Instruct",
+        "dataset_name": "squad_research",
+        "seed": 7,
+        "num_clients": 4,
+        "clients_per_round": 4,
+        "federated_rounds": 1,
+        "local_epochs": 1,
+        "local_batch_size": 2,
+        "max_length": 128,
+        "client_lr": 2e-05,
+        "probe_lr": 0.005,
+        "probe_epochs": 4,
+        "attack_trials": 4,
+        "attack_batch_size": 4,
+        "gradient_threshold": 1e-08,
+        "target_client_id": 0,
+        "firestore_collection": "ami_federated_llm_results",
+        "firebase_project_id": null,
+        "local_artifact_dir": "artifacts/adaptation",
+        "fl_framework": "flower",
+        "sim_num_gpus": 1.0,
+        "keep_artifacts": true,
+        "adversary_negative_count": 16,
+        "ldp_mechanism": "none",
+        "epsilon": 10.0,
+        "ldp_target_samples": 128,
+        "certificate_samples": 256,
+        "certificate_delta": 0.05,
+        "attack_targets": 1,
+        "threshold_mode": "calibrated",
+        "calibration_nonmember_count": 20,
+        "calibration_fpr": 0.05,
+        "observation_defense": "gaussian",
+        "observation_clip_norm": 1.0,
+        "observation_noise_multiplier": 1.0,
+        "observation_delta": 1e-05
+      }
+    },
+    {
+      "run_id": "theory_v2_f48ee1ad4062_pipeline_v1_11d1a63db8c436f1f3234c93",
+      "implementation_fingerprint": "f48ee1ad4062",
+      "method_version": "theory_v2",
+      "pipeline": {
+        "defense": {
+          "mechanism": "none",
+          "clip_norm": 1.0,
+          "noise_multiplier": 1.0,
+          "delta": 1e-05
+        },
+        "rag": {
+          "study_file": "/home/calc08/projects/LLMPrivacy/fl_llm_m_attack_experiments/master_script/configs/research_data/squad_rag_study.json",
+          "study_sha256": "6fbf28e75fb64a4f43fe4b39e32e0822fe77e46107d726b93e6a258449db2a03",
+          "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+          "top_k": 4,
+          "max_context_tokens": 768,
+          "max_new_tokens": 64,
+          "significance": 0.05,
+          "prompt_format": "chat",
+          "evaluation_trials": 2,
+          "defenses": [
+            "ordinary"
+          ],
+          "membership_overlap": true
+        },
+        "condition": "shadow",
+        "client_guard": {
+          "mode": "shadow",
+          "policy_file": "/home/calc08/projects/LLMPrivacy/fl_llm_m_attack_experiments/master_script/configs/guard/approved_training_policy.json",
+          "policy_sha256": "1cb4187c49c7f173d274e9e434b6c3f70301b263b4f551ab647a2785bed32189",
+          "release_budget": 10,
+          "detector_file": null,
+          "detector_sha256": null,
+          "diagnostic": true,
+          "rejection_action": "refuse"
+        }
+      },
+      "config": {
+        "model_revision": "7ae557604adf67be50417f59c2c2f167def9a775",
+        "reference_revision": "7ae557604adf67be50417f59c2c2f167def9a775",
+        "dataset_revision": "7b6d24c440a36b6815f21b70d25016731768db1f",
+        "sim_max_concurrent_clients": 1,
+        "experiment_name": "ami_federated_llm_adaptation_v1",
+        "paper_repo": "https://github.com/trucndt/ami",
+        "model_id": "Qwen/Qwen2.5-0.5B-Instruct",
+        "dataset_name": "squad_research",
+        "seed": 7,
+        "num_clients": 4,
+        "clients_per_round": 4,
+        "federated_rounds": 1,
+        "local_epochs": 1,
+        "local_batch_size": 2,
+        "max_length": 128,
+        "client_lr": 2e-05,
+        "probe_lr": 0.005,
+        "probe_epochs": 4,
+        "attack_trials": 4,
+        "attack_batch_size": 4,
+        "gradient_threshold": 1e-08,
+        "target_client_id": 0,
+        "firestore_collection": "ami_federated_llm_results",
+        "firebase_project_id": null,
+        "local_artifact_dir": "artifacts/adaptation",
+        "fl_framework": "flower",
+        "sim_num_gpus": 1.0,
+        "keep_artifacts": true,
+        "adversary_negative_count": 16,
+        "ldp_mechanism": "none",
+        "epsilon": 10.0,
+        "ldp_target_samples": 128,
+        "certificate_samples": 256,
+        "certificate_delta": 0.05,
+        "attack_targets": 1,
+        "threshold_mode": "calibrated",
+        "calibration_nonmember_count": 20,
+        "calibration_fpr": 0.05,
+        "observation_defense": "none",
+        "observation_clip_norm": 1.0,
+        "observation_noise_multiplier": 1.0,
+        "observation_delta": 1e-05
+      }
+    },
+    {
+      "run_id": "theory_v2_f48ee1ad4062_pipeline_v1_131a82c8ae4bd9050b9683ce",
+      "implementation_fingerprint": "f48ee1ad4062",
+      "method_version": "theory_v2",
+      "pipeline": {
+        "defense": {
+          "mechanism": "none",
+          "clip_norm": 1.0,
+          "noise_multiplier": 1.0,
+          "delta": 1e-05
+        },
+        "rag": {
+          "study_file": "/home/calc08/projects/LLMPrivacy/fl_llm_m_attack_experiments/master_script/configs/research_data/squad_rag_study.json",
+          "study_sha256": "6fbf28e75fb64a4f43fe4b39e32e0822fe77e46107d726b93e6a258449db2a03",
+          "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+          "top_k": 4,
+          "max_context_tokens": 768,
+          "max_new_tokens": 64,
+          "significance": 0.05,
+          "prompt_format": "chat",
+          "evaluation_trials": 2,
+          "defenses": [
+            "ordinary"
+          ],
+          "membership_overlap": true
+        },
+        "condition": "baseline"
+      },
+      "config": {
+        "model_revision": "7ae557604adf67be50417f59c2c2f167def9a775",
+        "reference_revision": "7ae557604adf67be50417f59c2c2f167def9a775",
+        "dataset_revision": "7b6d24c440a36b6815f21b70d25016731768db1f",
+        "sim_max_concurrent_clients": 1,
+        "attack_name": "reference",
+        "paper_source": "Carlini et al. 2021 section 6.1 log-perplexity ratio",
+        "model_id": "Qwen/Qwen2.5-0.5B-Instruct",
+        "reference_model_id": "Qwen/Qwen2.5-0.5B-Instruct",
+        "dataset_name": "squad_research",
+        "num_clients": 4,
+        "clients_per_round": 4,
+        "federated_rounds": 1,
+        "local_epochs": 1,
+        "local_batch_size": 2,
+        "client_lr": 2e-05,
+        "target_client_id": 0,
+        "attack_trials": 4,
+        "threshold": -0.75,
+        "max_length": 128,
+        "seed": 7,
+        "firestore_collection": "ami_federated_llm_results",
+        "artifact_root": "artifacts/reference_adaptation",
+        "fl_framework": "flower",
+        "sim_num_gpus": 1.0,
+        "keep_artifacts": true,
+        "use_hf_models": true,
+        "threshold_mode": "calibrated",
+        "calibration_nonmember_count": 20,
+        "calibration_fpr": 0.05
+      }
+    },
+    {
+      "run_id": "theory_v2_f48ee1ad4062_pipeline_v1_e11354aa7dcc9f8b135a8399",
+      "implementation_fingerprint": "f48ee1ad4062",
+      "method_version": "theory_v2",
+      "pipeline": {
+        "defense": {
+          "mechanism": "none",
+          "clip_norm": 1.0,
+          "noise_multiplier": 1.0,
+          "delta": 1e-05
+        },
+        "rag": {
+          "study_file": "/home/calc08/projects/LLMPrivacy/fl_llm_m_attack_experiments/master_script/configs/research_data/squad_rag_study.json",
+          "study_sha256": "6fbf28e75fb64a4f43fe4b39e32e0822fe77e46107d726b93e6a258449db2a03",
+          "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+          "top_k": 4,
+          "max_context_tokens": 768,
+          "max_new_tokens": 64,
+          "significance": 0.05,
+          "prompt_format": "chat",
+          "evaluation_trials": 2,
+          "defenses": [
+            "ordinary"
+          ],
+          "membership_overlap": true
+        },
+        "condition": "shadow",
+        "client_guard": {
+          "mode": "shadow",
+          "policy_file": "/home/calc08/projects/LLMPrivacy/fl_llm_m_attack_experiments/master_script/configs/guard/approved_training_policy.json",
+          "policy_sha256": "1cb4187c49c7f173d274e9e434b6c3f70301b263b4f551ab647a2785bed32189",
+          "release_budget": 10,
+          "detector_file": null,
+          "detector_sha256": null,
+          "diagnostic": true,
+          "rejection_action": "refuse"
+        }
+      },
+      "config": {
+        "model_revision": "7ae557604adf67be50417f59c2c2f167def9a775",
+        "reference_revision": "7ae557604adf67be50417f59c2c2f167def9a775",
+        "dataset_revision": "7b6d24c440a36b6815f21b70d25016731768db1f",
+        "sim_max_concurrent_clients": 1,
+        "attack_name": "reference",
+        "paper_source": "Carlini et al. 2021 section 6.1 log-perplexity ratio",
+        "model_id": "Qwen/Qwen2.5-0.5B-Instruct",
+        "reference_model_id": "Qwen/Qwen2.5-0.5B-Instruct",
+        "dataset_name": "squad_research",
+        "num_clients": 4,
+        "clients_per_round": 4,
+        "federated_rounds": 1,
+        "local_epochs": 1,
+        "local_batch_size": 2,
+        "client_lr": 2e-05,
+        "target_client_id": 0,
+        "attack_trials": 4,
+        "threshold": -0.75,
+        "max_length": 128,
+        "seed": 7,
+        "firestore_collection": "ami_federated_llm_results",
+        "artifact_root": "artifacts/reference_adaptation",
+        "fl_framework": "flower",
+        "sim_num_gpus": 1.0,
+        "keep_artifacts": true,
+        "use_hf_models": true,
+        "threshold_mode": "calibrated",
+        "calibration_nonmember_count": 20,
+        "calibration_fpr": 0.05
+      }
+    }
+  ],
+  "paired_utility": [
+    {
+      "run_id": "theory_v2_f48ee1ad4062_pipeline_v1_729946455b3464302e0e5af6",
+      "baseline_run_id": "theory_v2_f48ee1ad4062_pipeline_v1_f28c8b73fc04889e4c9063f4",
+      "status": "matched",
+      "slices": [
+        {
+          "trial_id": 0,
+          "slice": "no_retrieval",
+          "group": "2cffe511e5ba08b9d40cdbf0b2d1db166997b6db623c1bbf13db2518a0354d7a",
+          "f1_difference": 0.0,
+          "em_difference": 0.0,
+          "utility_gate": false
+        },
+        {
+          "trial_id": 0,
+          "slice": "public_ordinary",
+          "group": "2cffe511e5ba08b9d40cdbf0b2d1db166997b6db623c1bbf13db2518a0354d7a",
+          "f1_difference": 0.0,
+          "em_difference": 0.0,
+          "utility_gate": true
+        },
+        {
+          "trial_id": 0,
+          "slice": "private_ordinary",
+          "group": "2cffe511e5ba08b9d40cdbf0b2d1db166997b6db623c1bbf13db2518a0354d7a",
+          "f1_difference": 0.0,
+          "em_difference": 0.0,
+          "utility_gate": true
+        }
+      ],
+      "f1_intervals_by_slice": {
+        "no_retrieval": {
+          "mean": 0.0,
+          "interval_95": null,
+          "groups": 1
+        },
+        "private_ordinary": {
+          "mean": 0.0,
+          "interval_95": null,
+          "groups": 1
+        },
+        "public_ordinary": {
+          "mean": 0.0,
+          "interval_95": null,
+          "groups": 1
+        }
+      }
+    },
+    {
+      "run_id": "theory_v2_f48ee1ad4062_pipeline_v1_3f44b561a7c50a1b581fc093",
+      "baseline_run_id": "theory_v2_f48ee1ad4062_pipeline_v1_f28c8b73fc04889e4c9063f4",
+      "status": "matched",
+      "slices": [
+        {
+          "trial_id": 0,
+          "slice": "no_retrieval",
+          "group": "2cffe511e5ba08b9d40cdbf0b2d1db166997b6db623c1bbf13db2518a0354d7a",
+          "f1_difference": 0.0,
+          "em_difference": 0.0,
+          "utility_gate": false
+        },
+        {
+          "trial_id": 0,
+          "slice": "public_ordinary",
+          "group": "2cffe511e5ba08b9d40cdbf0b2d1db166997b6db623c1bbf13db2518a0354d7a",
+          "f1_difference": 0.0,
+          "em_difference": 0.0,
+          "utility_gate": true
+        },
+        {
+          "trial_id": 0,
+          "slice": "private_ordinary",
+          "group": "2cffe511e5ba08b9d40cdbf0b2d1db166997b6db623c1bbf13db2518a0354d7a",
+          "f1_difference": 0.0,
+          "em_difference": 0.0,
+          "utility_gate": true
+        }
+      ],
+      "f1_intervals_by_slice": {
+        "no_retrieval": {
+          "mean": 0.0,
+          "interval_95": null,
+          "groups": 1
+        },
+        "private_ordinary": {
+          "mean": 0.0,
+          "interval_95": null,
+          "groups": 1
+        },
+        "public_ordinary": {
+          "mean": 0.0,
+          "interval_95": null,
+          "groups": 1
+        }
+      }
+    },
+    {
+      "run_id": "theory_v2_f48ee1ad4062_pipeline_v1_11d1a63db8c436f1f3234c93",
+      "baseline_run_id": "theory_v2_f48ee1ad4062_pipeline_v1_f28c8b73fc04889e4c9063f4",
+      "status": "matched",
+      "slices": [
+        {
+          "trial_id": 0,
+          "slice": "no_retrieval",
+          "group": "2cffe511e5ba08b9d40cdbf0b2d1db166997b6db623c1bbf13db2518a0354d7a",
+          "f1_difference": 0.0,
+          "em_difference": 0.0,
+          "utility_gate": false
+        },
+        {
+          "trial_id": 0,
+          "slice": "public_ordinary",
+          "group": "2cffe511e5ba08b9d40cdbf0b2d1db166997b6db623c1bbf13db2518a0354d7a",
+          "f1_difference": 0.0,
+          "em_difference": 0.0,
+          "utility_gate": true
+        },
+        {
+          "trial_id": 0,
+          "slice": "private_ordinary",
+          "group": "2cffe511e5ba08b9d40cdbf0b2d1db166997b6db623c1bbf13db2518a0354d7a",
+          "f1_difference": 0.0,
+          "em_difference": 0.0,
+          "utility_gate": true
+        }
+      ],
+      "f1_intervals_by_slice": {
+        "no_retrieval": {
+          "mean": 0.0,
+          "interval_95": null,
+          "groups": 1
+        },
+        "private_ordinary": {
+          "mean": 0.0,
+          "interval_95": null,
+          "groups": 1
+        },
+        "public_ordinary": {
+          "mean": 0.0,
+          "interval_95": null,
+          "groups": 1
+        }
+      }
+    },
+    {
+      "run_id": "theory_v2_f48ee1ad4062_pipeline_v1_e11354aa7dcc9f8b135a8399",
+      "baseline_run_id": "theory_v2_f48ee1ad4062_pipeline_v1_131a82c8ae4bd9050b9683ce",
+      "status": "matched",
+      "slices": [
+        {
+          "trial_id": 0,
+          "slice": "no_retrieval",
+          "group": "7",
+          "f1_difference": 0.0,
+          "em_difference": 0.0,
+          "utility_gate": false
+        },
+        {
+          "trial_id": 0,
+          "slice": "public_ordinary",
+          "group": "7",
+          "f1_difference": 0.0,
+          "em_difference": 0.0,
+          "utility_gate": true
+        },
+        {
+          "trial_id": 0,
+          "slice": "private_ordinary",
+          "group": "7",
+          "f1_difference": 0.0,
+          "em_difference": 0.0,
+          "utility_gate": true
+        },
+        {
+          "trial_id": 1,
+          "slice": "no_retrieval",
+          "group": "7",
+          "f1_difference": 0.0,
+          "em_difference": 0.0,
+          "utility_gate": false
+        },
+        {
+          "trial_id": 1,
+          "slice": "public_ordinary",
+          "group": "7",
+          "f1_difference": 0.0,
+          "em_difference": 0.0,
+          "utility_gate": true
+        },
+        {
+          "trial_id": 1,
+          "slice": "private_ordinary",
+          "group": "7",
+          "f1_difference": 0.0,
+          "em_difference": 0.0,
+          "utility_gate": true
+        }
+      ],
+      "f1_intervals_by_slice": {
+        "no_retrieval": {
+          "mean": 0.0,
+          "interval_95": null,
+          "groups": 1
+        },
+        "private_ordinary": {
+          "mean": 0.0,
+          "interval_95": null,
+          "groups": 1
+        },
+        "public_ordinary": {
+          "mean": 0.0,
+          "interval_95": null,
+          "groups": 1
+        }
+      }
+    }
+  ],
+  "study_v2": {
+    "runs": [
+      {
+        "run_id": "theory_v2_f48ee1ad4062_pipeline_v1_f28c8b73fc04889e4c9063f4",
+        "status": "complete",
+        "privacy_unit": "private_client_batch",
+        "raw_privacy": {
+          "independent_groups": 1,
+          "attempted_worlds": 2,
+          "available_worlds": 2,
+          "unavailable_worlds": 0,
+          "roc_auc": 1.0,
+          "balanced_accuracy": null,
+          "interval_95": null,
+          "per_target": {
+            "2cffe511e5ba08b9d40cdbf0b2d1db166997b6db623c1bbf13db2518a0354d7a": {
+              "available_worlds": 2,
+              "roc_auc": 1.0
+            }
+          },
+          "nonmember_count": 1,
+          "member_count": 1,
+          "low_fpr_resolution": 1.0,
+          "tpr_at_fpr_0_1": null,
+          "tpr_at_fpr_0_05": null,
+          "tpr_at_fpr_0_01": null,
+          "tpr_at_fpr_0_001": null,
+          "low_fpr_note": "Null denotes insufficient empirical FPR resolution; no population guarantee.",
+          "uncertainty_note": "Target-cluster bootstrap; small-group intervals are unstable. No independence claim for repeated questions.",
+          "interpretation": "Raw direction only; use frozen independent calibration for attack claims"
+        },
+        "guard_profile_seconds": {},
+        "per_client": {},
+        "availability": {
+          "completed_rounds": null,
+          "aborted_rounds": null,
+          "recovery": "stop_world_preserve_ledger; no automatic incomplete aggregation"
+        },
+        "benign_rejection_gate": {
+          "status": "insufficient_independent_evidence",
+          "target": 0.01,
+          "zero_error_independent_samples_needed_95pct": 299
+        },
+        "paired_runtime": {
+          "baseline_run_id": "theory_v2_f48ee1ad4062_pipeline_v1_f28c8b73fc04889e4c9063f4",
+          "median_round_overhead": 0.0,
+          "gate_status": "descriptive_only; paired rounds are dependent",
+          "end_to_end_ratio": 1.0,
+          "interpretation": "End-to-end includes saved attack work after rejection; not isolated guard cost",
+          "paired_rounds": 1
+        },
+        "rag": {
+          "public_ordinary": {
+            "utility": [
+              {
+                "exact_match": 0.2,
+                "token_f1": 0.31567567567567567,
+                "answer_nll": 3.532323729991913
+              }
+            ],
+            "privacy": {
+              "status": "historical_document_identities_unavailable"
+            },
+            "recognition_rate": 1.0,
+            "refusal_rate": 0.0
+          },
+          "private_ordinary": {
+            "utility": [
+              {
+                "exact_match": 0.3,
+                "token_f1": 0.4749850908105177,
+                "answer_nll": 3.0178844928741455
+              }
+            ],
+            "privacy": {
+              "status": "historical_document_identities_unavailable"
+            },
+            "recognition_rate": 1.0,
+            "refusal_rate": 0.0
+          }
+        },
+        "overlap": {
+          "independent_targets": 1,
+          "per_target": [
+            {
+              "target_sha256": "2cffe511e5ba08b9d40cdbf0b2d1db166997b6db623c1bbf13db2518a0354d7a",
+              "defense": "ordinary",
+              "four_cells_available": false,
+              "cells": {
+                "training_0_datastore_0": null,
+                "training_0_datastore_1": null,
+                "training_1_datastore_0": 1.0,
+                "training_1_datastore_1": 1.0
+              },
+              "datastore_effect_without_training": null,
+              "datastore_effect_with_training": null,
+              "interaction": null,
+              "constant_prediction": null
+            }
+          ],
+          "interpretation": "Paired response differences; constant-positive four cells show response bias, not overlap leakage"
+        }
+      },
+      {
+        "run_id": "theory_v2_f48ee1ad4062_pipeline_v1_729946455b3464302e0e5af6",
+        "status": "complete",
+        "privacy_unit": "private_client_batch",
+        "raw_privacy": {
+          "independent_groups": 1,
+          "attempted_worlds": 2,
+          "available_worlds": 0,
+          "unavailable_worlds": 2,
+          "roc_auc": null,
+          "balanced_accuracy": null,
+          "interval_95": null,
+          "per_target": {
+            "2cffe511e5ba08b9d40cdbf0b2d1db166997b6db623c1bbf13db2518a0354d7a": {
+              "available_worlds": 0,
+              "roc_auc": null
+            }
+          },
+          "uncertainty_note": "Target-cluster bootstrap; small-group intervals are unstable. No independence claim for repeated questions.",
+          "interpretation": "Raw direction only; use frozen independent calibration for attack claims"
+        },
+        "decision_transcript": {
+          "independent_groups": 1,
+          "attempted_worlds": 2,
+          "available_worlds": 2,
+          "unavailable_worlds": 0,
+          "roc_auc": 0.5,
+          "balanced_accuracy": null,
+          "interval_95": null,
+          "per_target": {
+            "2cffe511e5ba08b9d40cdbf0b2d1db166997b6db623c1bbf13db2518a0354d7a": {
+              "available_worlds": 2,
+              "roc_auc": 0.5
+            }
+          },
+          "nonmember_count": 1,
+          "member_count": 1,
+          "low_fpr_resolution": 1.0,
+          "tpr_at_fpr_0_1": null,
+          "tpr_at_fpr_0_05": null,
+          "tpr_at_fpr_0_01": null,
+          "tpr_at_fpr_0_001": null,
+          "low_fpr_note": "Null denotes insufficient empirical FPR resolution; no population guarantee.",
+          "uncertainty_note": "Target-cluster bootstrap; small-group intervals are unstable. No independence claim for repeated questions."
+        },
+        "timing_transcript": {
+          "independent_groups": 1,
+          "attempted_worlds": 2,
+          "available_worlds": 2,
+          "unavailable_worlds": 0,
+          "roc_auc": 1.0,
+          "balanced_accuracy": null,
+          "interval_95": null,
+          "per_target": {
+            "2cffe511e5ba08b9d40cdbf0b2d1db166997b6db623c1bbf13db2518a0354d7a": {
+              "available_worlds": 2,
+              "roc_auc": 1.0
+            }
+          },
+          "nonmember_count": 1,
+          "member_count": 1,
+          "low_fpr_resolution": 1.0,
+          "tpr_at_fpr_0_1": null,
+          "tpr_at_fpr_0_05": null,
+          "tpr_at_fpr_0_01": null,
+          "tpr_at_fpr_0_001": null,
+          "low_fpr_note": "Null denotes insufficient empirical FPR resolution; no population guarantee.",
+          "uncertainty_note": "Target-cluster bootstrap; small-group intervals are unstable. No independence claim for repeated questions."
+        },
+        "guard_profile_seconds": {},
+        "per_client": {
+          "0": {
+            "requests": 1,
+            "rejected": 0,
+            "shadow_rejections": 0
+          },
+          "1": {
+            "requests": 1,
+            "rejected": 0,
+            "shadow_rejections": 0
+          },
+          "2": {
+            "requests": 1,
+            "rejected": 0,
+            "shadow_rejections": 0
+          },
+          "3": {
+            "requests": 1,
+            "rejected": 0,
+            "shadow_rejections": 0
+          }
+        },
+        "availability": {
+          "completed_rounds": null,
+          "aborted_rounds": null,
+          "recovery": "stop_world_preserve_ledger; no automatic incomplete aggregation"
+        },
+        "benign_rejection_gate": {
+          "status": "insufficient_independent_evidence",
+          "target": 0.01,
+          "zero_error_independent_samples_needed_95pct": 299
+        },
+        "paired_runtime": {
+          "baseline_run_id": "theory_v2_f48ee1ad4062_pipeline_v1_f28c8b73fc04889e4c9063f4",
+          "median_round_overhead": 0.7906575181726094,
+          "gate_status": "descriptive_only; paired rounds are dependent",
+          "end_to_end_ratio": 1.0804270722626577,
+          "interpretation": "End-to-end includes saved attack work after rejection; not isolated guard cost",
+          "paired_rounds": 1
+        },
+        "rag": {
+          "public_ordinary": {
+            "utility": [
+              {
+                "exact_match": 0.2,
+                "token_f1": 0.31567567567567567,
+                "answer_nll": 3.532323729991913
+              }
+            ],
+            "privacy": {
+              "status": "historical_document_identities_unavailable"
+            },
+            "recognition_rate": 1.0,
+            "refusal_rate": 0.0
+          },
+          "private_ordinary": {
+            "utility": [
+              {
+                "exact_match": 0.3,
+                "token_f1": 0.4749850908105177,
+                "answer_nll": 3.0178844928741455
+              }
+            ],
+            "privacy": {
+              "status": "historical_document_identities_unavailable"
+            },
+            "recognition_rate": 1.0,
+            "refusal_rate": 0.0
+          }
+        },
+        "overlap": {
+          "independent_targets": 1,
+          "per_target": [
+            {
+              "target_sha256": "2cffe511e5ba08b9d40cdbf0b2d1db166997b6db623c1bbf13db2518a0354d7a",
+              "defense": "ordinary",
+              "four_cells_available": false,
+              "cells": {
+                "training_0_datastore_0": null,
+                "training_0_datastore_1": null,
+                "training_1_datastore_0": 1.0,
+                "training_1_datastore_1": 1.0
+              },
+              "datastore_effect_without_training": null,
+              "datastore_effect_with_training": null,
+              "interaction": null,
+              "constant_prediction": null
+            }
+          ],
+          "interpretation": "Paired response differences; constant-positive four cells show response bias, not overlap leakage"
+        }
+      },
+      {
+        "run_id": "theory_v2_f48ee1ad4062_pipeline_v1_3f44b561a7c50a1b581fc093",
+        "status": "complete",
+        "privacy_unit": "private_client_batch",
+        "raw_privacy": {
+          "independent_groups": 1,
+          "attempted_worlds": 2,
+          "available_worlds": 2,
+          "unavailable_worlds": 0,
+          "roc_auc": 0.0,
+          "balanced_accuracy": null,
+          "interval_95": null,
+          "per_target": {
+            "2cffe511e5ba08b9d40cdbf0b2d1db166997b6db623c1bbf13db2518a0354d7a": {
+              "available_worlds": 2,
+              "roc_auc": 0.0
+            }
+          },
+          "nonmember_count": 1,
+          "member_count": 1,
+          "low_fpr_resolution": 1.0,
+          "tpr_at_fpr_0_1": null,
+          "tpr_at_fpr_0_05": null,
+          "tpr_at_fpr_0_01": null,
+          "tpr_at_fpr_0_001": null,
+          "low_fpr_note": "Null denotes insufficient empirical FPR resolution; no population guarantee.",
+          "uncertainty_note": "Target-cluster bootstrap; small-group intervals are unstable. No independence claim for repeated questions.",
+          "interpretation": "Raw direction only; use frozen independent calibration for attack claims"
+        },
+        "guard_profile_seconds": {},
+        "per_client": {},
+        "availability": {
+          "completed_rounds": null,
+          "aborted_rounds": null,
+          "recovery": "stop_world_preserve_ledger; no automatic incomplete aggregation"
+        },
+        "benign_rejection_gate": {
+          "status": "insufficient_independent_evidence",
+          "target": 0.01,
+          "zero_error_independent_samples_needed_95pct": 299
+        },
+        "paired_runtime": {
+          "baseline_run_id": "theory_v2_f48ee1ad4062_pipeline_v1_f28c8b73fc04889e4c9063f4",
+          "median_round_overhead": 0.0027002864693239648,
+          "gate_status": "descriptive_only; paired rounds are dependent",
+          "end_to_end_ratio": 0.9291236125085436,
+          "interpretation": "End-to-end includes saved attack work after rejection; not isolated guard cost",
+          "paired_rounds": 1
+        },
+        "rag": {
+          "public_ordinary": {
+            "utility": [
+              {
+                "exact_match": 0.2,
+                "token_f1": 0.31567567567567567,
+                "answer_nll": 3.532323902845383
+              }
+            ],
+            "privacy": {
+              "status": "historical_document_identities_unavailable"
+            },
+            "recognition_rate": 1.0,
+            "refusal_rate": 0.0
+          },
+          "private_ordinary": {
+            "utility": [
+              {
+                "exact_match": 0.3,
+                "token_f1": 0.4749850908105177,
+                "answer_nll": 3.0178846776485444
+              }
+            ],
+            "privacy": {
+              "status": "historical_document_identities_unavailable"
+            },
+            "recognition_rate": 1.0,
+            "refusal_rate": 0.0
+          }
+        },
+        "overlap": {
+          "independent_targets": 1,
+          "per_target": [
+            {
+              "target_sha256": "2cffe511e5ba08b9d40cdbf0b2d1db166997b6db623c1bbf13db2518a0354d7a",
+              "defense": "ordinary",
+              "four_cells_available": false,
+              "cells": {
+                "training_0_datastore_0": null,
+                "training_0_datastore_1": null,
+                "training_1_datastore_0": 1.0,
+                "training_1_datastore_1": 1.0
+              },
+              "datastore_effect_without_training": null,
+              "datastore_effect_with_training": null,
+              "interaction": null,
+              "constant_prediction": null
+            }
+          ],
+          "interpretation": "Paired response differences; constant-positive four cells show response bias, not overlap leakage"
+        }
+      },
+      {
+        "run_id": "theory_v2_f48ee1ad4062_pipeline_v1_11d1a63db8c436f1f3234c93",
+        "status": "complete",
+        "privacy_unit": "private_client_batch",
+        "raw_privacy": {
+          "independent_groups": 1,
+          "attempted_worlds": 2,
+          "available_worlds": 2,
+          "unavailable_worlds": 0,
+          "roc_auc": 1.0,
+          "balanced_accuracy": null,
+          "interval_95": null,
+          "per_target": {
+            "2cffe511e5ba08b9d40cdbf0b2d1db166997b6db623c1bbf13db2518a0354d7a": {
+              "available_worlds": 2,
+              "roc_auc": 1.0
+            }
+          },
+          "nonmember_count": 1,
+          "member_count": 1,
+          "low_fpr_resolution": 1.0,
+          "tpr_at_fpr_0_1": null,
+          "tpr_at_fpr_0_05": null,
+          "tpr_at_fpr_0_01": null,
+          "tpr_at_fpr_0_001": null,
+          "low_fpr_note": "Null denotes insufficient empirical FPR resolution; no population guarantee.",
+          "uncertainty_note": "Target-cluster bootstrap; small-group intervals are unstable. No independence claim for repeated questions.",
+          "interpretation": "Raw direction only; use frozen independent calibration for attack claims"
+        },
+        "decision_transcript": {
+          "independent_groups": 1,
+          "attempted_worlds": 2,
+          "available_worlds": 2,
+          "unavailable_worlds": 0,
+          "roc_auc": 0.5,
+          "balanced_accuracy": null,
+          "interval_95": null,
+          "per_target": {
+            "2cffe511e5ba08b9d40cdbf0b2d1db166997b6db623c1bbf13db2518a0354d7a": {
+              "available_worlds": 2,
+              "roc_auc": 0.5
+            }
+          },
+          "nonmember_count": 1,
+          "member_count": 1,
+          "low_fpr_resolution": 1.0,
+          "tpr_at_fpr_0_1": null,
+          "tpr_at_fpr_0_05": null,
+          "tpr_at_fpr_0_01": null,
+          "tpr_at_fpr_0_001": null,
+          "low_fpr_note": "Null denotes insufficient empirical FPR resolution; no population guarantee.",
+          "uncertainty_note": "Target-cluster bootstrap; small-group intervals are unstable. No independence claim for repeated questions."
+        },
+        "timing_transcript": {
+          "independent_groups": 1,
+          "attempted_worlds": 2,
+          "available_worlds": 2,
+          "unavailable_worlds": 0,
+          "roc_auc": 1.0,
+          "balanced_accuracy": null,
+          "interval_95": null,
+          "per_target": {
+            "2cffe511e5ba08b9d40cdbf0b2d1db166997b6db623c1bbf13db2518a0354d7a": {
+              "available_worlds": 2,
+              "roc_auc": 1.0
+            }
+          },
+          "nonmember_count": 1,
+          "member_count": 1,
+          "low_fpr_resolution": 1.0,
+          "tpr_at_fpr_0_1": null,
+          "tpr_at_fpr_0_05": null,
+          "tpr_at_fpr_0_01": null,
+          "tpr_at_fpr_0_001": null,
+          "low_fpr_note": "Null denotes insufficient empirical FPR resolution; no population guarantee.",
+          "uncertainty_note": "Target-cluster bootstrap; small-group intervals are unstable. No independence claim for repeated questions."
+        },
+        "guard_profile_seconds": {},
+        "per_client": {
+          "0": {
+            "requests": 1,
+            "rejected": 0,
+            "shadow_rejections": 0
+          },
+          "1": {
+            "requests": 1,
+            "rejected": 0,
+            "shadow_rejections": 0
+          },
+          "2": {
+            "requests": 1,
+            "rejected": 0,
+            "shadow_rejections": 0
+          },
+          "3": {
+            "requests": 1,
+            "rejected": 0,
+            "shadow_rejections": 0
+          }
+        },
+        "availability": {
+          "completed_rounds": null,
+          "aborted_rounds": null,
+          "recovery": "stop_world_preserve_ledger; no automatic incomplete aggregation"
+        },
+        "benign_rejection_gate": {
+          "status": "insufficient_independent_evidence",
+          "target": 0.01,
+          "zero_error_independent_samples_needed_95pct": 299
+        },
+        "paired_runtime": {
+          "baseline_run_id": "theory_v2_f48ee1ad4062_pipeline_v1_f28c8b73fc04889e4c9063f4",
+          "median_round_overhead": 0.7682295718447141,
+          "gate_status": "descriptive_only; paired rounds are dependent",
+          "end_to_end_ratio": 1.129886038356889,
+          "interpretation": "End-to-end includes saved attack work after rejection; not isolated guard cost",
+          "paired_rounds": 1
+        },
+        "rag": {
+          "public_ordinary": {
+            "utility": [
+              {
+                "exact_match": 0.2,
+                "token_f1": 0.31567567567567567,
+                "answer_nll": 3.532323145866394
+              }
+            ],
+            "privacy": {
+              "status": "historical_document_identities_unavailable"
+            },
+            "recognition_rate": 1.0,
+            "refusal_rate": 0.0
+          },
+          "private_ordinary": {
+            "utility": [
+              {
+                "exact_match": 0.3,
+                "token_f1": 0.4749850908105177,
+                "answer_nll": 3.0178829729557037
+              }
+            ],
+            "privacy": {
+              "status": "historical_document_identities_unavailable"
+            },
+            "recognition_rate": 1.0,
+            "refusal_rate": 0.0
+          }
+        },
+        "overlap": {
+          "independent_targets": 1,
+          "per_target": [
+            {
+              "target_sha256": "2cffe511e5ba08b9d40cdbf0b2d1db166997b6db623c1bbf13db2518a0354d7a",
+              "defense": "ordinary",
+              "four_cells_available": false,
+              "cells": {
+                "training_0_datastore_0": null,
+                "training_0_datastore_1": null,
+                "training_1_datastore_0": 1.0,
+                "training_1_datastore_1": 1.0
+              },
+              "datastore_effect_without_training": null,
+              "datastore_effect_with_training": null,
+              "interaction": null,
+              "constant_prediction": null
+            }
+          ],
+          "interpretation": "Paired response differences; constant-positive four cells show response bias, not overlap leakage"
+        }
+      },
+      {
+        "run_id": "theory_v2_f48ee1ad4062_pipeline_v1_131a82c8ae4bd9050b9683ce",
+        "status": "complete",
+        "privacy_unit": "training_record",
+        "raw_privacy": {
+          "independent_groups": 2,
+          "attempted_worlds": 4,
+          "available_worlds": 4,
+          "unavailable_worlds": 0,
+          "roc_auc": 1.0,
+          "balanced_accuracy": null,
+          "interval_95": {
+            "roc_auc": [
+              1.0,
+              1.0
+            ],
+            "balanced_accuracy": null
+          },
+          "per_target": {
+            "2cffe511e5ba08b9d40cdbf0b2d1db166997b6db623c1bbf13db2518a0354d7a": {
+              "available_worlds": 2,
+              "roc_auc": 1.0
+            },
+            "ccc74058600a29e29d3aeee4531c09e71bd9afae6a53ffdeb2d7ac987884a4b1": {
+              "available_worlds": 2,
+              "roc_auc": 1.0
+            }
+          },
+          "nonmember_count": 2,
+          "member_count": 2,
+          "low_fpr_resolution": 0.5,
+          "tpr_at_fpr_0_1": null,
+          "tpr_at_fpr_0_05": null,
+          "tpr_at_fpr_0_01": null,
+          "tpr_at_fpr_0_001": null,
+          "low_fpr_note": "Null denotes insufficient empirical FPR resolution; no population guarantee.",
+          "uncertainty_note": "Target-cluster bootstrap; small-group intervals are unstable. No independence claim for repeated questions.",
+          "interpretation": "Raw direction only; use frozen independent calibration for attack claims"
+        },
+        "guard_profile_seconds": {},
+        "per_client": {},
+        "availability": {
+          "completed_rounds": null,
+          "aborted_rounds": null,
+          "recovery": "stop_world_preserve_ledger; no automatic incomplete aggregation"
+        },
+        "benign_rejection_gate": {
+          "status": "insufficient_independent_evidence",
+          "target": 0.01,
+          "zero_error_independent_samples_needed_95pct": 299
+        },
+        "paired_runtime": {
+          "baseline_run_id": "theory_v2_f48ee1ad4062_pipeline_v1_131a82c8ae4bd9050b9683ce",
+          "median_round_overhead": 0.0,
+          "gate_status": "descriptive_only; paired rounds are dependent",
+          "end_to_end_ratio": 1.0,
+          "interpretation": "End-to-end includes saved attack work after rejection; not isolated guard cost",
+          "paired_rounds": 4
+        },
+        "rag": {
+          "public_ordinary": {
+            "utility": [
+              {
+                "exact_match": 0.2,
+                "token_f1": 0.31567567567567567,
+                "answer_nll": 3.532190066576004
+              },
+              {
+                "exact_match": 0.2,
+                "token_f1": 0.31567567567567567,
+                "answer_nll": 3.5234466433525085
+              }
+            ],
+            "privacy": {
+              "status": "historical_document_identities_unavailable"
+            },
+            "recognition_rate": 1.0,
+            "refusal_rate": 0.0
+          },
+          "private_ordinary": {
+            "utility": [
+              {
+                "exact_match": 0.3,
+                "token_f1": 0.4749850908105177,
+                "answer_nll": 3.0178313732147215
+              },
+              {
+                "exact_match": 0.3,
+                "token_f1": 0.4749850908105177,
+                "answer_nll": 3.0128165900707247
+              }
+            ],
+            "privacy": {
+              "status": "historical_document_identities_unavailable"
+            },
+            "recognition_rate": 1.0,
+            "refusal_rate": 0.0
+          }
+        },
+        "overlap": {
+          "independent_targets": 1,
+          "per_target": [
+            {
+              "target_sha256": "2cffe511e5ba08b9d40cdbf0b2d1db166997b6db623c1bbf13db2518a0354d7a",
+              "defense": "ordinary",
+              "four_cells_available": true,
+              "cells": {
+                "training_0_datastore_0": 1.0,
+                "training_0_datastore_1": 1.0,
+                "training_1_datastore_0": 1.0,
+                "training_1_datastore_1": 1.0
+              },
+              "datastore_effect_without_training": 0.0,
+              "datastore_effect_with_training": 0.0,
+              "interaction": 0.0,
+              "constant_prediction": true
+            }
+          ],
+          "interpretation": "Paired response differences; constant-positive four cells show response bias, not overlap leakage"
+        }
+      },
+      {
+        "run_id": "theory_v2_f48ee1ad4062_pipeline_v1_e11354aa7dcc9f8b135a8399",
+        "status": "complete",
+        "privacy_unit": "training_record",
+        "raw_privacy": {
+          "independent_groups": 2,
+          "attempted_worlds": 4,
+          "available_worlds": 4,
+          "unavailable_worlds": 0,
+          "roc_auc": 1.0,
+          "balanced_accuracy": null,
+          "interval_95": {
+            "roc_auc": [
+              1.0,
+              1.0
+            ],
+            "balanced_accuracy": null
+          },
+          "per_target": {
+            "2cffe511e5ba08b9d40cdbf0b2d1db166997b6db623c1bbf13db2518a0354d7a": {
+              "available_worlds": 2,
+              "roc_auc": 1.0
+            },
+            "ccc74058600a29e29d3aeee4531c09e71bd9afae6a53ffdeb2d7ac987884a4b1": {
+              "available_worlds": 2,
+              "roc_auc": 1.0
+            }
+          },
+          "nonmember_count": 2,
+          "member_count": 2,
+          "low_fpr_resolution": 0.5,
+          "tpr_at_fpr_0_1": null,
+          "tpr_at_fpr_0_05": null,
+          "tpr_at_fpr_0_01": null,
+          "tpr_at_fpr_0_001": null,
+          "low_fpr_note": "Null denotes insufficient empirical FPR resolution; no population guarantee.",
+          "uncertainty_note": "Target-cluster bootstrap; small-group intervals are unstable. No independence claim for repeated questions.",
+          "interpretation": "Raw direction only; use frozen independent calibration for attack claims"
+        },
+        "guard_profile_seconds": {},
+        "per_client": {
+          "0": {
+            "requests": 4,
+            "rejected": 0,
+            "shadow_rejections": 0
+          },
+          "1": {
+            "requests": 4,
+            "rejected": 0,
+            "shadow_rejections": 0
+          },
+          "2": {
+            "requests": 4,
+            "rejected": 0,
+            "shadow_rejections": 0
+          },
+          "3": {
+            "requests": 4,
+            "rejected": 0,
+            "shadow_rejections": 0
+          }
+        },
+        "availability": {
+          "completed_rounds": null,
+          "aborted_rounds": null,
+          "recovery": "stop_world_preserve_ledger; no automatic incomplete aggregation"
+        },
+        "benign_rejection_gate": {
+          "status": "insufficient_independent_evidence",
+          "target": 0.01,
+          "zero_error_independent_samples_needed_95pct": 299
+        },
+        "paired_runtime": {
+          "baseline_run_id": "theory_v2_f48ee1ad4062_pipeline_v1_131a82c8ae4bd9050b9683ce",
+          "median_round_overhead": 0.7484698512922371,
+          "gate_status": "descriptive_only; paired rounds are dependent",
+          "end_to_end_ratio": 1.3575618286060813,
+          "interpretation": "End-to-end includes saved attack work after rejection; not isolated guard cost",
+          "paired_rounds": 4
+        },
+        "rag": {
+          "public_ordinary": {
+            "utility": [
+              {
+                "exact_match": 0.2,
+                "token_f1": 0.31567567567567567,
+                "answer_nll": 3.5321884751319885
+              },
+              {
+                "exact_match": 0.2,
+                "token_f1": 0.31567567567567567,
+                "answer_nll": 3.523446613550186
+              }
+            ],
+            "privacy": {
+              "status": "historical_document_identities_unavailable"
+            },
+            "recognition_rate": 1.0,
+            "refusal_rate": 0.0
+          },
+          "private_ordinary": {
+            "utility": [
+              {
+                "exact_match": 0.3,
+                "token_f1": 0.4749850908105177,
+                "answer_nll": 3.017832177877426
+              },
+              {
+                "exact_match": 0.3,
+                "token_f1": 0.4749850908105177,
+                "answer_nll": 3.0128188014030455
+              }
+            ],
+            "privacy": {
+              "status": "historical_document_identities_unavailable"
+            },
+            "recognition_rate": 1.0,
+            "refusal_rate": 0.0
+          }
+        },
+        "overlap": {
+          "independent_targets": 1,
+          "per_target": [
+            {
+              "target_sha256": "2cffe511e5ba08b9d40cdbf0b2d1db166997b6db623c1bbf13db2518a0354d7a",
+              "defense": "ordinary",
+              "four_cells_available": true,
+              "cells": {
+                "training_0_datastore_0": 1.0,
+                "training_0_datastore_1": 1.0,
+                "training_1_datastore_0": 1.0,
+                "training_1_datastore_1": 1.0
+              },
+              "datastore_effect_without_training": 0.0,
+              "datastore_effect_with_training": 0.0,
+              "interaction": 0.0,
+              "constant_prediction": true
+            }
+          ],
+          "interpretation": "Paired response differences; constant-positive four cells show response bias, not overlap leakage"
+        }
+      }
+    ],
+    "privacy_scores_averaged": false,
+    "formal_scope": "Classifier supplies no DP; training, observation and retrieval units remain separate",
+    "full_transcript_limit": "Decision and timing channels reported separately; joint adaptive transcript leakage not bounded"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "schema": "guard_stage_v2", "stage": "validation", "seed": 4000,
+  "targets": 20, "queries_per_world": 4, "rounds": 3, "clients": 4,
+  "probe_epochs": 12, "calibration_nonmembers": 20,
+  "conditions": ["baseline", "rules_only", "classifier_only", "noise_only", "rules_classifier", "rules_classifier_noise", "shadow"],
+  "variants": ["probe_head", "causal_gradient_alignment"],
+  "reference_conditions": ["baseline", "rules_only", "classifier_only", "rules_classifier", "shadow", "training_dp"],
+  "retrieval_defenses": ["ordinary", "instruction"], "membership_attack": "continuation",
+  "requires_detector": true,
+  "purpose": "Defended attacker validation; freeze score directions and thresholds, select confirmation shortlist"
+}

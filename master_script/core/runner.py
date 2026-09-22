@@ -190,6 +190,9 @@ def run_single_experiment(config, spec, *, use_firestore: bool = True, keep_arti
         validate_pipeline_run(config, spec, spec.pipeline)
         guard = replace(spec.pipeline.client_guard, runtime_directory=str(artifact_dir / "client-guard"))
         spec = replace(spec, pipeline=replace(spec.pipeline, client_guard=guard))
+    if spec.pipeline is not None and spec.pipeline.rag is not None:
+        spec = replace(spec, pipeline=replace(spec.pipeline, rag=replace(
+            spec.pipeline.rag, runtime_audit_directory=str(artifact_dir / "private-audit"))))
     computation_start = time.perf_counter()
     try:
         context = None
@@ -209,10 +212,11 @@ def run_single_experiment(config, spec, *, use_firestore: bool = True, keep_arti
         log.exception("run %s (%s) failed", run_id, spec.name)
         if spec.pipeline is not None and spec.pipeline.client_guard is not None:
             from .queue import write_json
-            from .guard_runtime import read_guard_events
+            from .guard_runtime import read_guard_events, read_training_rounds, read_guard_storage_profile
             try:
                 failure = failed_sweep_result(config, spec, run_id, exc)
                 failure["guard_events"] = read_guard_events(spec.pipeline.client_guard.runtime_directory)
+                failure["training_rounds"] = read_training_rounds(spec.pipeline.client_guard.runtime_directory)
                 write_json(artifact_dir / "result.json", failure)
             except Exception:
                 log.exception("Failure details could not be persisted; preserving original error")
@@ -277,11 +281,13 @@ def run_single_experiment(config, spec, *, use_firestore: bool = True, keep_arti
             for t in trials if "pipeline_evaluation" in t
         ]
         if spec.pipeline.client_guard is not None:
-            from .guard_runtime import read_guard_events
+            from .guard_runtime import read_guard_events, read_training_rounds, read_guard_storage_profile
             from .metrics import guard_event_summary, guarded_metrics
             events = read_guard_events(spec.pipeline.client_guard.runtime_directory)
             result["guard_events"] = events
+            result["training_rounds"] = read_training_rounds(spec.pipeline.client_guard.runtime_directory)
             result["guard_summary"] = guard_event_summary(events)
+            result["guard_storage_profile"] = read_guard_storage_profile(spec.pipeline.client_guard.runtime_directory)
         observed = [t for t in trials if t.get("decision") != "rejected"]
         labels = [t["truth_member"] for t in observed]
         scores = [(-1 if spec.name == "loss" else 1) * t["score"] for t in observed]

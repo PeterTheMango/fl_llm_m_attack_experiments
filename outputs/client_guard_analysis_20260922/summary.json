@@ -1,0 +1,838 @@
+{
+  "source_directory": "/Users/pyeshuajs23/Documents/MITACS/Research Documents/outputs/recovered_results/20260921-203124-7ccbe481bf2d",
+  "manifest_status": "complete",
+  "elapsed_minutes": 51.69860171874364,
+  "validation": "All confusion matrices, score AUROCs, balanced accuracies, threshold predictions, null rejection semantics, RAG utility means, training event counts/times and reported timing AUROCs checked successfully.",
+  "runs": [
+    {
+      "file": "0000-theory_v2_f48ee1ad4062_pipeline_v1_f28c8b73fc04889e4c9063f4.json",
+      "sha256": "1ad296b144e76177942a09ef554f4c49f095a26fd32ee445b95ee6dc6b45891e",
+      "attack": "amia",
+      "condition": "baseline",
+      "metrics": {
+        "tp": 2,
+        "tn": 2,
+        "fp": 0,
+        "fn": 0,
+        "tpr": 1.0,
+        "tnr": 1.0,
+        "adv": 1.0,
+        "accuracy": 1.0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "num_trials": 4,
+        "roc_auc": 1.0,
+        "nonmember_count": 2,
+        "member_count": 2,
+        "low_fpr_resolution": 0.5,
+        "tpr_at_fpr_0_1": null,
+        "tpr_at_fpr_0_05": null,
+        "tpr_at_fpr_0_01": null,
+        "tpr_at_fpr_0_001": null,
+        "low_fpr_note": "Null denotes insufficient empirical FPR resolution; no population guarantee.",
+        "roc_auc_from_scores": 1.0
+      },
+      "computation_seconds": 328.68673218786716,
+      "guard_summary": null,
+      "event_reasons": {},
+      "no_retrieval": {
+        "token_f1": 0.06433035714285715,
+        "exact_match": 0.0,
+        "answer_nll": 6.016267895698547
+      },
+      "rag": {
+        "public_ordinary": {
+          "adv": 0.595,
+          "tpr": 0.96,
+          "tnr": 0.23,
+          "token_f1": 0.31567567567567567,
+          "exact_match": 0.2,
+          "answer_nll": 3.532323729991913,
+          "utility_questions_per_model": 10
+        },
+        "private_ordinary": {
+          "adv": 0.575,
+          "tpr": 0.94,
+          "tnr": 0.21,
+          "token_f1": 0.4749850908105177,
+          "exact_match": 0.3,
+          "answer_nll": 3.0178844928741455,
+          "utility_questions_per_model": 10
+        }
+      },
+      "overlap": [
+        {
+          "target_sha256": "2cffe511e5ba08b9d40cdbf0b2d1db166997b6db623c1bbf13db2518a0354d7a",
+          "training_member": true,
+          "datastore_member": false,
+          "defense": "ordinary",
+          "pred_member": true,
+          "answer_recognized": true,
+          "refused": false,
+          "retrieved": false,
+          "seconds": 0.2396406065672636,
+          "document_count": 256,
+          "design": "fixed_checkpoint_paired_replacement"
+        },
+        {
+          "target_sha256": "2cffe511e5ba08b9d40cdbf0b2d1db166997b6db623c1bbf13db2518a0354d7a",
+          "training_member": true,
+          "datastore_member": true,
+          "defense": "ordinary",
+          "pred_member": true,
+          "answer_recognized": true,
+          "refused": false,
+          "retrieved": true,
+          "seconds": 0.22175483405590057,
+          "document_count": 256,
+          "design": "fixed_checkpoint_paired_replacement"
+        }
+      ],
+      "evaluated_models": 1,
+      "firestore_saved": true,
+      "observation_privacy": null
+    },
+    {
+      "file": "0001-theory_v2_f48ee1ad4062_pipeline_v1_729946455b3464302e0e5af6.json",
+      "sha256": "2a0154621a7658ba59f355804b7eb0755b091f89ebb9031b0bdeb3798fc929f2",
+      "attack": "amia",
+      "condition": "rules_only",
+      "metrics": {
+        "tp": 0,
+        "tn": 0,
+        "fp": 0,
+        "fn": 0,
+        "tpr": null,
+        "tnr": null,
+        "adv": null,
+        "accuracy": null,
+        "precision": null,
+        "recall": null,
+        "f1": null,
+        "num_trials": 0,
+        "roc_auc": null,
+        "total_requests": 4,
+        "accepted_requests": 0,
+        "rejected_requests": 4,
+        "release_coverage": 0.0,
+        "metric_scope": "conditional_on_accepted_gradients",
+        "adv_definition": "balanced_accuracy",
+        "gradient_status": "unavailable_all_rejected",
+        "decision_transcript_metrics": {
+          "roc_auc": 0.5,
+          "nonmember_count": 2,
+          "member_count": 2,
+          "low_fpr_resolution": 0.5,
+          "tpr_at_fpr_0_1": null,
+          "tpr_at_fpr_0_05": null,
+          "tpr_at_fpr_0_01": null,
+          "tpr_at_fpr_0_001": null,
+          "low_fpr_note": "Null denotes insufficient empirical FPR resolution; no population guarantee."
+        },
+        "transcript_scope": "refusal-only score; not a full adaptive transcript attack",
+        "timing_transcript_metrics": {
+          "roc_auc": 0.75,
+          "nonmember_count": 2,
+          "member_count": 2,
+          "low_fpr_resolution": 0.5,
+          "tpr_at_fpr_0_1": null,
+          "tpr_at_fpr_0_05": null,
+          "tpr_at_fpr_0_01": null,
+          "tpr_at_fpr_0_001": null,
+          "low_fpr_note": "Null denotes insufficient empirical FPR resolution; no population guarantee."
+        },
+        "timing_scope": "client processing time; excludes transport; descriptive score, no fitted timing attacker",
+        "repeated_query_curve": [
+          {
+            "queries_per_world": 1,
+            "independent_targets": 1,
+            "gradient": null,
+            "refusal": {
+              "roc_auc": 0.5,
+              "nonmember_count": 1,
+              "member_count": 1,
+              "low_fpr_resolution": 1.0,
+              "tpr_at_fpr_0_1": null,
+              "tpr_at_fpr_0_05": null,
+              "tpr_at_fpr_0_01": null,
+              "tpr_at_fpr_0_001": null,
+              "low_fpr_note": "Null denotes insufficient empirical FPR resolution; no population guarantee."
+            }
+          },
+          {
+            "queries_per_world": 2,
+            "independent_targets": 1,
+            "gradient": null,
+            "refusal": {
+              "roc_auc": 0.5,
+              "nonmember_count": 1,
+              "member_count": 1,
+              "low_fpr_resolution": 1.0,
+              "tpr_at_fpr_0_1": null,
+              "tpr_at_fpr_0_05": null,
+              "tpr_at_fpr_0_01": null,
+              "tpr_at_fpr_0_001": null,
+              "low_fpr_note": "Null denotes insufficient empirical FPR resolution; no population guarantee."
+            }
+          }
+        ]
+      },
+      "computation_seconds": 355.1220437493175,
+      "guard_summary": {
+        "training_requests": 4,
+        "training_rejected": 0,
+        "legitimate_false_rejection_rate": 0.0,
+        "policy_flag_rate": 0.0,
+        "per_client": {
+          "0": {
+            "requests": 1,
+            "rejected": 0,
+            "shadow_rejections": 0
+          },
+          "1": {
+            "requests": 1,
+            "rejected": 0,
+            "shadow_rejections": 0
+          },
+          "2": {
+            "requests": 1,
+            "rejected": 0,
+            "shadow_rejections": 0
+          },
+          "3": {
+            "requests": 1,
+            "rejected": 0,
+            "shadow_rejections": 0
+          }
+        },
+        "guard_seconds": 56.128348155878484,
+        "sample_size_note": "Repeated rounds are not independent evidence for a 1% population false-positive rate"
+      },
+      "event_reasons": {
+        "accepted": 4,
+        "architecture_mismatch": 5
+      },
+      "no_retrieval": {
+        "token_f1": 0.06433035714285715,
+        "exact_match": 0.0,
+        "answer_nll": 6.016267895698547
+      },
+      "rag": {
+        "public_ordinary": {
+          "adv": 0.595,
+          "tpr": 0.96,
+          "tnr": 0.23,
+          "token_f1": 0.31567567567567567,
+          "exact_match": 0.2,
+          "answer_nll": 3.532323729991913,
+          "utility_questions_per_model": 10
+        },
+        "private_ordinary": {
+          "adv": 0.575,
+          "tpr": 0.94,
+          "tnr": 0.21,
+          "token_f1": 0.4749850908105177,
+          "exact_match": 0.3,
+          "answer_nll": 3.0178844928741455,
+          "utility_questions_per_model": 10
+        }
+      },
+      "overlap": [
+        {
+          "target_sha256": "2cffe511e5ba08b9d40cdbf0b2d1db166997b6db623c1bbf13db2518a0354d7a",
+          "training_member": true,
+          "datastore_member": false,
+          "defense": "ordinary",
+          "pred_member": true,
+          "answer_recognized": true,
+          "refused": false,
+          "retrieved": false,
+          "seconds": 0.23736443649977446,
+          "document_count": 256,
+          "design": "fixed_checkpoint_paired_replacement"
+        },
+        {
+          "target_sha256": "2cffe511e5ba08b9d40cdbf0b2d1db166997b6db623c1bbf13db2518a0354d7a",
+          "training_member": true,
+          "datastore_member": true,
+          "defense": "ordinary",
+          "pred_member": true,
+          "answer_recognized": true,
+          "refused": false,
+          "retrieved": true,
+          "seconds": 0.2213883651420474,
+          "document_count": 256,
+          "design": "fixed_checkpoint_paired_replacement"
+        }
+      ],
+      "evaluated_models": 1,
+      "firestore_saved": true,
+      "observation_privacy": null
+    },
+    {
+      "file": "0002-theory_v2_f48ee1ad4062_pipeline_v1_3f44b561a7c50a1b581fc093.json",
+      "sha256": "7d6baded200f96cfcd32fdd911e10f2cee2c76c3ee26ef1e53944d1381014c2d",
+      "attack": "amia",
+      "condition": "noise_only",
+      "metrics": {
+        "tp": 0,
+        "tn": 1,
+        "fp": 1,
+        "fn": 2,
+        "tpr": 0.0,
+        "tnr": 0.5,
+        "adv": 0.25,
+        "accuracy": 0.25,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "num_trials": 4,
+        "roc_auc": 0.0,
+        "nonmember_count": 2,
+        "member_count": 2,
+        "low_fpr_resolution": 0.5,
+        "tpr_at_fpr_0_1": null,
+        "tpr_at_fpr_0_05": null,
+        "tpr_at_fpr_0_01": null,
+        "tpr_at_fpr_0_001": null,
+        "low_fpr_note": "Null denotes insufficient empirical FPR resolution; no population guarantee.",
+        "roc_auc_from_scores": 0.0
+      },
+      "computation_seconds": 305.39060399401933,
+      "guard_summary": null,
+      "event_reasons": {},
+      "no_retrieval": {
+        "token_f1": 0.06433035714285715,
+        "exact_match": 0.0,
+        "answer_nll": 6.016269940137863
+      },
+      "rag": {
+        "public_ordinary": {
+          "adv": 0.595,
+          "tpr": 0.96,
+          "tnr": 0.23,
+          "token_f1": 0.31567567567567567,
+          "exact_match": 0.2,
+          "answer_nll": 3.532323902845383,
+          "utility_questions_per_model": 10
+        },
+        "private_ordinary": {
+          "adv": 0.575,
+          "tpr": 0.94,
+          "tnr": 0.21,
+          "token_f1": 0.4749850908105177,
+          "exact_match": 0.3,
+          "answer_nll": 3.0178846776485444,
+          "utility_questions_per_model": 10
+        }
+      },
+      "overlap": [
+        {
+          "target_sha256": "2cffe511e5ba08b9d40cdbf0b2d1db166997b6db623c1bbf13db2518a0354d7a",
+          "training_member": true,
+          "datastore_member": false,
+          "defense": "ordinary",
+          "pred_member": true,
+          "answer_recognized": true,
+          "refused": false,
+          "retrieved": false,
+          "seconds": 0.23924903199076653,
+          "document_count": 256,
+          "design": "fixed_checkpoint_paired_replacement"
+        },
+        {
+          "target_sha256": "2cffe511e5ba08b9d40cdbf0b2d1db166997b6db623c1bbf13db2518a0354d7a",
+          "training_member": true,
+          "datastore_member": true,
+          "defense": "ordinary",
+          "pred_member": true,
+          "answer_recognized": true,
+          "refused": false,
+          "retrieved": true,
+          "seconds": 0.2204894097521901,
+          "document_count": 256,
+          "design": "fixed_checkpoint_paired_replacement"
+        }
+      ],
+      "evaluated_models": 1,
+      "firestore_saved": true,
+      "observation_privacy": {
+        "rho": 8.0,
+        "epsilon": 27.194103648752325,
+        "delta": 1e-05,
+        "steps": 4,
+        "accountant": "gaussian_zcdp_no_amplification",
+        "adjacency": "fixed_cardinality_replace_one",
+        "privacy_unit": "private_batch",
+        "protected_release": "noised_probe_gradients",
+        "trusted_server": false,
+        "scope": "Observation releases only; excludes training, feature LDP and retrieval releases"
+      }
+    },
+    {
+      "file": "0003-theory_v2_f48ee1ad4062_pipeline_v1_11d1a63db8c436f1f3234c93.json",
+      "sha256": "75a83797e1add87513ab5b6565212ef4f5d8de3c3184635207c601213206050e",
+      "attack": "amia",
+      "condition": "shadow",
+      "metrics": {
+        "tp": 2,
+        "tn": 2,
+        "fp": 0,
+        "fn": 0,
+        "tpr": 1.0,
+        "tnr": 1.0,
+        "adv": 1.0,
+        "accuracy": 1.0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "num_trials": 4,
+        "roc_auc": 1.0,
+        "nonmember_count": 2,
+        "member_count": 2,
+        "low_fpr_resolution": 0.5,
+        "tpr_at_fpr_0_1": null,
+        "tpr_at_fpr_0_05": null,
+        "tpr_at_fpr_0_01": null,
+        "tpr_at_fpr_0_001": null,
+        "low_fpr_note": "Null denotes insufficient empirical FPR resolution; no population guarantee.",
+        "total_requests": 4,
+        "accepted_requests": 4,
+        "rejected_requests": 0,
+        "release_coverage": 1.0,
+        "metric_scope": "conditional_on_accepted_gradients",
+        "adv_definition": "balanced_accuracy",
+        "gradient_status": "evaluated",
+        "decision_transcript_metrics": {
+          "roc_auc": 0.5,
+          "nonmember_count": 2,
+          "member_count": 2,
+          "low_fpr_resolution": 0.5,
+          "tpr_at_fpr_0_1": null,
+          "tpr_at_fpr_0_05": null,
+          "tpr_at_fpr_0_01": null,
+          "tpr_at_fpr_0_001": null,
+          "low_fpr_note": "Null denotes insufficient empirical FPR resolution; no population guarantee."
+        },
+        "transcript_scope": "refusal-only score; not a full adaptive transcript attack",
+        "timing_transcript_metrics": {
+          "roc_auc": 1.0,
+          "nonmember_count": 2,
+          "member_count": 2,
+          "low_fpr_resolution": 0.5,
+          "tpr_at_fpr_0_1": null,
+          "tpr_at_fpr_0_05": null,
+          "tpr_at_fpr_0_01": null,
+          "tpr_at_fpr_0_001": null,
+          "low_fpr_note": "Null denotes insufficient empirical FPR resolution; no population guarantee."
+        },
+        "timing_scope": "client processing time; excludes transport; descriptive score, no fitted timing attacker",
+        "repeated_query_curve": [
+          {
+            "queries_per_world": 1,
+            "independent_targets": 1,
+            "gradient": {
+              "roc_auc": 1.0,
+              "nonmember_count": 1,
+              "member_count": 1,
+              "low_fpr_resolution": 1.0,
+              "tpr_at_fpr_0_1": null,
+              "tpr_at_fpr_0_05": null,
+              "tpr_at_fpr_0_01": null,
+              "tpr_at_fpr_0_001": null,
+              "low_fpr_note": "Null denotes insufficient empirical FPR resolution; no population guarantee."
+            },
+            "refusal": {
+              "roc_auc": 0.5,
+              "nonmember_count": 1,
+              "member_count": 1,
+              "low_fpr_resolution": 1.0,
+              "tpr_at_fpr_0_1": null,
+              "tpr_at_fpr_0_05": null,
+              "tpr_at_fpr_0_01": null,
+              "tpr_at_fpr_0_001": null,
+              "low_fpr_note": "Null denotes insufficient empirical FPR resolution; no population guarantee."
+            }
+          },
+          {
+            "queries_per_world": 2,
+            "independent_targets": 1,
+            "gradient": {
+              "roc_auc": 1.0,
+              "nonmember_count": 1,
+              "member_count": 1,
+              "low_fpr_resolution": 1.0,
+              "tpr_at_fpr_0_1": null,
+              "tpr_at_fpr_0_05": null,
+              "tpr_at_fpr_0_01": null,
+              "tpr_at_fpr_0_001": null,
+              "low_fpr_note": "Null denotes insufficient empirical FPR resolution; no population guarantee."
+            },
+            "refusal": {
+              "roc_auc": 0.5,
+              "nonmember_count": 1,
+              "member_count": 1,
+              "low_fpr_resolution": 1.0,
+              "tpr_at_fpr_0_1": null,
+              "tpr_at_fpr_0_05": null,
+              "tpr_at_fpr_0_01": null,
+              "tpr_at_fpr_0_001": null,
+              "low_fpr_note": "Null denotes insufficient empirical FPR resolution; no population guarantee."
+            }
+          }
+        ]
+      },
+      "computation_seconds": 371.378549692221,
+      "guard_summary": {
+        "training_requests": 4,
+        "training_rejected": 0,
+        "legitimate_false_rejection_rate": 0.0,
+        "policy_flag_rate": 0.0,
+        "per_client": {
+          "0": {
+            "requests": 1,
+            "rejected": 0,
+            "shadow_rejections": 0
+          },
+          "1": {
+            "requests": 1,
+            "rejected": 0,
+            "shadow_rejections": 0
+          },
+          "2": {
+            "requests": 1,
+            "rejected": 0,
+            "shadow_rejections": 0
+          },
+          "3": {
+            "requests": 1,
+            "rejected": 0,
+            "shadow_rejections": 0
+          }
+        },
+        "guard_seconds": 55.85813822411001,
+        "sample_size_note": "Repeated rounds are not independent evidence for a 1% population false-positive rate"
+      },
+      "event_reasons": {
+        "accepted": 4,
+        "architecture_mismatch": 5
+      },
+      "no_retrieval": {
+        "token_f1": 0.06433035714285715,
+        "exact_match": 0.0,
+        "answer_nll": 6.016269427537918
+      },
+      "rag": {
+        "public_ordinary": {
+          "adv": 0.595,
+          "tpr": 0.96,
+          "tnr": 0.23,
+          "token_f1": 0.31567567567567567,
+          "exact_match": 0.2,
+          "answer_nll": 3.532323145866394,
+          "utility_questions_per_model": 10
+        },
+        "private_ordinary": {
+          "adv": 0.575,
+          "tpr": 0.94,
+          "tnr": 0.21,
+          "token_f1": 0.4749850908105177,
+          "exact_match": 0.3,
+          "answer_nll": 3.0178829729557037,
+          "utility_questions_per_model": 10
+        }
+      },
+      "overlap": [
+        {
+          "target_sha256": "2cffe511e5ba08b9d40cdbf0b2d1db166997b6db623c1bbf13db2518a0354d7a",
+          "training_member": true,
+          "datastore_member": false,
+          "defense": "ordinary",
+          "pred_member": true,
+          "answer_recognized": true,
+          "refused": false,
+          "retrieved": false,
+          "seconds": 0.2399426493793726,
+          "document_count": 256,
+          "design": "fixed_checkpoint_paired_replacement"
+        },
+        {
+          "target_sha256": "2cffe511e5ba08b9d40cdbf0b2d1db166997b6db623c1bbf13db2518a0354d7a",
+          "training_member": true,
+          "datastore_member": true,
+          "defense": "ordinary",
+          "pred_member": true,
+          "answer_recognized": true,
+          "refused": false,
+          "retrieved": true,
+          "seconds": 0.22206439170986414,
+          "document_count": 256,
+          "design": "fixed_checkpoint_paired_replacement"
+        }
+      ],
+      "evaluated_models": 1,
+      "firestore_saved": true,
+      "observation_privacy": null
+    },
+    {
+      "file": "0004-theory_v2_f48ee1ad4062_pipeline_v1_131a82c8ae4bd9050b9683ce.json",
+      "sha256": "e6db2a06ea3168dc750df2d3decdf9722fc94ba381d8bbc75134ef77e83b22dc",
+      "attack": "reference",
+      "condition": "baseline",
+      "metrics": {
+        "tp": 2,
+        "tn": 2,
+        "fp": 0,
+        "fn": 0,
+        "tpr": 1.0,
+        "tnr": 1.0,
+        "adv": 1.0,
+        "accuracy": 1.0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "num_trials": 4,
+        "roc_auc": 1.0,
+        "nonmember_count": 2,
+        "member_count": 2,
+        "low_fpr_resolution": 0.5,
+        "tpr_at_fpr_0_1": null,
+        "tpr_at_fpr_0_05": null,
+        "tpr_at_fpr_0_01": null,
+        "tpr_at_fpr_0_001": null,
+        "low_fpr_note": "Null denotes insufficient empirical FPR resolution; no population guarantee."
+      },
+      "computation_seconds": 733.8183165658265,
+      "guard_summary": null,
+      "event_reasons": {},
+      "no_retrieval": {
+        "token_f1": 0.06636421783625732,
+        "exact_match": 0.0,
+        "answer_nll": 5.979394337534904
+      },
+      "rag": {
+        "public_ordinary": {
+          "adv": 0.595,
+          "tpr": 0.96,
+          "tnr": 0.23,
+          "token_f1": 0.31567567567567567,
+          "exact_match": 0.2,
+          "answer_nll": 3.527818354964256,
+          "utility_questions_per_model": 10
+        },
+        "private_ordinary": {
+          "adv": 0.575,
+          "tpr": 0.94,
+          "tnr": 0.21,
+          "token_f1": 0.4749850908105177,
+          "exact_match": 0.3,
+          "answer_nll": 3.015323981642723,
+          "utility_questions_per_model": 10
+        }
+      },
+      "overlap": [
+        {
+          "target_sha256": "2cffe511e5ba08b9d40cdbf0b2d1db166997b6db623c1bbf13db2518a0354d7a",
+          "training_member": true,
+          "datastore_member": false,
+          "defense": "ordinary",
+          "pred_member": true,
+          "answer_recognized": true,
+          "refused": false,
+          "retrieved": false,
+          "seconds": 0.23736418783664703,
+          "document_count": 256,
+          "design": "fixed_checkpoint_paired_replacement"
+        },
+        {
+          "target_sha256": "2cffe511e5ba08b9d40cdbf0b2d1db166997b6db623c1bbf13db2518a0354d7a",
+          "training_member": true,
+          "datastore_member": true,
+          "defense": "ordinary",
+          "pred_member": true,
+          "answer_recognized": true,
+          "refused": false,
+          "retrieved": true,
+          "seconds": 0.21908412408083677,
+          "document_count": 256,
+          "design": "fixed_checkpoint_paired_replacement"
+        },
+        {
+          "target_sha256": "2cffe511e5ba08b9d40cdbf0b2d1db166997b6db623c1bbf13db2518a0354d7a",
+          "training_member": false,
+          "datastore_member": false,
+          "defense": "ordinary",
+          "pred_member": true,
+          "answer_recognized": true,
+          "refused": false,
+          "retrieved": false,
+          "seconds": 0.23743330035358667,
+          "document_count": 256,
+          "design": "fixed_checkpoint_paired_replacement"
+        },
+        {
+          "target_sha256": "2cffe511e5ba08b9d40cdbf0b2d1db166997b6db623c1bbf13db2518a0354d7a",
+          "training_member": false,
+          "datastore_member": true,
+          "defense": "ordinary",
+          "pred_member": true,
+          "answer_recognized": true,
+          "refused": false,
+          "retrieved": true,
+          "seconds": 0.22022912185639143,
+          "document_count": 256,
+          "design": "fixed_checkpoint_paired_replacement"
+        }
+      ],
+      "evaluated_models": 2,
+      "firestore_saved": true,
+      "observation_privacy": null
+    },
+    {
+      "file": "0005-theory_v2_f48ee1ad4062_pipeline_v1_e11354aa7dcc9f8b135a8399.json",
+      "sha256": "2d181776f910499dd8b536163c58e9ace625310e0a06ae10dfc482df6a145e1c",
+      "attack": "reference",
+      "condition": "shadow",
+      "metrics": {
+        "tp": 2,
+        "tn": 2,
+        "fp": 0,
+        "fn": 0,
+        "tpr": 1.0,
+        "tnr": 1.0,
+        "adv": 1.0,
+        "accuracy": 1.0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "num_trials": 4,
+        "roc_auc": 1.0,
+        "nonmember_count": 2,
+        "member_count": 2,
+        "low_fpr_resolution": 0.5,
+        "tpr_at_fpr_0_1": null,
+        "tpr_at_fpr_0_05": null,
+        "tpr_at_fpr_0_01": null,
+        "tpr_at_fpr_0_001": null,
+        "low_fpr_note": "Null denotes insufficient empirical FPR resolution; no population guarantee."
+      },
+      "computation_seconds": 996.2037357017398,
+      "guard_summary": {
+        "training_requests": 16,
+        "training_rejected": 0,
+        "legitimate_false_rejection_rate": 0.0,
+        "policy_flag_rate": 0.0,
+        "per_client": {
+          "0": {
+            "requests": 4,
+            "rejected": 0,
+            "shadow_rejections": 0
+          },
+          "1": {
+            "requests": 4,
+            "rejected": 0,
+            "shadow_rejections": 0
+          },
+          "2": {
+            "requests": 4,
+            "rejected": 0,
+            "shadow_rejections": 0
+          },
+          "3": {
+            "requests": 4,
+            "rejected": 0,
+            "shadow_rejections": 0
+          }
+        },
+        "guard_seconds": 220.6512933317572,
+        "sample_size_note": "Repeated rounds are not independent evidence for a 1% population false-positive rate"
+      },
+      "event_reasons": {
+        "accepted": 16
+      },
+      "no_retrieval": {
+        "token_f1": 0.06636421783625732,
+        "exact_match": 0.0,
+        "answer_nll": 5.979392954707146
+      },
+      "rag": {
+        "public_ordinary": {
+          "adv": 0.595,
+          "tpr": 0.96,
+          "tnr": 0.23,
+          "token_f1": 0.31567567567567567,
+          "exact_match": 0.2,
+          "answer_nll": 3.5278175443410875,
+          "utility_questions_per_model": 10
+        },
+        "private_ordinary": {
+          "adv": 0.575,
+          "tpr": 0.94,
+          "tnr": 0.21,
+          "token_f1": 0.4749850908105177,
+          "exact_match": 0.3,
+          "answer_nll": 3.0153254896402357,
+          "utility_questions_per_model": 10
+        }
+      },
+      "overlap": [
+        {
+          "target_sha256": "2cffe511e5ba08b9d40cdbf0b2d1db166997b6db623c1bbf13db2518a0354d7a",
+          "training_member": true,
+          "datastore_member": false,
+          "defense": "ordinary",
+          "pred_member": true,
+          "answer_recognized": true,
+          "refused": false,
+          "retrieved": false,
+          "seconds": 0.23700727336108685,
+          "document_count": 256,
+          "design": "fixed_checkpoint_paired_replacement"
+        },
+        {
+          "target_sha256": "2cffe511e5ba08b9d40cdbf0b2d1db166997b6db623c1bbf13db2518a0354d7a",
+          "training_member": true,
+          "datastore_member": true,
+          "defense": "ordinary",
+          "pred_member": true,
+          "answer_recognized": true,
+          "refused": false,
+          "retrieved": true,
+          "seconds": 0.22049848828464746,
+          "document_count": 256,
+          "design": "fixed_checkpoint_paired_replacement"
+        },
+        {
+          "target_sha256": "2cffe511e5ba08b9d40cdbf0b2d1db166997b6db623c1bbf13db2518a0354d7a",
+          "training_member": false,
+          "datastore_member": false,
+          "defense": "ordinary",
+          "pred_member": true,
+          "answer_recognized": true,
+          "refused": false,
+          "retrieved": false,
+          "seconds": 0.23737625777721405,
+          "document_count": 256,
+          "design": "fixed_checkpoint_paired_replacement"
+        },
+        {
+          "target_sha256": "2cffe511e5ba08b9d40cdbf0b2d1db166997b6db623c1bbf13db2518a0354d7a",
+          "training_member": false,
+          "datastore_member": true,
+          "defense": "ordinary",
+          "pred_member": true,
+          "answer_recognized": true,
+          "refused": false,
+          "retrieved": true,
+          "seconds": 0.21976061910390854,
+          "document_count": 256,
+          "design": "fixed_checkpoint_paired_replacement"
+        }
+      ],
+      "evaluated_models": 2,
+      "firestore_saved": true,
+      "observation_privacy": null
+    }
+  ]
+}

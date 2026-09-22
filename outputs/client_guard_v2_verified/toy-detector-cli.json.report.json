@@ -1,0 +1,98 @@
+{
+  "relative_delta_baseline": {
+    "threshold": 0.0162879599260119,
+    "tp": 8,
+    "tn": 4,
+    "fp": 4,
+    "fn": 0,
+    "tpr": 1.0,
+    "tnr": 0.5,
+    "adv": 0.75,
+    "accuracy": 0.75,
+    "precision": 0.6666666666666666,
+    "recall": 1.0,
+    "f1": 0.8,
+    "num_trials": 16
+  },
+  "detector_sha256": "748016c49fbc5c4cf4200b4c518f37742d4d0fd81a7b9e9ba44d82821ca06661",
+  "dataset_sha256": "d755490a291fafd30748af31fec93429f10daf62e2a84acd5d2edb9f6e816413",
+  "validation": {
+    "tp": 8,
+    "tn": 8,
+    "fp": 0,
+    "fn": 0,
+    "tpr": 1.0,
+    "tnr": 1.0,
+    "adv": 1.0,
+    "accuracy": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1": 1.0,
+    "num_trials": 16,
+    "roc_auc": 1.0,
+    "nonmember_count": 8,
+    "member_count": 8,
+    "low_fpr_resolution": 0.125,
+    "tpr_at_fpr_0_1": null,
+    "tpr_at_fpr_0_05": null,
+    "tpr_at_fpr_0_01": null,
+    "tpr_at_fpr_0_001": null,
+    "low_fpr_note": "Null denotes insufficient empirical FPR resolution; no population guarantee.",
+    "label_scope": "request_origin_not_membership",
+    "independent_groups": 8,
+    "declared_prevalence": 0.01,
+    "precision_at_declared_prevalence": 1.0,
+    "per_variant": {
+      "benign": {
+        "requests": 8,
+        "groups": 8,
+        "rejection_rate": 0.0
+      },
+      "dense": {
+        "requests": 8,
+        "groups": 8,
+        "rejection_rate": 1.0
+      }
+    }
+  },
+  "test": {
+    "tp": 8,
+    "tn": 7,
+    "fp": 1,
+    "fn": 0,
+    "tpr": 1.0,
+    "tnr": 0.875,
+    "adv": 0.9375,
+    "accuracy": 0.9375,
+    "precision": 0.8888888888888888,
+    "recall": 1.0,
+    "f1": 0.9411764705882353,
+    "num_trials": 16,
+    "roc_auc": 1.0,
+    "nonmember_count": 8,
+    "member_count": 8,
+    "low_fpr_resolution": 0.125,
+    "tpr_at_fpr_0_1": null,
+    "tpr_at_fpr_0_05": null,
+    "tpr_at_fpr_0_01": null,
+    "tpr_at_fpr_0_001": null,
+    "low_fpr_note": "Null denotes insufficient empirical FPR resolution; no population guarantee.",
+    "label_scope": "request_origin_not_membership",
+    "independent_groups": 8,
+    "declared_prevalence": 0.01,
+    "precision_at_declared_prevalence": 0.07476635514018691,
+    "per_variant": {
+      "benign": {
+        "requests": 8,
+        "groups": 8,
+        "rejection_rate": 0.125
+      },
+      "coordinate": {
+        "requests": 8,
+        "groups": 8,
+        "rejection_rate": 1.0
+      }
+    }
+  },
+  "warning": "Empirical grouped evaluation; a small validation set cannot establish a 1% population FPR"
+}

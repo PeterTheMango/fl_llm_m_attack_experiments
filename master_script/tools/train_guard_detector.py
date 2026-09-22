@@ -19,12 +19,16 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("dataset"); parser.add_argument("output")
     parser.add_argument("--max-fpr", type=float, default=.01)
+    parser.add_argument("--prevalence", type=float, default=.01)
     args = parser.parse_args()
+    if not 0 < args.prevalence < 1:
+        parser.error("prevalence must lie in (0,1)")
     raw = Path(args.dataset).read_bytes()
     rows = json.loads(raw)
     artifact = fit_detector(rows, max_false_positive_rate=args.max_fpr)
     encoded = (json.dumps(artifact, indent=2, allow_nan=False) + "\n").encode()
-    Path(args.output).write_bytes(encoded)
+    with Path(args.output).open("xb") as stream:
+        stream.write(encoded)
     benign_deltas = sorted(r["features"]["relative_delta"] for r in rows
                            if r["split"] == "validation" and not r["malicious"])
     baseline_threshold = benign_deltas[len(benign_deltas) - int(args.max_fpr * len(benign_deltas)) - 1]
@@ -36,7 +40,19 @@ def main():
               "validation": evaluate_detector(artifact, rows, "validation"),
               "test": evaluate_detector(artifact, rows, "test"),
               "warning": "Empirical grouped evaluation; a small validation set cannot establish a 1% population FPR"}
-    Path(args.output + ".report.json").write_text(json.dumps(report, indent=2, allow_nan=False) + "\n")
+    for split in ("validation", "test"):
+        m = report[split]
+        fpr = 1 - m["tnr"]
+        denom = args.prevalence * m["tpr"] + (1-args.prevalence)*fpr
+        m["declared_prevalence"] = args.prevalence
+        m["precision_at_declared_prevalence"] = args.prevalence*m["tpr"]/denom if denom else None
+        m["per_variant"] = {}
+        for variant in sorted({r["variant"] for r in rows if r["split"] == split}):
+            subset = [r for r in rows if r["split"] == split and r["variant"] == variant]
+            m["per_variant"][variant] = {"requests": len(subset), "groups": len({r["group"] for r in subset}),
+                "rejection_rate": sum(detector_score(artifact, r["features"]) > artifact["threshold"] for r in subset)/len(subset)}
+    with Path(args.output + ".report.json").open("x") as stream:
+        stream.write(json.dumps(report, indent=2, allow_nan=False) + "\n")
     print(report["detector_sha256"])
 
 
