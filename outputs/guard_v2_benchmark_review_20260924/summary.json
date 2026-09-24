@@ -1,0 +1,39 @@
+{
+  "source_sha256": "1f540bc2169584149030d9bc12dcd6f2d6ee5183f491e6e2681f9419fa1be365",
+  "feature_source_matches_local": true,
+  "median_seconds": {
+    "previous": 13.506550965365022,
+    "current": 11.45136671885848
+  },
+  "time_reduction_percent": 15.216203246681337,
+  "stage_median_seconds": {
+    "previous": {
+      "request_copy": 0.7257024180144072,
+      "request_hash": 2.0162989259697497,
+      "reference_load": 2.9035174255259335,
+      "reference_hash": 2.0170146715827286,
+      "validation": 0.2816506214439869,
+      "feature_extraction": 5.548813789151609,
+      "detector_load": 0.0,
+      "detector_inference": 0.0,
+      "ledger_setup": 0.0013377615250647068,
+      "ledger_reservation": 0.0026928200386464596
+    },
+    "current": {
+      "request_copy": 0.72471604635939,
+      "request_hash": 2.0160247650928795,
+      "reference_load": 2.859444239642471,
+      "reference_hash": 2.017194792162627,
+      "validation": 0.27861881256103516,
+      "feature_extraction": 3.5494353668764234,
+      "detector_load": 0.0,
+      "detector_inference": 0.0,
+      "ledger_setup": 0.0003986894153058529,
+      "ledger_reservation": 0.0011458778753876686
+    }
+  },
+  "feature_time_reduction_percent": 36.03253773237329,
+  "initial_snapshot_features_exactly_agree": true,
+  "scope": "Two warm-cache checks per implementation on initial approved weights; no FL overhead or efficacy claim",
+  "next": "Two matched causal-gradient AMIA runs, baseline and rules-only, three FL rounds, same diagnostic target; not independent confirmation"
+}

@@ -39,7 +39,8 @@ def summarize_results(results):
                      "absolute_f1_screen": .1,
                      "guard": result.get("guard_summary"),
                      "exclusion": "operational_or_policy_abort" if result.get("status") != "complete"
-                                  else "utility_unmeasured_or_zero" if not utilities or not all(v > 0 for v in utilities) else None})
+                                  else "utility_unmeasured_or_zero" if not utilities or not all(v > 0 for v in utilities)
+                                  else "utility_below_absolute_floor" if not all(v >= .1 for v in utilities) else None})
     return {"conditions": rows, "total_runs": len(rows),
             "excluded_runs": sum(r["exclusion"] is not None for r in rows),
             "interpretation": "Utility validity here is a screening floor, not the predeclared matched-baseline engineering gate. No averaged privacy score."}

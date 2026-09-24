@@ -1,0 +1,18 @@
+{
+  "test_command": "python -m pytest -q tests",
+  "passed": 518,
+  "skipped": 11,
+  "seconds": 19.31,
+  "patch_sha256": "422609cbf8341f6abc3befe36263a849a40a2b0f679ce1648bde8b295a1c5a58",
+  "patch_applies_to_HEAD_and_reproduces_files": true,
+  "files": {
+    "master_script/core/guard_features.py": "db7edc658b1113ba6b80cd14b5366008581309892c8f97321115db39cffd1797",
+    "master_script/core/rag.py": "11e70366f387b1987362d6513a86437ee9ea146cb5f3a838fb2cedc98807f27f",
+    "master_script/tools/analyze_guard_study.py": "9d2a1f424c6a418a951d1a24867fa85340ea534bd0513914c315eba80daa1d97",
+    "master_script/tools/benchmark_guard_runtime.py": "34084c4bf077a7b8ec2119e0ee507df8f6be578e4b89fefcb7a300660c8655b5",
+    "master_script/docs/client_guard_smoke_followup.md": "bc8deaa7c0817127a948a486c90a4081d3822f209092355a2ac0070b1ba358a6",
+    "tests/test_guard_smoke_followup.py": "e952e7a62a97375a22d910f4722bbe174a9f80c1b89abf9d37edc15f40c76c6e"
+  },
+  "full_model_remote_benchmark": "pending; original snapshots are not included in the review archive",
+  "gpu_jobs_launched": 0
+}

@@ -1,0 +1,14 @@
+{
+  "exact_planned_runs": 2,
+  "conditions": [
+    "baseline",
+    "rules_only"
+  ],
+  "attack": "amia",
+  "variant": "causal_gradient_alignment",
+  "federated_rounds": 3,
+  "target_count_per_run": 1,
+  "local_gpu_jobs_launched": 0,
+  "validation": "CLI dry-run passed",
+  "implementation_fingerprint_from_dry_run": "db21a0271c3a"
+}

@@ -1,0 +1,190 @@
+{
+  "schema": "guard_cpu_benchmark_v1",
+  "run_id": "theory_v2_1423ad8f55aa_pipeline_v1_f981438027e882a61deb4fa0",
+  "historical_implementation": "1423ad8f55aa",
+  "feature_source_sha256": "db7edc658b1113ba6b80cd14b5366008581309892c8f97321115db39cffd1797",
+  "snapshot": "/home/calc08/projects/LLMPrivacy/fl_llm_m_attack_experiments/outputs/guard-v2-smoke-remote/results/20260922-173328-2d75dea95957/artifacts/0001-theory_v2_1423ad8f55aa_pipeline_v1_f981438027e882a61deb4fa0/client-guard/75b1309fb1e9bd49d634073c08af745b57119397ffb979e26dedbee19354f43d.npz",
+  "snapshot_request_sha256": "09f1cc080fc883ac8b8f45990e8f5bf182275b1ce3e95684bb88c72d9b86fbac",
+  "request_bytes": 2520669696,
+  "repeats": 2,
+  "environment": {
+    "platform": "Linux-5.15.0-176-generic-x86_64-with-glibc2.35",
+    "python": "3.10.12",
+    "numpy": "2.2.6"
+  },
+  "historical_request_seconds": 12.921686598099768,
+  "median_seconds": {
+    "previous": 13.506550965365022,
+    "current": 11.45136671885848
+  },
+  "current_over_previous": 0.8478379675331866,
+  "features_agree": true,
+  "samples": {
+    "previous": [
+      {
+        "scope": "benchmark:0:previous",
+        "client_id": 0,
+        "round_id": 1,
+        "decision": "accepted",
+        "would_accept": true,
+        "reason": "accepted",
+        "mode": "rules",
+        "features": {
+          "relative_delta": 0.0,
+          "maximum_layer_delta": 0.0,
+          "parameter_concentration": 0.9909795783992091
+        },
+        "detector_score": null,
+        "feature_schema": "parameter_behavior_v1",
+        "policy_sha256": "140d76154a30141056aae166f11f138e72231e6e7417c0efa5e334077678d7df",
+        "detector_sha256": null,
+        "reservation_count": 1,
+        "seconds": 13.761952648870647,
+        "stages_seconds": {
+          "request_copy": 0.7278632940724492,
+          "request_hash": 2.016626805998385,
+          "reference_load": 2.956783995963633,
+          "reference_hash": 2.016811423934996,
+          "validation": 0.28315336629748344,
+          "feature_extraction": 5.74008266068995,
+          "detector_load": 0.0,
+          "detector_inference": 0.0,
+          "ledger_setup": 0.0022790255025029182,
+          "ledger_reservation": 0.003720351494848728
+        },
+        "request_bytes": 2520669696,
+        "request_sha256": "09f1cc080fc883ac8b8f45990e8f5bf182275b1ce3e95684bb88c72d9b86fbac",
+        "rss_gib_before": 2.382,
+        "rss_gib_after": 4.751,
+        "memory_scope": "process RSS samples; not peak GPU allocation",
+        "accounting_scope": "training",
+        "audit_outputs_private": true
+      },
+      {
+        "scope": "benchmark:1:previous",
+        "client_id": 0,
+        "round_id": 1,
+        "decision": "accepted",
+        "would_accept": true,
+        "reason": "accepted",
+        "mode": "rules",
+        "features": {
+          "relative_delta": 0.0,
+          "maximum_layer_delta": 0.0,
+          "parameter_concentration": 0.9909795783992091
+        },
+        "detector_score": null,
+        "feature_schema": "parameter_behavior_v1",
+        "policy_sha256": "140d76154a30141056aae166f11f138e72231e6e7417c0efa5e334077678d7df",
+        "detector_sha256": null,
+        "reservation_count": 1,
+        "seconds": 13.251149281859398,
+        "stages_seconds": {
+          "request_copy": 0.7235415419563651,
+          "request_hash": 2.0159710459411144,
+          "reference_load": 2.850250855088234,
+          "reference_hash": 2.017217919230461,
+          "validation": 0.28014787659049034,
+          "feature_extraction": 5.357544917613268,
+          "detector_load": 0.0,
+          "detector_inference": 0.0,
+          "ledger_setup": 0.00039649754762649536,
+          "ledger_reservation": 0.001665288582444191
+        },
+        "request_bytes": 2520669696,
+        "request_sha256": "09f1cc080fc883ac8b8f45990e8f5bf182275b1ce3e95684bb88c72d9b86fbac",
+        "rss_gib_before": 2.407,
+        "rss_gib_after": 4.751,
+        "memory_scope": "process RSS samples; not peak GPU allocation",
+        "accounting_scope": "training",
+        "audit_outputs_private": true
+      }
+    ],
+    "current": [
+      {
+        "scope": "benchmark:0:current",
+        "client_id": 0,
+        "round_id": 1,
+        "decision": "accepted",
+        "would_accept": true,
+        "reason": "accepted",
+        "mode": "rules",
+        "features": {
+          "relative_delta": 0.0,
+          "maximum_layer_delta": 0.0,
+          "parameter_concentration": 0.9909795783992091
+        },
+        "detector_score": null,
+        "feature_schema": "parameter_behavior_v1",
+        "policy_sha256": "140d76154a30141056aae166f11f138e72231e6e7417c0efa5e334077678d7df",
+        "detector_sha256": null,
+        "reservation_count": 1,
+        "seconds": 11.440140902996063,
+        "stages_seconds": {
+          "request_copy": 0.7257129028439522,
+          "request_hash": 2.0160992005839944,
+          "reference_load": 2.8685571886599064,
+          "reference_hash": 2.0158989978954196,
+          "validation": 0.2773018451407552,
+          "feature_extraction": 3.5306074367836118,
+          "detector_load": 0.0,
+          "detector_inference": 0.0,
+          "ledger_setup": 0.0003959396854043007,
+          "ledger_reservation": 0.001151534728705883
+        },
+        "request_bytes": 2520669696,
+        "request_sha256": "09f1cc080fc883ac8b8f45990e8f5bf182275b1ce3e95684bb88c72d9b86fbac",
+        "rss_gib_before": 2.404,
+        "rss_gib_after": 4.751,
+        "memory_scope": "process RSS samples; not peak GPU allocation",
+        "accounting_scope": "training",
+        "audit_outputs_private": true
+      },
+      {
+        "scope": "benchmark:1:current",
+        "client_id": 0,
+        "round_id": 1,
+        "decision": "accepted",
+        "would_accept": true,
+        "reason": "accepted",
+        "mode": "rules",
+        "features": {
+          "relative_delta": 0.0,
+          "maximum_layer_delta": 0.0,
+          "parameter_concentration": 0.9909795783992091
+        },
+        "detector_score": null,
+        "feature_schema": "parameter_behavior_v1",
+        "policy_sha256": "140d76154a30141056aae166f11f138e72231e6e7417c0efa5e334077678d7df",
+        "detector_sha256": null,
+        "reservation_count": 1,
+        "seconds": 11.462592534720898,
+        "stages_seconds": {
+          "request_copy": 0.7237191898748279,
+          "request_hash": 2.0159503296017647,
+          "reference_load": 2.8503312906250358,
+          "reference_hash": 2.0184905864298344,
+          "validation": 0.27993577998131514,
+          "feature_extraction": 3.568263296969235,
+          "detector_load": 0.0,
+          "detector_inference": 0.0,
+          "ledger_setup": 0.0004014391452074051,
+          "ledger_reservation": 0.0011402210220694542
+        },
+        "request_bytes": 2520669696,
+        "request_sha256": "09f1cc080fc883ac8b8f45990e8f5bf182275b1ce3e95684bb88c72d9b86fbac",
+        "rss_gib_before": 2.406,
+        "rss_gib_after": 4.751,
+        "memory_scope": "process RSS samples; not peak GPU allocation",
+        "accounting_scope": "training",
+        "audit_outputs_private": true
+      }
+    ]
+  },
+  "limits": [
+    "Approved initial parameters only; no malicious/late-round tensor replay",
+    "Warm-cache CPU microbenchmark; not GPU or FL-round overhead",
+    "Each request rehashes reference and request; separate temporary ledger",
+    "Historical ledgers and snapshots are read-only; no private releases"
+  ]
+}

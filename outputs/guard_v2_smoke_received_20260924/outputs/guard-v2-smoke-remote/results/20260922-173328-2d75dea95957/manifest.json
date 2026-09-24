@@ -1,0 +1,129 @@
+{
+  "batch_id": "20260922-173328-2d75dea95957",
+  "status": "complete",
+  "started_unix": 1790098408.9254074,
+  "entries": [
+    {
+      "index": 0,
+      "source": "/home/calc08/projects/LLMPrivacy/fl_llm_m_attack_experiments/outputs/guard-v2-smoke-remote/experiments.yaml",
+      "source_sha256": "0a86f614c8dfbc10ae6108a81ab96a133834066fbbd42f4d557afcd2c589ce92",
+      "run_id": "theory_v2_1423ad8f55aa_pipeline_v1_844675517b949c8b93afa642",
+      "attack": "amia",
+      "status": "complete",
+      "started_unix": 1790098408.9299257,
+      "ended_unix": 1790098867.332573,
+      "result_file": "0000-theory_v2_1423ad8f55aa_pipeline_v1_844675517b949c8b93afa642.json"
+    },
+    {
+      "index": 1,
+      "source": "/home/calc08/projects/LLMPrivacy/fl_llm_m_attack_experiments/outputs/guard-v2-smoke-remote/experiments.yaml",
+      "source_sha256": "0a86f614c8dfbc10ae6108a81ab96a133834066fbbd42f4d557afcd2c589ce92",
+      "run_id": "theory_v2_1423ad8f55aa_pipeline_v1_f981438027e882a61deb4fa0",
+      "attack": "amia",
+      "status": "complete",
+      "started_unix": 1790098867.3369124,
+      "ended_unix": 1790099442.037167,
+      "result_file": "0001-theory_v2_1423ad8f55aa_pipeline_v1_f981438027e882a61deb4fa0.json"
+    },
+    {
+      "index": 2,
+      "source": "/home/calc08/projects/LLMPrivacy/fl_llm_m_attack_experiments/outputs/guard-v2-smoke-remote/experiments.yaml",
+      "source_sha256": "0a86f614c8dfbc10ae6108a81ab96a133834066fbbd42f4d557afcd2c589ce92",
+      "run_id": "theory_v2_1423ad8f55aa_pipeline_v1_12397d2d27edb306dc95a3e4",
+      "attack": "amia",
+      "status": "complete",
+      "started_unix": 1790099442.0412486,
+      "ended_unix": 1790099873.6638775,
+      "result_file": "0002-theory_v2_1423ad8f55aa_pipeline_v1_12397d2d27edb306dc95a3e4.json"
+    },
+    {
+      "index": 3,
+      "source": "/home/calc08/projects/LLMPrivacy/fl_llm_m_attack_experiments/outputs/guard-v2-smoke-remote/experiments.yaml",
+      "source_sha256": "0a86f614c8dfbc10ae6108a81ab96a133834066fbbd42f4d557afcd2c589ce92",
+      "run_id": "theory_v2_1423ad8f55aa_pipeline_v1_c21736ea01a30ea89c21c4f3",
+      "attack": "amia",
+      "status": "complete",
+      "started_unix": 1790099873.6681345,
+      "ended_unix": 1790100467.4720414,
+      "result_file": "0003-theory_v2_1423ad8f55aa_pipeline_v1_c21736ea01a30ea89c21c4f3.json"
+    },
+    {
+      "index": 4,
+      "source": "/home/calc08/projects/LLMPrivacy/fl_llm_m_attack_experiments/outputs/guard-v2-smoke-remote/experiments.yaml",
+      "source_sha256": "0a86f614c8dfbc10ae6108a81ab96a133834066fbbd42f4d557afcd2c589ce92",
+      "run_id": "theory_v2_1423ad8f55aa_pipeline_v1_593dc867ec2799bd8d4489bc",
+      "attack": "amia",
+      "status": "complete",
+      "started_unix": 1790100467.4761546,
+      "ended_unix": 1790101094.0170727,
+      "result_file": "0004-theory_v2_1423ad8f55aa_pipeline_v1_593dc867ec2799bd8d4489bc.json"
+    },
+    {
+      "index": 5,
+      "source": "/home/calc08/projects/LLMPrivacy/fl_llm_m_attack_experiments/outputs/guard-v2-smoke-remote/experiments.yaml",
+      "source_sha256": "0a86f614c8dfbc10ae6108a81ab96a133834066fbbd42f4d557afcd2c589ce92",
+      "run_id": "theory_v2_1423ad8f55aa_pipeline_v1_ba5984474b28e9a6d364a1ec",
+      "attack": "amia",
+      "status": "complete",
+      "started_unix": 1790101094.0215545,
+      "ended_unix": 1790101936.4862735,
+      "result_file": "0005-theory_v2_1423ad8f55aa_pipeline_v1_ba5984474b28e9a6d364a1ec.json"
+    },
+    {
+      "index": 6,
+      "source": "/home/calc08/projects/LLMPrivacy/fl_llm_m_attack_experiments/outputs/guard-v2-smoke-remote/experiments.yaml",
+      "source_sha256": "0a86f614c8dfbc10ae6108a81ab96a133834066fbbd42f4d557afcd2c589ce92",
+      "run_id": "theory_v2_1423ad8f55aa_pipeline_v1_42e5b38d5e461180e138167b",
+      "attack": "amia",
+      "status": "complete",
+      "started_unix": 1790101936.4905512,
+      "ended_unix": 1790102902.7464821,
+      "result_file": "0006-theory_v2_1423ad8f55aa_pipeline_v1_42e5b38d5e461180e138167b.json"
+    },
+    {
+      "index": 7,
+      "source": "/home/calc08/projects/LLMPrivacy/fl_llm_m_attack_experiments/outputs/guard-v2-smoke-remote/experiments.yaml",
+      "source_sha256": "0a86f614c8dfbc10ae6108a81ab96a133834066fbbd42f4d557afcd2c589ce92",
+      "run_id": "theory_v2_1423ad8f55aa_pipeline_v1_2649562836e37e76e79010ea",
+      "attack": "amia",
+      "status": "complete",
+      "started_unix": 1790102902.750832,
+      "ended_unix": 1790103742.4378583,
+      "result_file": "0007-theory_v2_1423ad8f55aa_pipeline_v1_2649562836e37e76e79010ea.json"
+    },
+    {
+      "index": 8,
+      "source": "/home/calc08/projects/LLMPrivacy/fl_llm_m_attack_experiments/outputs/guard-v2-smoke-remote/experiments.yaml",
+      "source_sha256": "0a86f614c8dfbc10ae6108a81ab96a133834066fbbd42f4d557afcd2c589ce92",
+      "run_id": "theory_v2_1423ad8f55aa_pipeline_v1_1730addf27bf1793c49968e3",
+      "attack": "reference",
+      "status": "complete",
+      "started_unix": 1790103742.441948,
+      "ended_unix": 1790104558.7064002,
+      "result_file": "0008-theory_v2_1423ad8f55aa_pipeline_v1_1730addf27bf1793c49968e3.json"
+    },
+    {
+      "index": 9,
+      "source": "/home/calc08/projects/LLMPrivacy/fl_llm_m_attack_experiments/outputs/guard-v2-smoke-remote/experiments.yaml",
+      "source_sha256": "0a86f614c8dfbc10ae6108a81ab96a133834066fbbd42f4d557afcd2c589ce92",
+      "run_id": "theory_v2_1423ad8f55aa_pipeline_v1_7be7b9fb8ccb6f155fe8e55e",
+      "attack": "reference",
+      "status": "complete",
+      "started_unix": 1790104558.7105875,
+      "ended_unix": 1790105691.278694,
+      "result_file": "0009-theory_v2_1423ad8f55aa_pipeline_v1_7be7b9fb8ccb6f155fe8e55e.json"
+    },
+    {
+      "index": 10,
+      "source": "/home/calc08/projects/LLMPrivacy/fl_llm_m_attack_experiments/outputs/guard-v2-smoke-remote/experiments.yaml",
+      "source_sha256": "0a86f614c8dfbc10ae6108a81ab96a133834066fbbd42f4d557afcd2c589ce92",
+      "run_id": "theory_v2_1423ad8f55aa_pipeline_v1_a709c3fb2ed8bcb91e6a1937",
+      "attack": "reference",
+      "status": "complete",
+      "started_unix": 1790105691.2829006,
+      "ended_unix": 1790106814.4015121,
+      "result_file": "0010-theory_v2_1423ad8f55aa_pipeline_v1_a709c3fb2ed8bcb91e6a1937.json"
+    }
+  ],
+  "ended_unix": 1790106814.4023502
+}

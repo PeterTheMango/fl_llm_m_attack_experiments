@@ -289,6 +289,9 @@ def evaluate_pipeline(bundle, config, pipeline, trial_id=None):
     baseline = []
     for q in study["utility_queries"]:
         response = generate_answer(bundle, q["question"], [], settings)
+        audit_answer(settings, {"kind": "no_retrieval_utility", "trial_id": trial_id,
+                               "question": q["question"], "answer": response,
+                               "expected": q["answer"], "contexts": []})
         baseline.append({**answer_utility(response, q["answer"]),
                          "answer_nll": answer_nll(bundle, q["question"], q["answer"], [], settings)})
     evaluation.update(rag_conditions=conditions,

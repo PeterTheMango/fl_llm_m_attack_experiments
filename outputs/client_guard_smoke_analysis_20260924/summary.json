@@ -1,0 +1,1233 @@
+{
+  "source_sha256": "5b2b4ffeb448e21079be88ce68c12651d860b8231d6e180708bcc9eaaaa86247",
+  "source_scope": "User-supplied derived analysis, not raw result JSONs or remote manifest",
+  "checks": {
+    "eleven_unique_runs_joined": true,
+    "per_client_guard_totals_consistent": true
+  },
+  "raw_metrics_independently_recomputed": false,
+  "reported_source_fingerprints": [
+    "1423ad8f55aa"
+  ],
+  "reported_raw_input_hashes": [
+    {
+      "path": "/home/calc08/projects/LLMPrivacy/fl_llm_m_attack_experiments/outputs/guard-v2-smoke-remote/results/20260922-173328-2d75dea95957/0000-theory_v2_1423ad8f55aa_pipeline_v1_844675517b949c8b93afa642.json",
+      "sha256": "73984a260996a72ed579f9f12607c554fd0843395ed860ecc85a50fe0ad020cd"
+    },
+    {
+      "path": "/home/calc08/projects/LLMPrivacy/fl_llm_m_attack_experiments/outputs/guard-v2-smoke-remote/results/20260922-173328-2d75dea95957/0001-theory_v2_1423ad8f55aa_pipeline_v1_f981438027e882a61deb4fa0.json",
+      "sha256": "29b9c5ec4d9447f579e14b058e9c295da7af2d31b65341de90bec247ba358a67"
+    },
+    {
+      "path": "/home/calc08/projects/LLMPrivacy/fl_llm_m_attack_experiments/outputs/guard-v2-smoke-remote/results/20260922-173328-2d75dea95957/0002-theory_v2_1423ad8f55aa_pipeline_v1_12397d2d27edb306dc95a3e4.json",
+      "sha256": "d54f99bef9440027e707d0ac22bcbe545666c7c8ab53b97986dc20cb1446d570"
+    },
+    {
+      "path": "/home/calc08/projects/LLMPrivacy/fl_llm_m_attack_experiments/outputs/guard-v2-smoke-remote/results/20260922-173328-2d75dea95957/0003-theory_v2_1423ad8f55aa_pipeline_v1_c21736ea01a30ea89c21c4f3.json",
+      "sha256": "d2b361f7b4989abfe8cdb26057abe840be651496997d9d5b9e653230d144679f"
+    },
+    {
+      "path": "/home/calc08/projects/LLMPrivacy/fl_llm_m_attack_experiments/outputs/guard-v2-smoke-remote/results/20260922-173328-2d75dea95957/0004-theory_v2_1423ad8f55aa_pipeline_v1_593dc867ec2799bd8d4489bc.json",
+      "sha256": "4aa2c7856878000184557af722616390cbacd9a5d0e6dc3317794c45ccbfeab2"
+    },
+    {
+      "path": "/home/calc08/projects/LLMPrivacy/fl_llm_m_attack_experiments/outputs/guard-v2-smoke-remote/results/20260922-173328-2d75dea95957/0005-theory_v2_1423ad8f55aa_pipeline_v1_ba5984474b28e9a6d364a1ec.json",
+      "sha256": "afb10fc32182fb176020727d4763150ce7bf848f3da1d127d30c4fa2e4729eaa"
+    },
+    {
+      "path": "/home/calc08/projects/LLMPrivacy/fl_llm_m_attack_experiments/outputs/guard-v2-smoke-remote/results/20260922-173328-2d75dea95957/0006-theory_v2_1423ad8f55aa_pipeline_v1_42e5b38d5e461180e138167b.json",
+      "sha256": "ec7b5529fac75adce16c2bc6eb86b4abf7769907622f6c871e1bf2f0380905ed"
+    },
+    {
+      "path": "/home/calc08/projects/LLMPrivacy/fl_llm_m_attack_experiments/outputs/guard-v2-smoke-remote/results/20260922-173328-2d75dea95957/0007-theory_v2_1423ad8f55aa_pipeline_v1_2649562836e37e76e79010ea.json",
+      "sha256": "4da9208b57719b4197e39f4ba500032bae33a43c507855da7014dee288767e25"
+    },
+    {
+      "path": "/home/calc08/projects/LLMPrivacy/fl_llm_m_attack_experiments/outputs/guard-v2-smoke-remote/results/20260922-173328-2d75dea95957/0008-theory_v2_1423ad8f55aa_pipeline_v1_1730addf27bf1793c49968e3.json",
+      "sha256": "ba339387fadd919140ba346f545a1a804085a7bf72e3ac4e17a0982771a49e7c"
+    },
+    {
+      "path": "/home/calc08/projects/LLMPrivacy/fl_llm_m_attack_experiments/outputs/guard-v2-smoke-remote/results/20260922-173328-2d75dea95957/0009-theory_v2_1423ad8f55aa_pipeline_v1_7be7b9fb8ccb6f155fe8e55e.json",
+      "sha256": "b9051e3bcd1c96ab1c20b0703ba3f4acdf08cdd1a0ba3d208fda1b218206e1e4"
+    },
+    {
+      "path": "/home/calc08/projects/LLMPrivacy/fl_llm_m_attack_experiments/outputs/guard-v2-smoke-remote/results/20260922-173328-2d75dea95957/0010-theory_v2_1423ad8f55aa_pipeline_v1_a709c3fb2ed8bcb91e6a1937.json",
+      "sha256": "684d09a54d9d8406bb69aa796f971214953fb5ffbbc956948a974d7d07b7e37c"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "theory_v2_1423ad8f55aa_pipeline_v1_844675517b949c8b93afa642",
+      "attack": "amia",
+      "variant": "probe_head",
+      "condition": "baseline",
+      "status": "complete",
+      "balanced_accuracy": 0.75,
+      "observation_auroc": 1.0,
+      "world_mean_auroc": 1.0,
+      "independent_targets": 1,
+      "observations": 4,
+      "release_coverage": null,
+      "no_context_f1": 0.017834535319055444,
+      "absolute_f1_floor_pass": false,
+      "training_requests": null,
+      "training_rejected": null,
+      "availability": {
+        "completed_rounds": null,
+        "aborted_rounds": null,
+        "recovery": "stop_world_preserve_ledger; no automatic incomplete aggregation"
+      },
+      "paired_runtime": {
+        "baseline_run_id": "theory_v2_1423ad8f55aa_pipeline_v1_844675517b949c8b93afa642",
+        "median_round_overhead": 0.0,
+        "gate_status": "descriptive_only; paired rounds are dependent",
+        "end_to_end_ratio": 1.0,
+        "interpretation": "End-to-end includes saved attack work after rejection; not isolated guard cost",
+        "paired_rounds": 3
+      },
+      "guard_profile_seconds": {},
+      "rag": {
+        "public_ordinary": {
+          "utility": [
+            {
+              "exact_match": 0.1,
+              "token_f1": 0.20935483870967744,
+              "answer_nll": 3.5608312845230103
+            }
+          ],
+          "recognition_rate": 1.0,
+          "refusal_rate": 0.0,
+          "auroc": 0.57,
+          "document_groups": 200
+        },
+        "private_ordinary": {
+          "utility": [
+            {
+              "exact_match": 0.3,
+              "token_f1": 0.4066666666666666,
+              "answer_nll": 2.8720639824867247
+            }
+          ],
+          "recognition_rate": 1.0,
+          "refusal_rate": 0.0,
+          "auroc": 0.53,
+          "document_groups": 200
+        }
+      },
+      "overlap": {
+        "independent_targets": 1,
+        "per_target": [
+          {
+            "target_sha256": "2e016354fa6fa91efc79d0ba65e673f5392708522aed8ad3dee8cf86f5f9b6ad",
+            "defense": "ordinary",
+            "four_cells_available": false,
+            "cells": {
+              "training_0_datastore_0": null,
+              "training_0_datastore_1": null,
+              "training_1_datastore_0": 0.0,
+              "training_1_datastore_1": 1.0
+            },
+            "datastore_effect_without_training": null,
+            "datastore_effect_with_training": null,
+            "interaction": null,
+            "constant_prediction": null
+          }
+        ],
+        "interpretation": "Paired response differences; constant-positive four cells show response bias, not overlap leakage"
+      }
+    },
+    {
+      "run_id": "theory_v2_1423ad8f55aa_pipeline_v1_f981438027e882a61deb4fa0",
+      "attack": "amia",
+      "variant": "probe_head",
+      "condition": "rules_only",
+      "status": "complete",
+      "balanced_accuracy": null,
+      "observation_auroc": null,
+      "world_mean_auroc": null,
+      "independent_targets": 1,
+      "observations": 4,
+      "release_coverage": 0.0,
+      "no_context_f1": 0.017834535319055444,
+      "absolute_f1_floor_pass": false,
+      "training_requests": 12,
+      "training_rejected": 0,
+      "availability": {
+        "completed_rounds": 3,
+        "aborted_rounds": 0,
+        "recovery": "stop_world_preserve_ledger; no automatic incomplete aggregation"
+      },
+      "paired_runtime": {
+        "baseline_run_id": "theory_v2_1423ad8f55aa_pipeline_v1_844675517b949c8b93afa642",
+        "median_round_overhead": 0.9142494045923737,
+        "gate_status": "descriptive_only; paired rounds are dependent",
+        "end_to_end_ratio": 1.2538146290945038,
+        "interpretation": "End-to-end includes saved attack work after rejection; not isolated guard cost",
+        "paired_rounds": 3
+      },
+      "guard_profile_seconds": {
+        "detector_inference": {
+          "total": 0.0,
+          "median": 0.0
+        },
+        "detector_load": {
+          "total": 0.0,
+          "median": 0.0
+        },
+        "feature_extraction": {
+          "total": 65.92652607243508,
+          "median": 5.297281715087593
+        },
+        "ledger_reservation": {
+          "total": 0.0216005714610219,
+          "median": 0.0013681687414646149
+        },
+        "ledger_setup": {
+          "total": 0.009158062748610973,
+          "median": 0.00046516768634319305
+        },
+        "reference_hash": {
+          "total": 24.182916619814932,
+          "median": 2.0149832097813487
+        },
+        "reference_load": {
+          "total": 32.67950859665871,
+          "median": 2.6778219174593687
+        },
+        "request_copy": {
+          "total": 3.7063381345942616,
+          "median": 0.20081778429448605
+        },
+        "request_hash": {
+          "total": 24.195812043733895,
+          "median": 2.0151874162256718
+        },
+        "validation": {
+          "total": 2.993291982449591,
+          "median": 0.2423620568588376
+        }
+      },
+      "rag": {
+        "public_ordinary": {
+          "utility": [
+            {
+              "exact_match": 0.1,
+              "token_f1": 0.20935483870967744,
+              "answer_nll": 3.560811483860016
+            }
+          ],
+          "recognition_rate": 1.0,
+          "refusal_rate": 0.0,
+          "auroc": 0.57,
+          "document_groups": 200
+        },
+        "private_ordinary": {
+          "utility": [
+            {
+              "exact_match": 0.3,
+              "token_f1": 0.4066666666666666,
+              "answer_nll": 2.872058790922165
+            }
+          ],
+          "recognition_rate": 1.0,
+          "refusal_rate": 0.0,
+          "auroc": 0.53,
+          "document_groups": 200
+        }
+      },
+      "overlap": {
+        "independent_targets": 1,
+        "per_target": [
+          {
+            "target_sha256": "2e016354fa6fa91efc79d0ba65e673f5392708522aed8ad3dee8cf86f5f9b6ad",
+            "defense": "ordinary",
+            "four_cells_available": false,
+            "cells": {
+              "training_0_datastore_0": null,
+              "training_0_datastore_1": null,
+              "training_1_datastore_0": 0.0,
+              "training_1_datastore_1": 1.0
+            },
+            "datastore_effect_without_training": null,
+            "datastore_effect_with_training": null,
+            "interaction": null,
+            "constant_prediction": null
+          }
+        ],
+        "interpretation": "Paired response differences; constant-positive four cells show response bias, not overlap leakage"
+      }
+    },
+    {
+      "run_id": "theory_v2_1423ad8f55aa_pipeline_v1_12397d2d27edb306dc95a3e4",
+      "attack": "amia",
+      "variant": "probe_head",
+      "condition": "noise_only",
+      "status": "complete",
+      "balanced_accuracy": 0.5,
+      "observation_auroc": 0.75,
+      "world_mean_auroc": 1.0,
+      "independent_targets": 1,
+      "observations": 4,
+      "release_coverage": null,
+      "no_context_f1": 0.017834535319055444,
+      "absolute_f1_floor_pass": false,
+      "training_requests": null,
+      "training_rejected": null,
+      "availability": {
+        "completed_rounds": null,
+        "aborted_rounds": null,
+        "recovery": "stop_world_preserve_ledger; no automatic incomplete aggregation"
+      },
+      "paired_runtime": {
+        "baseline_run_id": "theory_v2_1423ad8f55aa_pipeline_v1_844675517b949c8b93afa642",
+        "median_round_overhead": -0.0051484912938215555,
+        "gate_status": "descriptive_only; paired rounds are dependent",
+        "end_to_end_ratio": 0.9415052038283781,
+        "interpretation": "End-to-end includes saved attack work after rejection; not isolated guard cost",
+        "paired_rounds": 3
+      },
+      "guard_profile_seconds": {},
+      "rag": {
+        "public_ordinary": {
+          "utility": [
+            {
+              "exact_match": 0.1,
+              "token_f1": 0.20935483870967744,
+              "answer_nll": 3.560818302631378
+            }
+          ],
+          "recognition_rate": 1.0,
+          "refusal_rate": 0.0,
+          "auroc": 0.57,
+          "document_groups": 200
+        },
+        "private_ordinary": {
+          "utility": [
+            {
+              "exact_match": 0.3,
+              "token_f1": 0.4066666666666666,
+              "answer_nll": 2.8720657765865325
+            }
+          ],
+          "recognition_rate": 1.0,
+          "refusal_rate": 0.0,
+          "auroc": 0.53,
+          "document_groups": 200
+        }
+      },
+      "overlap": {
+        "independent_targets": 1,
+        "per_target": [
+          {
+            "target_sha256": "2e016354fa6fa91efc79d0ba65e673f5392708522aed8ad3dee8cf86f5f9b6ad",
+            "defense": "ordinary",
+            "four_cells_available": false,
+            "cells": {
+              "training_0_datastore_0": null,
+              "training_0_datastore_1": null,
+              "training_1_datastore_0": 0.0,
+              "training_1_datastore_1": 1.0
+            },
+            "datastore_effect_without_training": null,
+            "datastore_effect_with_training": null,
+            "interaction": null,
+            "constant_prediction": null
+          }
+        ],
+        "interpretation": "Paired response differences; constant-positive four cells show response bias, not overlap leakage"
+      }
+    },
+    {
+      "run_id": "theory_v2_1423ad8f55aa_pipeline_v1_c21736ea01a30ea89c21c4f3",
+      "attack": "amia",
+      "variant": "probe_head",
+      "condition": "shadow",
+      "status": "complete",
+      "balanced_accuracy": 0.75,
+      "observation_auroc": 1.0,
+      "world_mean_auroc": 1.0,
+      "independent_targets": 1,
+      "observations": 4,
+      "release_coverage": 1.0,
+      "no_context_f1": 0.017834535319055444,
+      "absolute_f1_floor_pass": false,
+      "training_requests": 12,
+      "training_rejected": 0,
+      "availability": {
+        "completed_rounds": 3,
+        "aborted_rounds": 0,
+        "recovery": "stop_world_preserve_ledger; no automatic incomplete aggregation"
+      },
+      "paired_runtime": {
+        "baseline_run_id": "theory_v2_1423ad8f55aa_pipeline_v1_844675517b949c8b93afa642",
+        "median_round_overhead": 0.9401437696801207,
+        "gate_status": "descriptive_only; paired rounds are dependent",
+        "end_to_end_ratio": 1.295496376952276,
+        "interpretation": "End-to-end includes saved attack work after rejection; not isolated guard cost",
+        "paired_rounds": 3
+      },
+      "guard_profile_seconds": {
+        "detector_inference": {
+          "total": 0.0,
+          "median": 0.0
+        },
+        "detector_load": {
+          "total": 0.0,
+          "median": 0.0
+        },
+        "feature_extraction": {
+          "total": 65.23644964303821,
+          "median": 5.331644203513861
+        },
+        "ledger_reservation": {
+          "total": 0.022496258839964867,
+          "median": 0.0014867791905999184
+        },
+        "ledger_setup": {
+          "total": 0.009146473370492458,
+          "median": 0.0004639122635126114
+        },
+        "reference_hash": {
+          "total": 24.188875092193484,
+          "median": 2.0150897558778524
+        },
+        "reference_load": {
+          "total": 32.296586017124355,
+          "median": 2.647635042667389
+        },
+        "request_copy": {
+          "total": 3.6908763935789466,
+          "median": 0.20202856231480837
+        },
+        "request_hash": {
+          "total": 24.192031955346465,
+          "median": 2.0152683295309544
+        },
+        "validation": {
+          "total": 2.9943680707365274,
+          "median": 0.24087902437895536
+        }
+      },
+      "rag": {
+        "public_ordinary": {
+          "utility": [
+            {
+              "exact_match": 0.1,
+              "token_f1": 0.20935483870967744,
+              "answer_nll": 3.5608361065387726
+            }
+          ],
+          "recognition_rate": 1.0,
+          "refusal_rate": 0.0,
+          "auroc": 0.57,
+          "document_groups": 200
+        },
+        "private_ordinary": {
+          "utility": [
+            {
+              "exact_match": 0.3,
+              "token_f1": 0.4066666666666666,
+              "answer_nll": 2.8720817029476167
+            }
+          ],
+          "recognition_rate": 1.0,
+          "refusal_rate": 0.0,
+          "auroc": 0.53,
+          "document_groups": 200
+        }
+      },
+      "overlap": {
+        "independent_targets": 1,
+        "per_target": [
+          {
+            "target_sha256": "2e016354fa6fa91efc79d0ba65e673f5392708522aed8ad3dee8cf86f5f9b6ad",
+            "defense": "ordinary",
+            "four_cells_available": false,
+            "cells": {
+              "training_0_datastore_0": null,
+              "training_0_datastore_1": null,
+              "training_1_datastore_0": 0.0,
+              "training_1_datastore_1": 1.0
+            },
+            "datastore_effect_without_training": null,
+            "datastore_effect_with_training": null,
+            "interaction": null,
+            "constant_prediction": null
+          }
+        ],
+        "interpretation": "Paired response differences; constant-positive four cells show response bias, not overlap leakage"
+      }
+    },
+    {
+      "run_id": "theory_v2_1423ad8f55aa_pipeline_v1_593dc867ec2799bd8d4489bc",
+      "attack": "amia",
+      "variant": "causal_gradient_alignment",
+      "condition": "baseline",
+      "status": "complete",
+      "balanced_accuracy": 1.0,
+      "observation_auroc": 1.0,
+      "world_mean_auroc": 1.0,
+      "independent_targets": 1,
+      "observations": 4,
+      "release_coverage": null,
+      "no_context_f1": 0.017834535319055444,
+      "absolute_f1_floor_pass": false,
+      "training_requests": null,
+      "training_rejected": null,
+      "availability": {
+        "completed_rounds": null,
+        "aborted_rounds": null,
+        "recovery": "stop_world_preserve_ledger; no automatic incomplete aggregation"
+      },
+      "paired_runtime": {
+        "baseline_run_id": "theory_v2_1423ad8f55aa_pipeline_v1_593dc867ec2799bd8d4489bc",
+        "median_round_overhead": 0.0,
+        "gate_status": "descriptive_only; paired rounds are dependent",
+        "end_to_end_ratio": 1.0,
+        "interpretation": "End-to-end includes saved attack work after rejection; not isolated guard cost",
+        "paired_rounds": 3
+      },
+      "guard_profile_seconds": {},
+      "rag": {
+        "public_ordinary": {
+          "utility": [
+            {
+              "exact_match": 0.1,
+              "token_f1": 0.20935483870967744,
+              "answer_nll": 3.560840570926666
+            }
+          ],
+          "recognition_rate": 1.0,
+          "refusal_rate": 0.0,
+          "auroc": 0.57,
+          "document_groups": 200
+        },
+        "private_ordinary": {
+          "utility": [
+            {
+              "exact_match": 0.3,
+              "token_f1": 0.4066666666666666,
+              "answer_nll": 2.872094142436981
+            }
+          ],
+          "recognition_rate": 1.0,
+          "refusal_rate": 0.0,
+          "auroc": 0.53,
+          "document_groups": 200
+        }
+      },
+      "overlap": {
+        "independent_targets": 1,
+        "per_target": [
+          {
+            "target_sha256": "2e016354fa6fa91efc79d0ba65e673f5392708522aed8ad3dee8cf86f5f9b6ad",
+            "defense": "ordinary",
+            "four_cells_available": false,
+            "cells": {
+              "training_0_datastore_0": null,
+              "training_0_datastore_1": null,
+              "training_1_datastore_0": 0.0,
+              "training_1_datastore_1": 1.0
+            },
+            "datastore_effect_without_training": null,
+            "datastore_effect_with_training": null,
+            "interaction": null,
+            "constant_prediction": null
+          }
+        ],
+        "interpretation": "Paired response differences; constant-positive four cells show response bias, not overlap leakage"
+      }
+    },
+    {
+      "run_id": "theory_v2_1423ad8f55aa_pipeline_v1_ba5984474b28e9a6d364a1ec",
+      "attack": "amia",
+      "variant": "causal_gradient_alignment",
+      "condition": "rules_only",
+      "status": "complete",
+      "balanced_accuracy": 1.0,
+      "observation_auroc": 1.0,
+      "world_mean_auroc": 1.0,
+      "independent_targets": 1,
+      "observations": 4,
+      "release_coverage": 1.0,
+      "no_context_f1": 0.017834535319055444,
+      "absolute_f1_floor_pass": false,
+      "training_requests": 12,
+      "training_rejected": 0,
+      "availability": {
+        "completed_rounds": 3,
+        "aborted_rounds": 0,
+        "recovery": "stop_world_preserve_ledger; no automatic incomplete aggregation"
+      },
+      "paired_runtime": {
+        "baseline_run_id": "theory_v2_1423ad8f55aa_pipeline_v1_593dc867ec2799bd8d4489bc",
+        "median_round_overhead": 0.8361560470325009,
+        "gate_status": "descriptive_only; paired rounds are dependent",
+        "end_to_end_ratio": 1.344965946350919,
+        "interpretation": "End-to-end includes saved attack work after rejection; not isolated guard cost",
+        "paired_rounds": 3
+      },
+      "guard_profile_seconds": {
+        "detector_inference": {
+          "total": 0.0,
+          "median": 0.0
+        },
+        "detector_load": {
+          "total": 0.0,
+          "median": 0.0
+        },
+        "feature_extraction": {
+          "total": 93.95423572603613,
+          "median": 5.553485891781747
+        },
+        "ledger_reservation": {
+          "total": 0.02610788494348526,
+          "median": 0.0014775609597563744
+        },
+        "ledger_setup": {
+          "total": 0.010085955262184143,
+          "median": 0.00046426523476839066
+        },
+        "reference_hash": {
+          "total": 34.26261291652918,
+          "median": 2.015284441411495
+        },
+        "reference_load": {
+          "total": 48.975685340352356,
+          "median": 2.792977578006685
+        },
+        "request_copy": {
+          "total": 5.904721177183092,
+          "median": 0.2544201062992215
+        },
+        "request_hash": {
+          "total": 34.33508138451725,
+          "median": 2.01618913654238
+        },
+        "validation": {
+          "total": 4.3667985294014215,
+          "median": 0.25004449114203453
+        }
+      },
+      "rag": {
+        "public_ordinary": {
+          "utility": [
+            {
+              "exact_match": 0.1,
+              "token_f1": 0.20935483870967744,
+              "answer_nll": 3.560938096046448
+            }
+          ],
+          "recognition_rate": 1.0,
+          "refusal_rate": 0.0,
+          "auroc": 0.57,
+          "document_groups": 200
+        },
+        "private_ordinary": {
+          "utility": [
+            {
+              "exact_match": 0.3,
+              "token_f1": 0.4066666666666666,
+              "answer_nll": 2.8720936238765717
+            }
+          ],
+          "recognition_rate": 1.0,
+          "refusal_rate": 0.0,
+          "auroc": 0.53,
+          "document_groups": 200
+        }
+      },
+      "overlap": {
+        "independent_targets": 1,
+        "per_target": [
+          {
+            "target_sha256": "2e016354fa6fa91efc79d0ba65e673f5392708522aed8ad3dee8cf86f5f9b6ad",
+            "defense": "ordinary",
+            "four_cells_available": false,
+            "cells": {
+              "training_0_datastore_0": null,
+              "training_0_datastore_1": null,
+              "training_1_datastore_0": 0.0,
+              "training_1_datastore_1": 1.0
+            },
+            "datastore_effect_without_training": null,
+            "datastore_effect_with_training": null,
+            "interaction": null,
+            "constant_prediction": null
+          }
+        ],
+        "interpretation": "Paired response differences; constant-positive four cells show response bias, not overlap leakage"
+      }
+    },
+    {
+      "run_id": "theory_v2_1423ad8f55aa_pipeline_v1_42e5b38d5e461180e138167b",
+      "attack": "amia",
+      "variant": "causal_gradient_alignment",
+      "condition": "noise_only",
+      "status": "complete",
+      "balanced_accuracy": 0.5,
+      "observation_auroc": 0.75,
+      "world_mean_auroc": 1.0,
+      "independent_targets": 1,
+      "observations": 4,
+      "release_coverage": null,
+      "no_context_f1": 0.017834535319055444,
+      "absolute_f1_floor_pass": false,
+      "training_requests": null,
+      "training_rejected": null,
+      "availability": {
+        "completed_rounds": null,
+        "aborted_rounds": null,
+        "recovery": "stop_world_preserve_ledger; no automatic incomplete aggregation"
+      },
+      "paired_runtime": {
+        "baseline_run_id": "theory_v2_1423ad8f55aa_pipeline_v1_593dc867ec2799bd8d4489bc",
+        "median_round_overhead": 0.007618726532991449,
+        "gate_status": "descriptive_only; paired rounds are dependent",
+        "end_to_end_ratio": 1.5425981593640368,
+        "interpretation": "End-to-end includes saved attack work after rejection; not isolated guard cost",
+        "paired_rounds": 3
+      },
+      "guard_profile_seconds": {},
+      "rag": {
+        "public_ordinary": {
+          "utility": [
+            {
+              "exact_match": 0.1,
+              "token_f1": 0.20935483870967744,
+              "answer_nll": 3.5608114182949064
+            }
+          ],
+          "recognition_rate": 1.0,
+          "refusal_rate": 0.0,
+          "auroc": 0.57,
+          "document_groups": 200
+        },
+        "private_ordinary": {
+          "utility": [
+            {
+              "exact_match": 0.3,
+              "token_f1": 0.4066666666666666,
+              "answer_nll": 2.872053986787796
+            }
+          ],
+          "recognition_rate": 1.0,
+          "refusal_rate": 0.0,
+          "auroc": 0.53,
+          "document_groups": 200
+        }
+      },
+      "overlap": {
+        "independent_targets": 1,
+        "per_target": [
+          {
+            "target_sha256": "2e016354fa6fa91efc79d0ba65e673f5392708522aed8ad3dee8cf86f5f9b6ad",
+            "defense": "ordinary",
+            "four_cells_available": false,
+            "cells": {
+              "training_0_datastore_0": null,
+              "training_0_datastore_1": null,
+              "training_1_datastore_0": 0.0,
+              "training_1_datastore_1": 1.0
+            },
+            "datastore_effect_without_training": null,
+            "datastore_effect_with_training": null,
+            "interaction": null,
+            "constant_prediction": null
+          }
+        ],
+        "interpretation": "Paired response differences; constant-positive four cells show response bias, not overlap leakage"
+      }
+    },
+    {
+      "run_id": "theory_v2_1423ad8f55aa_pipeline_v1_2649562836e37e76e79010ea",
+      "attack": "amia",
+      "variant": "causal_gradient_alignment",
+      "condition": "shadow",
+      "status": "complete",
+      "balanced_accuracy": 1.0,
+      "observation_auroc": 1.0,
+      "world_mean_auroc": 1.0,
+      "independent_targets": 1,
+      "observations": 4,
+      "release_coverage": 1.0,
+      "no_context_f1": 0.017834535319055444,
+      "absolute_f1_floor_pass": false,
+      "training_requests": 12,
+      "training_rejected": 0,
+      "availability": {
+        "completed_rounds": 3,
+        "aborted_rounds": 0,
+        "recovery": "stop_world_preserve_ledger; no automatic incomplete aggregation"
+      },
+      "paired_runtime": {
+        "baseline_run_id": "theory_v2_1423ad8f55aa_pipeline_v1_593dc867ec2799bd8d4489bc",
+        "median_round_overhead": 0.8142721440456915,
+        "gate_status": "descriptive_only; paired rounds are dependent",
+        "end_to_end_ratio": 1.3405262926438848,
+        "interpretation": "End-to-end includes saved attack work after rejection; not isolated guard cost",
+        "paired_rounds": 3
+      },
+      "guard_profile_seconds": {
+        "detector_inference": {
+          "total": 0.0,
+          "median": 0.0
+        },
+        "detector_load": {
+          "total": 0.0,
+          "median": 0.0
+        },
+        "feature_extraction": {
+          "total": 92.63572331145406,
+          "median": 5.477089843712747
+        },
+        "ledger_reservation": {
+          "total": 0.0233276030048728,
+          "median": 0.0014710631221532822
+        },
+        "ledger_setup": {
+          "total": 0.009570869617164135,
+          "median": 0.0004656696692109108
+        },
+        "reference_hash": {
+          "total": 34.261296981945634,
+          "median": 2.0154540333896875
+        },
+        "reference_load": {
+          "total": 47.763810879550874,
+          "median": 2.7914255186915398
+        },
+        "request_copy": {
+          "total": 5.7716096406802535,
+          "median": 0.2218658560886979
+        },
+        "request_hash": {
+          "total": 34.27288508974016,
+          "median": 2.016086799092591
+        },
+        "validation": {
+          "total": 4.377744161523879,
+          "median": 0.24963852856308222
+        }
+      },
+      "rag": {
+        "public_ordinary": {
+          "utility": [
+            {
+              "exact_match": 0.1,
+              "token_f1": 0.20935483870967744,
+              "answer_nll": 3.5609384536743165
+            }
+          ],
+          "recognition_rate": 1.0,
+          "refusal_rate": 0.0,
+          "auroc": 0.57,
+          "document_groups": 200
+        },
+        "private_ordinary": {
+          "utility": [
+            {
+              "exact_match": 0.3,
+              "token_f1": 0.4066666666666666,
+              "answer_nll": 2.8720903038978576
+            }
+          ],
+          "recognition_rate": 1.0,
+          "refusal_rate": 0.0,
+          "auroc": 0.53,
+          "document_groups": 200
+        }
+      },
+      "overlap": {
+        "independent_targets": 1,
+        "per_target": [
+          {
+            "target_sha256": "2e016354fa6fa91efc79d0ba65e673f5392708522aed8ad3dee8cf86f5f9b6ad",
+            "defense": "ordinary",
+            "four_cells_available": false,
+            "cells": {
+              "training_0_datastore_0": null,
+              "training_0_datastore_1": null,
+              "training_1_datastore_0": 0.0,
+              "training_1_datastore_1": 1.0
+            },
+            "datastore_effect_without_training": null,
+            "datastore_effect_with_training": null,
+            "interaction": null,
+            "constant_prediction": null
+          }
+        ],
+        "interpretation": "Paired response differences; constant-positive four cells show response bias, not overlap leakage"
+      }
+    },
+    {
+      "run_id": "theory_v2_1423ad8f55aa_pipeline_v1_1730addf27bf1793c49968e3",
+      "attack": "reference",
+      "variant": null,
+      "condition": "baseline",
+      "status": "complete",
+      "balanced_accuracy": 1.0,
+      "observation_auroc": 1.0,
+      "world_mean_auroc": 1.0,
+      "independent_targets": 1,
+      "observations": 2,
+      "release_coverage": null,
+      "no_context_f1": 0.021169881744038357,
+      "absolute_f1_floor_pass": false,
+      "training_requests": null,
+      "training_rejected": null,
+      "availability": {
+        "completed_rounds": null,
+        "aborted_rounds": null,
+        "recovery": "stop_world_preserve_ledger; no automatic incomplete aggregation"
+      },
+      "paired_runtime": {
+        "baseline_run_id": "theory_v2_1423ad8f55aa_pipeline_v1_1730addf27bf1793c49968e3",
+        "median_round_overhead": 0.0,
+        "gate_status": "descriptive_only; paired rounds are dependent",
+        "end_to_end_ratio": 1.0,
+        "interpretation": "End-to-end includes saved attack work after rejection; not isolated guard cost",
+        "paired_rounds": 6
+      },
+      "guard_profile_seconds": {},
+      "rag": {
+        "public_ordinary": {
+          "utility": [
+            {
+              "exact_match": 0.1,
+              "token_f1": 0.20935483870967744,
+              "answer_nll": 3.5613327980041505
+            },
+            {
+              "exact_match": 0.0,
+              "token_f1": 0.1311413043478261,
+              "answer_nll": 3.5036385476589205
+            }
+          ],
+          "recognition_rate": 1.0,
+          "refusal_rate": 0.0,
+          "auroc": 0.56535,
+          "document_groups": 200
+        },
+        "private_ordinary": {
+          "utility": [
+            {
+              "exact_match": 0.3,
+              "token_f1": 0.4066666666666666,
+              "answer_nll": 2.871947318315506
+            },
+            {
+              "exact_match": 0.2,
+              "token_f1": 0.3570162041348482,
+              "answer_nll": 2.92808792591095
+            }
+          ],
+          "recognition_rate": 1.0,
+          "refusal_rate": 0.0,
+          "auroc": 0.53075,
+          "document_groups": 200
+        }
+      },
+      "overlap": {
+        "independent_targets": 1,
+        "per_target": [
+          {
+            "target_sha256": "2e016354fa6fa91efc79d0ba65e673f5392708522aed8ad3dee8cf86f5f9b6ad",
+            "defense": "ordinary",
+            "four_cells_available": true,
+            "cells": {
+              "training_0_datastore_0": 0.0,
+              "training_0_datastore_1": 1.0,
+              "training_1_datastore_0": 0.0,
+              "training_1_datastore_1": 1.0
+            },
+            "datastore_effect_without_training": 1.0,
+            "datastore_effect_with_training": 1.0,
+            "interaction": 0.0,
+            "constant_prediction": false
+          }
+        ],
+        "interpretation": "Paired response differences; constant-positive four cells show response bias, not overlap leakage"
+      }
+    },
+    {
+      "run_id": "theory_v2_1423ad8f55aa_pipeline_v1_7be7b9fb8ccb6f155fe8e55e",
+      "attack": "reference",
+      "variant": null,
+      "condition": "rules_only",
+      "status": "complete",
+      "balanced_accuracy": 1.0,
+      "observation_auroc": 1.0,
+      "world_mean_auroc": 1.0,
+      "independent_targets": 1,
+      "observations": 2,
+      "release_coverage": null,
+      "no_context_f1": 0.021169881744038357,
+      "absolute_f1_floor_pass": false,
+      "training_requests": 24,
+      "training_rejected": 0,
+      "availability": {
+        "completed_rounds": 6,
+        "aborted_rounds": 0,
+        "recovery": "stop_world_preserve_ledger; no automatic incomplete aggregation"
+      },
+      "paired_runtime": {
+        "baseline_run_id": "theory_v2_1423ad8f55aa_pipeline_v1_1730addf27bf1793c49968e3",
+        "median_round_overhead": 0.8698004051264265,
+        "gate_status": "descriptive_only; paired rounds are dependent",
+        "end_to_end_ratio": 1.3876367421541356,
+        "interpretation": "End-to-end includes saved attack work after rejection; not isolated guard cost",
+        "paired_rounds": 6
+      },
+      "guard_profile_seconds": {
+        "detector_inference": {
+          "total": 0.0,
+          "median": 0.0
+        },
+        "detector_load": {
+          "total": 0.0,
+          "median": 0.0
+        },
+        "feature_extraction": {
+          "total": 130.00813856720924,
+          "median": 5.435085326898843
+        },
+        "ledger_reservation": {
+          "total": 0.0342273935675621,
+          "median": 0.0013333726674318314
+        },
+        "ledger_setup": {
+          "total": 0.012849685736000538,
+          "median": 0.0004649893380701542
+        },
+        "reference_hash": {
+          "total": 48.37299708649516,
+          "median": 2.015154601074755
+        },
+        "reference_load": {
+          "total": 65.93767554499209,
+          "median": 2.6700799497775733
+        },
+        "request_copy": {
+          "total": 7.4510777303949,
+          "median": 0.20582138933241367
+        },
+        "request_hash": {
+          "total": 48.38379713892937,
+          "median": 2.015821701847017
+        },
+        "validation": {
+          "total": 5.970374563708901,
+          "median": 0.24334692722186446
+        }
+      },
+      "rag": {
+        "public_ordinary": {
+          "utility": [
+            {
+              "exact_match": 0.1,
+              "token_f1": 0.20935483870967744,
+              "answer_nll": 3.5613533735275267
+            },
+            {
+              "exact_match": 0.0,
+              "token_f1": 0.1311413043478261,
+              "answer_nll": 3.5036857664585113
+            }
+          ],
+          "recognition_rate": 1.0,
+          "refusal_rate": 0.0,
+          "auroc": 0.56535,
+          "document_groups": 200
+        },
+        "private_ordinary": {
+          "utility": [
+            {
+              "exact_match": 0.3,
+              "token_f1": 0.4066666666666666,
+              "answer_nll": 2.871967738866806
+            },
+            {
+              "exact_match": 0.2,
+              "token_f1": 0.3570162041348482,
+              "answer_nll": 2.9281514644622804
+            }
+          ],
+          "recognition_rate": 1.0,
+          "refusal_rate": 0.0,
+          "auroc": 0.53075,
+          "document_groups": 200
+        }
+      },
+      "overlap": {
+        "independent_targets": 1,
+        "per_target": [
+          {
+            "target_sha256": "2e016354fa6fa91efc79d0ba65e673f5392708522aed8ad3dee8cf86f5f9b6ad",
+            "defense": "ordinary",
+            "four_cells_available": true,
+            "cells": {
+              "training_0_datastore_0": 0.0,
+              "training_0_datastore_1": 1.0,
+              "training_1_datastore_0": 0.0,
+              "training_1_datastore_1": 1.0
+            },
+            "datastore_effect_without_training": 1.0,
+            "datastore_effect_with_training": 1.0,
+            "interaction": 0.0,
+            "constant_prediction": false
+          }
+        ],
+        "interpretation": "Paired response differences; constant-positive four cells show response bias, not overlap leakage"
+      }
+    },
+    {
+      "run_id": "theory_v2_1423ad8f55aa_pipeline_v1_a709c3fb2ed8bcb91e6a1937",
+      "attack": "reference",
+      "variant": null,
+      "condition": "shadow",
+      "status": "complete",
+      "balanced_accuracy": 1.0,
+      "observation_auroc": 1.0,
+      "world_mean_auroc": 1.0,
+      "independent_targets": 1,
+      "observations": 2,
+      "release_coverage": null,
+      "no_context_f1": 0.021169881744038357,
+      "absolute_f1_floor_pass": false,
+      "training_requests": 24,
+      "training_rejected": 0,
+      "availability": {
+        "completed_rounds": 6,
+        "aborted_rounds": 0,
+        "recovery": "stop_world_preserve_ledger; no automatic incomplete aggregation"
+      },
+      "paired_runtime": {
+        "baseline_run_id": "theory_v2_1423ad8f55aa_pipeline_v1_1730addf27bf1793c49968e3",
+        "median_round_overhead": 0.8407094913322855,
+        "gate_status": "descriptive_only; paired rounds are dependent",
+        "end_to_end_ratio": 1.376060970900201,
+        "interpretation": "End-to-end includes saved attack work after rejection; not isolated guard cost",
+        "paired_rounds": 6
+      },
+      "guard_profile_seconds": {
+        "detector_inference": {
+          "total": 0.0,
+          "median": 0.0
+        },
+        "detector_load": {
+          "total": 0.0,
+          "median": 0.0
+        },
+        "feature_extraction": {
+          "total": 131.8619503993541,
+          "median": 5.55477493815124
+        },
+        "ledger_reservation": {
+          "total": 0.034522256813943386,
+          "median": 0.0014991015195846558
+        },
+        "ledger_setup": {
+          "total": 0.012534121051430702,
+          "median": 0.00045955367386341095
+        },
+        "reference_hash": {
+          "total": 48.38368700072169,
+          "median": 2.015322359278798
+        },
+        "reference_load": {
+          "total": 64.9573068805039,
+          "median": 2.665355734527111
+        },
+        "request_copy": {
+          "total": 7.421835918910801,
+          "median": 0.20348210539668798
+        },
+        "request_hash": {
+          "total": 48.3892036145553,
+          "median": 2.0160753009840846
+        },
+        "validation": {
+          "total": 5.966376299038529,
+          "median": 0.2431221641600132
+        }
+      },
+      "rag": {
+        "public_ordinary": {
+          "utility": [
+            {
+              "exact_match": 0.1,
+              "token_f1": 0.20935483870967744,
+              "answer_nll": 3.56134215593338
+            },
+            {
+              "exact_match": 0.0,
+              "token_f1": 0.1311413043478261,
+              "answer_nll": 3.5036924719810485
+            }
+          ],
+          "recognition_rate": 1.0,
+          "refusal_rate": 0.0,
+          "auroc": 0.56535,
+          "document_groups": 200
+        },
+        "private_ordinary": {
+          "utility": [
+            {
+              "exact_match": 0.3,
+              "token_f1": 0.4066666666666666,
+              "answer_nll": 2.871953845024109
+            },
+            {
+              "exact_match": 0.2,
+              "token_f1": 0.3570162041348482,
+              "answer_nll": 2.928148257732391
+            }
+          ],
+          "recognition_rate": 1.0,
+          "refusal_rate": 0.0,
+          "auroc": 0.53075,
+          "document_groups": 200
+        }
+      },
+      "overlap": {
+        "independent_targets": 1,
+        "per_target": [
+          {
+            "target_sha256": "2e016354fa6fa91efc79d0ba65e673f5392708522aed8ad3dee8cf86f5f9b6ad",
+            "defense": "ordinary",
+            "four_cells_available": true,
+            "cells": {
+              "training_0_datastore_0": 0.0,
+              "training_0_datastore_1": 1.0,
+              "training_1_datastore_0": 0.0,
+              "training_1_datastore_1": 1.0
+            },
+            "datastore_effect_without_training": 1.0,
+            "datastore_effect_with_training": 1.0,
+            "interaction": 0.0,
+            "constant_prediction": false
+          }
+        ],
+        "interpretation": "Paired response differences; constant-positive four cells show response bias, not overlap leakage"
+      }
+    }
+  ],
+  "reported_benign_requests": 96,
+  "reported_benign_rejections": 0,
+  "reported_guarded_completed_rounds": 24,
+  "next_stage": "Inspect saved traces and optimize measured guard costs before broad collection",
+  "gates": {
+    "round_overhead": "descriptively above 10% target in every guarded arm",
+    "no_context_absolute_utility": "below provisional 0.10 F1 floor in all arms",
+    "relative_utility": "reported F1 and EM differences are zero for all matched slices",
+    "benign_rejection": "zero observed; insufficient independent evidence for 1% population gate"
+  },
+  "limitations": [
+    "One shared target across AMIA variants and Reference pair",
+    "No classifier evaluated",
+    "No fitted held-out joint transcript attacker result supplied",
+    "Raw scores, request features, per-round losses, absolute computation times and token/context audits are absent",
+    "RAG document-bootstrap results condition on the tested corpus/checkpoints"
+  ]
+}
