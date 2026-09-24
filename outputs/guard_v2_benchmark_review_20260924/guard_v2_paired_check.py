@@ -7,21 +7,43 @@ import argparse
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
+import math
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tarfile
 from uuid import uuid4
 
 
+def check_output_space(path, minimum_gib):
+    """Check the destination volume before allocating a new experiment."""
+    location = Path(path)
+    while not location.exists():
+        location = location.parent
+    free_gib = shutil.disk_usage(location).free / 1024 ** 3
+    if free_gib < minimum_gib:
+        raise ValueError(f"Only {free_gib:.2f} GiB free on the output filesystem; "
+                         f"this pair requires {minimum_gib:g} GiB of preflight headroom. "
+                         "Choose --output-root on a larger volume or archive old artifacts first. "
+                         "No training started.")
+    return free_gib
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--gpu", required=True, help="Allocated physical GPU index")
     parser.add_argument("--run", action="store_true", help="Launch the two runs after validation")
+    parser.add_argument("--output-root", type=Path, default=Path("outputs"),
+                        help="Destination for the new run, including an optional larger mounted volume")
+    parser.add_argument("--min-free-gib", type=float, default=20.,
+                        help="Required free output space before --run (default: 20 GiB; estimated headroom, not a storage guarantee)")
     args = parser.parse_args()
     if not args.gpu.isdigit():
         parser.error("--gpu must be a numeric physical GPU index")
+    if not math.isfinite(args.min_free_gib) or args.min_free_gib < 1:
+        parser.error("--min-free-gib must be finite and at least 1")
     root = Path.cwd()
     if not (root / "master_script/core/guard_features.py").is_file():
         parser.error("Run from the repository root")
@@ -40,7 +62,14 @@ def main():
     doc = build_stage(plan)
     doc["attacks"] = {"amia": doc["attacks"]["amia"]}
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    output = root / "outputs" / f"guard-v2-paired-check-{stamp}-{uuid4().hex[:8]}"
+    output_parent = args.output_root.expanduser().resolve()
+    free_gib = None
+    if args.run:
+        try:
+            free_gib = check_output_space(output_parent, args.min_free_gib)
+        except ValueError as exc:
+            parser.error(str(exc))
+    output = output_parent / f"guard-v2-paired-check-{stamp}-{uuid4().hex[:8]}"
     queue = output / "experiments.yaml"
     pairs = load_config_doc(doc, source=str(queue))
     if len(pairs) != 2 or {s.pipeline.condition for _, s in pairs} != {"baseline", "rules_only"}:
@@ -52,6 +81,9 @@ def main():
     queue.write_text(yaml.safe_dump(doc, sort_keys=False))
     (output / "launch.json").write_text(json.dumps({"plan": plan, "expected_runs": 2,
         "gpu": args.gpu, "feature_source_sha256": feature_hash,
+        "output_root": str(output_parent), "free_output_gib_before_launch": free_gib,
+        "minimum_free_output_gib": args.min_free_gib,
+        "storage_note": "Output-volume check only; model caches, logs and Ray temporary files may use other volumes. 20 GiB is estimated headroom for retained models and guard snapshots, not a reservation or guarantee.",
         "runtime_estimate_minutes": [25, 35],
         "estimate_basis": "Prior causal baseline 626s and rules 842s; hardware/load may change timing",
         "purpose": "Measure actual FL overhead and collect private no-context answer audit",
