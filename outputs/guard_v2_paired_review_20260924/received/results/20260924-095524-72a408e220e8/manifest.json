@@ -1,0 +1,30 @@
+{
+  "batch_id": "20260924-095524-72a408e220e8",
+  "status": "complete",
+  "started_unix": 1790243724.5095317,
+  "entries": [
+    {
+      "index": 0,
+      "source": "/home/calc08/projects/LLMPrivacy/fl_llm_m_attack_experiments/outputs/guard-v2-paired-check-20260924-095524-b38414b5/experiments.yaml",
+      "source_sha256": "6dd7c09080a61eefcd2ced5a7d7c67a033b09f8d26622e09a2b0f548d51013cb",
+      "run_id": "theory_v2_db21a0271c3a_pipeline_v1_593dc867ec2799bd8d4489bc",
+      "attack": "amia",
+      "status": "complete",
+      "started_unix": 1790243724.5136716,
+      "ended_unix": 1790244360.012075,
+      "result_file": "0000-theory_v2_db21a0271c3a_pipeline_v1_593dc867ec2799bd8d4489bc.json"
+    },
+    {
+      "index": 1,
+      "source": "/home/calc08/projects/LLMPrivacy/fl_llm_m_attack_experiments/outputs/guard-v2-paired-check-20260924-095524-b38414b5/experiments.yaml",
+      "source_sha256": "6dd7c09080a61eefcd2ced5a7d7c67a033b09f8d26622e09a2b0f548d51013cb",
+      "run_id": "theory_v2_db21a0271c3a_pipeline_v1_ba5984474b28e9a6d364a1ec",
+      "attack": "amia",
+      "status": "complete",
+      "started_unix": 1790244360.0164967,
+      "ended_unix": 1790245166.911559,
+      "result_file": "0001-theory_v2_db21a0271c3a_pipeline_v1_ba5984474b28e9a6d364a1ec.json"
+    }
+  ],
+  "ended_unix": 1790245166.9121451
+}

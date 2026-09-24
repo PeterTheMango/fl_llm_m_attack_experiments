@@ -1,0 +1,110 @@
+{
+  "checks": {
+    "queue_hash_verified": true,
+    "result_hashes_verified": true,
+    "matched_pair_verified": true,
+    "attack_metrics_recomputed": true,
+    "audit_utility_recomputed": true,
+    "identical_twenty_no_context_answers": true
+  },
+  "source_files": {
+    "results/20260924-095524-72a408e220e8/0000-theory_v2_db21a0271c3a_pipeline_v1_593dc867ec2799bd8d4489bc.json": "f67e18c037f217db9babcb1d4fd7a5f4ff2b86bfb32228b06f22fceae940d1ce",
+    "results/20260924-095524-72a408e220e8/0001-theory_v2_db21a0271c3a_pipeline_v1_ba5984474b28e9a6d364a1ec.json": "55ef2ea36143a281c65d290b9f6a243ae1b38e52a04e9d3e32fb1146eb03fbd4"
+  },
+  "archive_sha256": "4e092e9c6fbb5d2ed6b62f370b1c0772c29253303c368008836c2ad0b0316b2d",
+  "implementation": "db21a0271c3a",
+  "independent_targets": 1,
+  "rounds": [
+    {
+      "round": 1,
+      "baseline_seconds": 74.1210893150419,
+      "rules_seconds": 117.68396703433245,
+      "relative_overhead": 0.5877258162536212,
+      "baseline_loss": 3.204140485428712,
+      "rules_loss": 3.204140485428712
+    },
+    {
+      "round": 2,
+      "baseline_seconds": 56.16347489133477,
+      "rules_seconds": 97.50023191142827,
+      "relative_overhead": 0.7360078253717734,
+      "baseline_loss": 2.3159593228689013,
+      "rules_loss": 2.3159613373744135
+    },
+    {
+      "round": 3,
+      "baseline_seconds": 55.19978395663202,
+      "rules_seconds": 94.28162675630301,
+      "relative_overhead": 0.708007169563849,
+      "baseline_loss": 1.6136859123978544,
+      "rules_loss": 1.6136915328748085
+    }
+  ],
+  "median_round_overhead": 0.708007169563849,
+  "wall_seconds": {
+    "baseline": 635.0020788563415,
+    "rules": 806.4713600268587
+  },
+  "end_to_end_overhead": 0.27002948002837823,
+  "training_guard_mean_seconds": 10.91094248346053,
+  "training_guard_mean_stages_seconds": {
+    "request_copy": 0.31199676846154034,
+    "request_hash": 2.0161118789886436,
+    "reference_load": 2.7061292334304503,
+    "reference_hash": 2.0153233845097325,
+    "validation": 0.24838098084243634,
+    "feature_extraction": 3.6076299559014537,
+    "detector_load": 0.0,
+    "detector_inference": 0.0,
+    "ledger_setup": 0.0006364063980678717,
+    "ledger_reservation": 0.0014554014584670465
+  },
+  "training_requests": 12,
+  "training_rejections": 0,
+  "per_client_losses": {
+    "0": [
+      3.186597038717831,
+      2.2643557366202858,
+      1.5023693512467777
+    ],
+    "1": [
+      3.141671046614647,
+      2.327740415930748,
+      1.6338495798408985
+    ],
+    "2": [
+      3.205522581934929,
+      2.281011536717415,
+      1.639846559613943
+    ],
+    "3": [
+      3.282771274447441,
+      2.390737660229206,
+      1.678700640797615
+    ]
+  },
+  "no_context_utility": {
+    "exact_match": 0.0,
+    "token_f1": 0.017834535319055444,
+    "answer_nll": 6.146160507202149
+  },
+  "rag_utility": {
+    "public_ordinary": {
+      "exact_match": 0.1,
+      "token_f1": 0.20935483870967744,
+      "answer_nll": 3.5608109831809998
+    },
+    "private_ordinary": {
+      "exact_match": 0.3,
+      "token_f1": 0.4066666666666666,
+      "answer_nll": 2.8720576643943785
+    }
+  },
+  "next_step": "Pinned pretrained versus saved baseline utility comparison, identical prompt/questions/scoring; inference only",
+  "limits": [
+    "One reused diagnostic target; no population efficacy or rejection guarantee",
+    "Identical answers across conditions establish observed preservation, not good baseline utility",
+    "Need pretrained control before attributing low utility to fine-tuning",
+    "No joint transcript attacker evaluated"
+  ]
+}

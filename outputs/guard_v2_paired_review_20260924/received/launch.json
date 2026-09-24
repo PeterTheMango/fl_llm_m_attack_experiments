@@ -1,0 +1,41 @@
+{
+  "plan": {
+    "schema": "guard_stage_v2",
+    "stage": "smoke",
+    "seed": 1000,
+    "targets": 1,
+    "queries_per_world": 2,
+    "rounds": 3,
+    "clients": 4,
+    "probe_epochs": 4,
+    "calibration_nonmembers": 20,
+    "conditions": [
+      "baseline",
+      "rules_only"
+    ],
+    "variants": [
+      "causal_gradient_alignment"
+    ],
+    "reference_conditions": [],
+    "retrieval_defenses": [
+      "ordinary"
+    ],
+    "membership_attack": "yes_no",
+    "requires_detector": false,
+    "purpose": "Paired runtime and utility regression after CPU optimization; one diagnostic target"
+  },
+  "expected_runs": 2,
+  "gpu": "0",
+  "feature_source_sha256": "db7edc658b1113ba6b80cd14b5366008581309892c8f97321115db39cffd1797",
+  "output_root": "/home/calc08/projects/LLMPrivacy/fl_llm_m_attack_experiments/outputs",
+  "free_output_gib_before_launch": 48.25946044921875,
+  "minimum_free_output_gib": 20.0,
+  "storage_note": "Output-volume check only; model caches, logs and Ray temporary files may use other volumes. 20 GiB is estimated headroom for retained models and guard snapshots, not a reservation or guarantee.",
+  "runtime_estimate_minutes": [
+    25,
+    35
+  ],
+  "estimate_basis": "Prior causal baseline 626s and rules 842s; hardware/load may change timing",
+  "purpose": "Measure actual FL overhead and collect private no-context answer audit",
+  "limitations": "One reused diagnostic target; no classifier or independent efficacy evaluation"
+}
