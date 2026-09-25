@@ -50,6 +50,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("results", nargs="+"); parser.add_argument("--output", required=True)
     parser.add_argument("--plot", help="Optional PNG with separate attack panels")
+    parser.add_argument("--protocol", help="Optional explicit utility protocol; old screening fields remain unchanged")
     args = parser.parse_args()
     raw = [Path(p).read_bytes() for p in args.results]
     results = [json.loads(data) for data in raw]
@@ -58,6 +59,11 @@ def main():
     report["provenance"] = [{k: r.get(k) for k in ("run_id", "implementation_fingerprint", "method_version", "pipeline", "config")} for r in results]
     report["paired_utility"] = paired_utility_report(results)
     report["study_v2"] = joined_study_report(results)
+    if args.protocol:
+        from master_script.core.guard_protocol import utility_report
+        protocol_raw = Path(args.protocol).read_bytes()
+        report["utility_protocol"] = utility_report(results, json.loads(protocol_raw))
+        report["utility_protocol"]["sha256"] = sha256(protocol_raw).hexdigest()
     with Path(args.output).open("x") as stream:
         stream.write(json.dumps(report, indent=2, allow_nan=False) + "\n")
     if args.plot:

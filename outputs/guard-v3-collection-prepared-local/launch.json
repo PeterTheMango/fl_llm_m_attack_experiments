@@ -1,0 +1,213 @@
+{
+  "schema": "guard_collection_v3",
+  "created_unix": 1790297887.1266382,
+  "implementation_fingerprint": "7d9f9493f7c3",
+  "validation_workers": 1,
+  "planned_targets": 8,
+  "jobs": [
+    {
+      "config": "job-000.yaml",
+      "sha256": "35f744bceb5538516b5ec5885c9084d52df90d02a2334106c871cb3e56aecad1",
+      "seed": 2000,
+      "role": "train",
+      "attack": "amia",
+      "variant": "probe_head"
+    },
+    {
+      "config": "job-001.yaml",
+      "sha256": "ea7c44705ab1349f0e94c966285c2c0134c44483be2623249420706616f73090",
+      "seed": 2000,
+      "role": "train",
+      "attack": "amia",
+      "variant": "causal_gradient_alignment"
+    },
+    {
+      "config": "job-002.yaml",
+      "sha256": "05e80d344bb1b17f244e3d38da458a107b990cf039136e71af0b6bb795a57f2c",
+      "seed": 2000,
+      "role": "train",
+      "attack": "reference",
+      "variant": null
+    },
+    {
+      "config": "job-003.yaml",
+      "sha256": "e150885c339df0cfdd159225315f940156c67ebd520836bd7e6b38fdc6322e7d",
+      "seed": 2001,
+      "role": "train",
+      "attack": "amia",
+      "variant": "probe_head"
+    },
+    {
+      "config": "job-004.yaml",
+      "sha256": "39323021d169a542b2dee753b187b4f69dbb9b94b0af63a44bf58ba6497ed4c3",
+      "seed": 2001,
+      "role": "train",
+      "attack": "amia",
+      "variant": "causal_gradient_alignment"
+    },
+    {
+      "config": "job-005.yaml",
+      "sha256": "1c2625ca58c8d29fdcbf492221b416b51f3613fc79492e64a9fa1df499a3b1cf",
+      "seed": 2001,
+      "role": "train",
+      "attack": "reference",
+      "variant": null
+    },
+    {
+      "config": "job-006.yaml",
+      "sha256": "d9796a0e7776af4ba1e942f4922bfbc89044d530d75d356f795b57b893e16d29",
+      "seed": 2002,
+      "role": "train",
+      "attack": "amia",
+      "variant": "probe_head"
+    },
+    {
+      "config": "job-007.yaml",
+      "sha256": "9d396bd682a77657c4dbd7a6771dfc357a62d5824ba5cff56039e485509bb512",
+      "seed": 2002,
+      "role": "train",
+      "attack": "amia",
+      "variant": "causal_gradient_alignment"
+    },
+    {
+      "config": "job-008.yaml",
+      "sha256": "f1b25b9ab1fb1b53558e9de93a6c2e95cd5f97b69098f9637767685327d64529",
+      "seed": 2002,
+      "role": "train",
+      "attack": "reference",
+      "variant": null
+    },
+    {
+      "config": "job-009.yaml",
+      "sha256": "347c322f1e62ad8277628b5dd702f91b5989bba654718918423bf5a492bf5b1c",
+      "seed": 2003,
+      "role": "train",
+      "attack": "amia",
+      "variant": "probe_head"
+    },
+    {
+      "config": "job-010.yaml",
+      "sha256": "26cbaf04e0cb1a865d2fa0071947035f26a2eabb50df40b9e3110f81736d4491",
+      "seed": 2003,
+      "role": "train",
+      "attack": "amia",
+      "variant": "causal_gradient_alignment"
+    },
+    {
+      "config": "job-011.yaml",
+      "sha256": "9e02f71eec41c917bd0759fa8efab49a70cce843dc3530f4f6fdc8cfb9031710",
+      "seed": 2003,
+      "role": "train",
+      "attack": "reference",
+      "variant": null
+    },
+    {
+      "config": "job-012.yaml",
+      "sha256": "67996526218703712ea8b8544935cb3740466b2241d13423935e3eda13cedfd3",
+      "seed": 2004,
+      "role": "validation",
+      "attack": "amia",
+      "variant": "probe_head"
+    },
+    {
+      "config": "job-013.yaml",
+      "sha256": "64c8b31623f73d7fc4d05739550a52a62f7e334ecbe5f46731fd60eace02da3b",
+      "seed": 2004,
+      "role": "validation",
+      "attack": "amia",
+      "variant": "causal_gradient_alignment"
+    },
+    {
+      "config": "job-014.yaml",
+      "sha256": "ce9e7af46efdbf3491a41f49f0f97b27e337256001308ab0a28ab321826520b1",
+      "seed": 2004,
+      "role": "validation",
+      "attack": "reference",
+      "variant": null
+    },
+    {
+      "config": "job-015.yaml",
+      "sha256": "745603620fc45ea8b27a7e24ab6135e709d850c443f056b1e93bd996ae145893",
+      "seed": 2005,
+      "role": "validation",
+      "attack": "amia",
+      "variant": "probe_head"
+    },
+    {
+      "config": "job-016.yaml",
+      "sha256": "02e077f8250f89f87c37b3c12474f8692f7c6210a68116e80a0a97d535350fa0",
+      "seed": 2005,
+      "role": "validation",
+      "attack": "amia",
+      "variant": "causal_gradient_alignment"
+    },
+    {
+      "config": "job-017.yaml",
+      "sha256": "2b391534898d44ae4ac1ec5d255393a8bf70c2d1b57b257a4bd73fcdec8ff598",
+      "seed": 2005,
+      "role": "validation",
+      "attack": "reference",
+      "variant": null
+    },
+    {
+      "config": "job-018.yaml",
+      "sha256": "84eab22ae07e254cf1f8291b25abc8deb59da6db532e87badb3e220635ec3448",
+      "seed": 2006,
+      "role": "test",
+      "attack": "amia",
+      "variant": "probe_head"
+    },
+    {
+      "config": "job-019.yaml",
+      "sha256": "91886bcd63795997bb1bf3b7e281125f9bf1336dc7e892080f457c60e2f2876e",
+      "seed": 2006,
+      "role": "test",
+      "attack": "amia",
+      "variant": "causal_gradient_alignment"
+    },
+    {
+      "config": "job-020.yaml",
+      "sha256": "0f43ef5799bb9cfbd49f1045085b2c3bb5380f4fe695d682c5899d678b0e1ba2",
+      "seed": 2006,
+      "role": "test",
+      "attack": "reference",
+      "variant": null
+    },
+    {
+      "config": "job-021.yaml",
+      "sha256": "f269748d38f5f040ac5fcdab0cc2c2a2a4bc0077f1838c3339ad3e91bb6d3f53",
+      "seed": 2007,
+      "role": "test",
+      "attack": "amia",
+      "variant": "probe_head"
+    },
+    {
+      "config": "job-022.yaml",
+      "sha256": "fd7e35f4da73b3644915bd4082ac4b743c321e1f902456ba389325fe146b090d",
+      "seed": 2007,
+      "role": "test",
+      "attack": "amia",
+      "variant": "causal_gradient_alignment"
+    },
+    {
+      "config": "job-023.yaml",
+      "sha256": "34279121cba52e8e43cb321f79f0b8b06439d83fbabff0dbb1221c37cfa84f72",
+      "seed": 2007,
+      "role": "test",
+      "attack": "reference",
+      "variant": null
+    }
+  ],
+  "held_out_variants": [
+    "causal_gradient_alignment"
+  ],
+  "excluded_targets": [
+    "2e016354fa6fa91efc79d0ba65e673f5392708522aed8ad3dee8cf86f5f9b6ad"
+  ],
+  "protocol_file": "utility-protocol.json",
+  "protocol_sha256": "4c35fc9efbf3363947caa80238c425573e476cf23065470bb163f0038fb90334",
+  "retention": "retire completed new-job model/probe weights and guard NPZ after result/ledger verification; keep JSON/JSONL/SQLite",
+  "purpose": "Diagnostic detector data only, not a claim that privacy/utility/overhead gates pass",
+  "duration": "Default execution is one job; the complete plan is a multi-hour study requiring deliberate bounded execution",
+  "storage": "20 GiB free output and 4 GiB scratch preflight per job; estimates, not reservations or guarantees"
+}

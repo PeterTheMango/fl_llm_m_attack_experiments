@@ -1,0 +1,32 @@
+{
+  "checks": {
+    "source_result_hash_verified": true,
+    "script_hash": "matches local script plus one trailing newline",
+    "study_hash_verified": true,
+    "all_question_identities_verified": true,
+    "em_f1_recomputed_from_answers": true,
+    "saved_model_answers_exactly_reproduced": true,
+    "nll_means_recomputed_from_reported_per_question_nll": true,
+    "nll_independently_recomputed_on_gpu": false
+  },
+  "source_sha256": "618ad655ee3a8bc5992f32d6287ebd642cb57dcb33c0ec77088d19b68c373391",
+  "pretrained": {
+    "exact_match": 0.0,
+    "token_f1": 0.025714321909974084,
+    "answer_nll": 9.02084240913391
+  },
+  "finetuned": {
+    "exact_match": 0.0,
+    "token_f1": 0.017834535319055444,
+    "answer_nll": 6.146160507202149
+  },
+  "f1_absolute_percentage_point_change": -0.787978659091864,
+  "f1_retention_ratio": 0.6935642861396153,
+  "nll_change": -2.874681901931762,
+  "question_count": 20,
+  "f1_improved": 4,
+  "f1_worsened": 6,
+  "f1_unchanged": 10,
+  "nll_improved": 19,
+  "interpretation": "Both checkpoints fail the original no-context utility floor. Fine-tuning reduces teacher-forced answer NLL while decoded lexical F1 falls slightly in absolute terms. Earlier matched guard answers were identical, so observed poor utility is not a guard-induced difference. This is a reused diagnostic question set, not a general capability conclusion."
+}

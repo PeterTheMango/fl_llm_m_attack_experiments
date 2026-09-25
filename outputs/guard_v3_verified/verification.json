@@ -1,0 +1,40 @@
+{
+  "implementation_fingerprint": "7d9f9493f7c3",
+  "base_commit": "acc235ec5a581f5152fbce9009c0d23274fe8e8c",
+  "tests": {
+    "passed": 536,
+    "skipped": 11,
+    "seconds": 19.72,
+    "log": "pytest.txt"
+  },
+  "patch": {
+    "path": "guard-v3-next-steps.patch",
+    "sha256": "d310863d2569ef16e74b49e1e43aa056603ffb18877ac0387e2436d6ea35424b",
+    "clean_base_apply_and_byte_comparison": true
+  },
+  "collection": {
+    "prepared_runs": 24,
+    "planned_independent_targets": 8,
+    "roles_by_seed": {
+      "2000": "train",
+      "2001": "train",
+      "2002": "train",
+      "2003": "train",
+      "2004": "validation",
+      "2005": "validation",
+      "2006": "test",
+      "2007": "test"
+    },
+    "gpu_jobs_launched": 0,
+    "target_identities_pending_remote_dataset_resolution": true
+  },
+  "protocol_reanalysis": {
+    "historical_no_context_failure_preserved": true,
+    "rag_passes_do_not_hide_failure": true
+  },
+  "limits": [
+    "Synthetic 64-MiB CPU benchmark only; no full-model speedup claim",
+    "No detector fit or GPU collection launched",
+    "No historical artifact cleanup or publication performed"
+  ]
+}

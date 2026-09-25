@@ -1,0 +1,417 @@
+{
+  "schema": "guard_utility_control_v1",
+  "run_id": "theory_v2_db21a0271c3a_pipeline_v1_593dc867ec2799bd8d4489bc",
+  "source_result_sha256": "f67e18c037f217db9babcb1d4fd7a5f4ff2b86bfb32228b06f22fceae940d1ce",
+  "source_implementation": "db21a0271c3a",
+  "study_sha256": "6fbf28e75fb64a4f43fe4b39e32e0822fe77e46107d726b93e6a258449db2a03",
+  "control_script_sha256": "d55351309a94dfb97fcf81d116001bb6c3142733b0768798071fdee5a964aa98",
+  "model_id": "Qwen/Qwen2.5-0.5B-Instruct",
+  "model_revision": "7ae557604adf67be50417f59c2c2f167def9a775",
+  "tokenizer_source": "/home/calc08/projects/LLMPrivacy/fl_llm_m_attack_experiments/outputs/guard-v2-paired-check-20260924-095524-b38414b5/results/20260924-095524-72a408e220e8/artifacts/0000-theory_v2_db21a0271c3a_pipeline_v1_593dc867ec2799bd8d4489bc/federated_model",
+  "physical_gpu": "0",
+  "generation": {
+    "prompt": "original no-context RAG prompt",
+    "prompt_format": "chat",
+    "max_new_tokens": 64,
+    "do_sample": false
+  },
+  "recorded_finetuned": {
+    "exact_match": 0.0,
+    "token_f1": 0.017834535319055444,
+    "answer_nll": 6.146160507202149
+  },
+  "finetuned_em_f1_reproduced": true,
+  "finetuned_minus_pretrained": {
+    "exact_match": 0.0,
+    "token_f1": -0.00787978659091864,
+    "answer_nll": -2.874681901931762
+  },
+  "evaluated": {
+    "pretrained": {
+      "summary": {
+        "exact_match": 0.0,
+        "token_f1": 0.025714321909974084,
+        "answer_nll": 9.02084240913391
+      },
+      "rows": [
+        {
+          "id": "private_5730de74f6cb411900e244fc",
+          "question": "Unlike confirmation and profession of faith, what is a sacrament in the UMC?",
+          "expected": "Baptism",
+          "answer": "In the United Methodist Church (UMC), a sacrament refers to an event or practice that is performed as part of the Christian religious tradition but does not have a formal definition or official status like a creed or catechism. It's typically associated with the celebration of important life events such as marriage, baptism, and",
+          "exact_match": 0.0,
+          "token_f1": 0.03571428571428571,
+          "answer_nll": 7.35670280456543
+        },
+        {
+          "id": "public_56de3ebc4396321400ee26e6",
+          "question": "When did the Siege of Antioch take place?",
+          "expected": "1097",
+          "answer": "The Siege of Antioch took place in 356 BC. This was one of the most significant military engagements in ancient history and is considered one of the most famous sieges in world history. The siege began on March 18, 356 BC, when the Roman army led by Titus",
+          "exact_match": 0.0,
+          "token_f1": 0.0,
+          "answer_nll": 5.440579414367676
+        },
+        {
+          "id": "public_57280f974b864d1900164370",
+          "question": "If the head of government refuses to enforce a decision of the highest court what terminology could be used?",
+          "expected": "constitutional impasse",
+          "answer": "If the head of government refuses to enforce a decision of the highest court, the appropriate term would be \"non-enforcement\" or \"inaction.\" This indicates that the government is not fulfilling its legal obligations and has failed to comply with the judgment or ruling made by the highest court.",
+          "exact_match": 0.0,
+          "token_f1": 0.0,
+          "answer_nll": 8.830005645751953
+        },
+        {
+          "id": "public_573330444776f41900660758",
+          "question": "What pope as a native of Poland?",
+          "expected": "John Paul II",
+          "answer": "The Pope who was born in Poland is John Paul II.\n\nJohn Paul II was born on July 17, 1920, in Krak\u00f3w, Poland. He was the 26th Pope of the Catholic Church and served from January 30, 1978, until his death",
+          "exact_match": 0.0,
+          "token_f1": 0.13636363636363635,
+          "answer_nll": 5.111566066741943
+        },
+        {
+          "id": "private_5726dba1dd62a815002e92e4",
+          "question": "In which year are the Meissen Vulture in the V&A collection dated?",
+          "expected": "1731",
+          "answer": "The Meissen Vulture is not specifically mentioned as being part of the V&A (Vatican Museums) collection. The V&A collection typically includes works from various periods and styles, but it does not include specific pieces like vultures or other rare birds.\n\nIf you're looking for information about the Meissen V",
+          "exact_match": 0.0,
+          "token_f1": 0.0,
+          "answer_nll": 5.16903829574585
+        },
+        {
+          "id": "public_57286fa83acd2414000df9e5",
+          "question": "Who was Ayurbarwada's son?",
+          "expected": "Gegeen Khan",
+          "answer": "Ayurbarwada's son was Bhagirath. The story of Ayurbarwada and Bhagiratha is part of the Hindu epic Ramayana, which is one of the most famous and influential works in world literature. In this epic, Ayurbarwada is the king of the",
+          "exact_match": 0.0,
+          "token_f1": 0.0,
+          "answer_nll": 10.904882431030273
+        },
+        {
+          "id": "public_5725ee6438643c19005aceb3",
+          "question": "What did NASA name the series seeking up to 30 more flights to Earth's orbit?",
+          "expected": "Apollo X",
+          "answer": "NASA named the series \"The Space Race\" in honor of the famous rivalry between the United States and the Soviet Union during the Cold War era. This nickname reflects their shared interest in space exploration and competition for technological superiority over each other. The series was intended to highlight the ambitious goals and challenges faced by astronauts as they prepared",
+          "exact_match": 0.0,
+          "token_f1": 0.0,
+          "answer_nll": 11.738184928894043
+        },
+        {
+          "id": "private_57268525dd62a815002e8806",
+          "question": "Between what dates was the building on Pilgrim Street refurbished? ",
+          "expected": "November 2006 and May 2008",
+          "answer": "To determine when the building on Pilgrim Street was refurbished, we need to look at the historical context provided in the given text.\n\nThe passage states that \"the building on Pilgrim Street was refurbished between 1970 and 2000.\" This indicates that the building underwent significant renovations or updates from around",
+          "exact_match": 0.0,
+          "token_f1": 0.03636363636363636,
+          "answer_nll": 2.542543888092041
+        },
+        {
+          "id": "private_5726a0205951b619008f781b",
+          "question": "Who was brought it to work on the museum after the death of Captain Francis Fowke?",
+          "expected": "Henry Young Darracott Scott",
+          "answer": "Captain Francis Fowke died in 1856 and left behind his collection of paintings and drawings. The museum he had established in 1849 was dedicated to preserving and showcasing these works. After Captain Fowke's passing, the museum began to acquire new acquisitions from various artists and collectors who were",
+          "exact_match": 0.0,
+          "token_f1": 0.0,
+          "answer_nll": 8.122603416442871
+        },
+        {
+          "id": "private_57097c8fed30961900e841f2",
+          "question": "What did Alec Shelbrooke propose payments of benefits to be made on?",
+          "expected": "Welfare Cash Card",
+          "answer": "According to the provided context, Alec Shelbrooke proposed that payments of benefits should be made on behalf of individuals who have been injured or affected by a natural disaster. This proposal was part of his broader efforts to support those affected by such events and to provide assistance in their recovery. The specific details about how these payments would",
+          "exact_match": 0.0,
+          "token_f1": 0.0,
+          "answer_nll": 12.546231269836426
+        },
+        {
+          "id": "public_5726e5c95951b619008f81cb",
+          "question": "What is one example of what a clinical pharmacist's duties entail?",
+          "expected": "creating a comprehensive drug therapy plan for patient-specific problems",
+          "answer": "One example of what a clinical pharmacist's duties entail is providing medication guidance and consultation to patients. Clinical pharmacists work in healthcare settings, such as hospitals, clinics, and pharmacies, to help patients manage their medications safely and effectively. They may also provide education on drug interactions, side effects, and other relevant information related to",
+          "exact_match": 0.0,
+          "token_f1": 0.06153846153846154,
+          "answer_nll": 5.082016944885254
+        },
+        {
+          "id": "private_56bec9133aeaaa14008c9445",
+          "question": "Who tackled Mike Tolbert and caused a fumble?",
+          "expected": "Darian Stewart",
+          "answer": "Based on the provided context, there is no mention of anyone specifically tackling Mike Tolbert or causing a fumble. The passage does not contain any information about a specific incident involving Mike Tolbert or any player tackling him. Therefore, it's impossible to determine who tackled Mike Tolbert based solely on the given context.",
+          "exact_match": 0.0,
+          "token_f1": 0.0,
+          "answer_nll": 11.39405345916748
+        },
+        {
+          "id": "public_5728284e3acd2414000df5cd",
+          "question": "What was Joseph Haas arrested for?",
+          "expected": "sending an email to the Lebanon, New Hampshire city councilors",
+          "answer": "Based on the provided context, there is no mention of Joseph Haas being arrested or any specific crime he may have been involved in. The context appears to be about someone named Joseph Haas and does not contain information about his arrest or any criminal activity. If you have additional details or context that would help identify Joseph Ha",
+          "exact_match": 0.0,
+          "token_f1": 0.057971014492753624,
+          "answer_nll": 5.780387878417969
+        },
+        {
+          "id": "private_56e127bccd28a01900c6765b",
+          "question": "On which magazine's cover did Tesla appear in 1931",
+          "expected": "Time magazine",
+          "answer": "Tesla appeared on the cover of \"The New York Times\" magazine in 1931. This was a significant milestone for Tesla as it marked his first appearance in print media since he had been working with the newspaper for only two years at that time. The cover featured Tesla standing next to a large, ornate",
+          "exact_match": 0.0,
+          "token_f1": 0.07142857142857142,
+          "answer_nll": 12.031682014465332
+        },
+        {
+          "id": "private_572975511d046914007794a7",
+          "question": "What usually takes reenergized electrons?",
+          "expected": "NADP+",
+          "answer": "Reenergized electrons typically take advantage of the energy stored in the electric field between two adjacent atoms or molecules. This energy is released when an electron transitions from one energy level to another, often resulting in the emission of light and the formation of a new atom or molecule.\n\nTo elaborate further:\n\n1. **Energy Storage",
+          "exact_match": 0.0,
+          "token_f1": 0.0,
+          "answer_nll": 8.664533615112305
+        },
+        {
+          "id": "private_56e059c8231d4119001ac057",
+          "question": "Where did Tesla work in 1888?",
+          "expected": "Pittsburgh",
+          "answer": "Tesla worked at the Western Electric Company in Menlo Park, California, from 1888 until his death in 1943. This was where he began his career as an electrical engineer and later became one of the most influential figures in the history of electric power generation.",
+          "exact_match": 0.0,
+          "token_f1": 0.0,
+          "answer_nll": 21.814306259155273
+        },
+        {
+          "id": "public_5729fb003f37b31900478627",
+          "question": "What is partially responsible for weakened immune response in older individuals?",
+          "expected": "decline in hormone levels with age",
+          "answer": "Weakened immune response in older individuals can be partially responsible for several factors:\n\n1. Reduced Immune Function: As we age, our immune system may become less effective due to various physiological changes such as decreased production of white blood cells (neutrophils), reduced antibody production, and impaired T-cell function.\n\n2",
+          "exact_match": 0.0,
+          "token_f1": 0.07142857142857142,
+          "answer_nll": 4.770345687866211
+        },
+        {
+          "id": "private_5725d403ec44d21400f3d65b",
+          "question": "What was intended to take a CSM and LM, fully fueled, to the moon?",
+          "expected": "three-stage Saturn V",
+          "answer": "The CSM (Command Module) and LM (Lunar Module) were designed to be fully fueled for their mission to the Moon. The spacecraft would have been equipped with fuel tanks that could provide enough oxygen and power to operate for several days or even weeks on the journey to the lunar surface.\n\nTo summarize:\n\n- **",
+          "exact_match": 0.0,
+          "token_f1": 0.0,
+          "answer_nll": 7.033151149749756
+        },
+        {
+          "id": "public_56f87e95aef237190062610a",
+          "question": "What does Luther's hymn Christ unser Herr zum jordan kam concern?",
+          "expected": "baptism",
+          "answer": "Luther's hymn \"Christ unser Herr zum Jordan kam\" concerns the idea of salvation through faith in Jesus Christ. This hymn was written in 1523 and is one of Luther's most famous works. The song expresses hope that God will save people from their sins and lead them to eternal life through",
+          "exact_match": 0.0,
+          "token_f1": 0.0,
+          "answer_nll": 16.019018173217773
+        },
+        {
+          "id": "public_572809ab4b864d19001642ae",
+          "question": "Who played the War Doctor?",
+          "expected": "John Hurt",
+          "answer": "The War Doctor in this context is likely referring to the character of Dr. John H. \"Doc\" Smith from the 1960 film \"The War Doctor.\" The actor who portrayed this role was James Stewart.\n\nJames Stewart (born on January 27, 1935) is an American",
+          "exact_match": 0.0,
+          "token_f1": 0.043478260869565216,
+          "answer_nll": 10.065014839172363
+        }
+      ]
+    },
+    "finetuned": {
+      "summary": {
+        "exact_match": 0.0,
+        "token_f1": 0.017834535319055444,
+        "answer_nll": 6.146160507202149
+      },
+      "rows": [
+        {
+          "id": "private_5730de74f6cb411900e244fc",
+          "question": "Unlike confirmation and profession of faith, what is a sacrament in the UMC?",
+          "expected": "Baptism",
+          "answer": "a religious rite or practice that is believed to have special power or effect in the lives of its recipients or witnesses\n\nThis definition aligns with the concept of a sacrament as described in the UMC's official statement on sacraments. The UMC believes that sacraments are important because they can bring people closer to",
+          "exact_match": 0.0,
+          "token_f1": 0.0,
+          "answer_nll": 5.185790538787842
+        },
+        {
+          "id": "public_56de3ebc4396321400ee26e6",
+          "question": "When did the Siege of Antioch take place?",
+          "expected": "1097",
+          "answer": "The Siege of Antioch took place from July 27 to August 10, 356 AD.",
+          "exact_match": 0.0,
+          "token_f1": 0.0,
+          "answer_nll": 4.050260066986084
+        },
+        {
+          "id": "public_57280f974b864d1900164370",
+          "question": "If the head of government refuses to enforce a decision of the highest court what terminology could be used?",
+          "expected": "constitutional impasse",
+          "answer": "Refusal to Enforce Decision of Highest Court",
+          "exact_match": 0.0,
+          "token_f1": 0.0,
+          "answer_nll": 5.13588285446167
+        },
+        {
+          "id": "public_573330444776f41900660758",
+          "question": "What pope as a native of Poland?",
+          "expected": "John Paul II",
+          "answer": "Gregory VII (1052-1060) was a native of Poland and the first pope to be canonized. He is known for his efforts to promote Catholicism in Poland and for his support of the Crusades.",
+          "exact_match": 0.0,
+          "token_f1": 0.0,
+          "answer_nll": 2.6836235523223877
+        },
+        {
+          "id": "private_5726dba1dd62a815002e92e4",
+          "question": "In which year are the Meissen Vulture in the V&A collection dated?",
+          "expected": "1731",
+          "answer": "1985",
+          "exact_match": 0.0,
+          "token_f1": 0.0,
+          "answer_nll": 3.186925172805786
+        },
+        {
+          "id": "public_57286fa83acd2414000df9e5",
+          "question": "Who was Ayurbarwada's son?",
+          "expected": "Gegeen Khan",
+          "answer": "Ayurbarwada's son was Raja Pratap Singh.",
+          "exact_match": 0.0,
+          "token_f1": 0.0,
+          "answer_nll": 8.38766098022461
+        },
+        {
+          "id": "public_5725ee6438643c19005aceb3",
+          "question": "What did NASA name the series seeking up to 30 more flights to Earth's orbit?",
+          "expected": "Apollo X",
+          "answer": "The Artemis program was renamed the New Shepard program in 2018.",
+          "exact_match": 0.0,
+          "token_f1": 0.0,
+          "answer_nll": 7.3101701736450195
+        },
+        {
+          "id": "private_57268525dd62a815002e8806",
+          "question": "Between what dates was the building on Pilgrim Street refurbished? ",
+          "expected": "November 2006 and May 2008",
+          "answer": "October 15, 2019 - December 31, 2021",
+          "exact_match": 0.0,
+          "token_f1": 0.0,
+          "answer_nll": 1.9020307064056396
+        },
+        {
+          "id": "private_5726a0205951b619008f781b",
+          "question": "Who was brought it to work on the museum after the death of Captain Francis Fowke?",
+          "expected": "Henry Young Darracott Scott",
+          "answer": "The storybook version of the book \"Captain Underpants\" was brought to work on the museum after the death of Captain Francis Fowke in 2015.",
+          "exact_match": 0.0,
+          "token_f1": 0.0,
+          "answer_nll": 7.217671871185303
+        },
+        {
+          "id": "private_57097c8fed30961900e841f2",
+          "question": "What did Alec Shelbrooke propose payments of benefits to be made on?",
+          "expected": "Welfare Cash Card",
+          "answer": "to encourage more people to volunteer for the program.",
+          "exact_match": 0.0,
+          "token_f1": 0.0,
+          "answer_nll": 8.17224407196045
+        },
+        {
+          "id": "public_5726e5c95951b619008f81cb",
+          "question": "What is one example of what a clinical pharmacist's duties entail?",
+          "expected": "creating a comprehensive drug therapy plan for patient-specific problems",
+          "answer": "One example of what a clinical pharmacist's duties entail is providing medication guidance and counseling to patients on how to take their medications safely and effectively. This includes teaching patients about dosages, schedules, side effects, interactions with other drugs, and general health considerations related to medication use. Clinical pharmacists also work closely with healthcare providers",
+          "exact_match": 0.0,
+          "token_f1": 0.030303030303030304,
+          "answer_nll": 4.041107177734375
+        },
+        {
+          "id": "private_56bec9133aeaaa14008c9445",
+          "question": "Who tackled Mike Tolbert and caused a fumble?",
+          "expected": "Darian Stewart",
+          "answer": "Mike Tolbert was tackled by another player who was attempting to tackle him. The specific player is not mentioned in the given context, so it's impossible to determine who did this particular tackle or what happened next.",
+          "exact_match": 0.0,
+          "token_f1": 0.0,
+          "answer_nll": 9.52049732208252
+        },
+        {
+          "id": "public_5728284e3acd2414000df5cd",
+          "question": "What was Joseph Haas arrested for?",
+          "expected": "sending an email to the Lebanon, New Hampshire city councilors",
+          "answer": "Joseph Haas was arrested on charges of conspiracy to commit wire fraud and money laundering in connection with the Ponzi scheme that he allegedly ran from 2005 to 2013. The charges were dropped after his conviction in 2014.",
+          "exact_match": 0.0,
+          "token_f1": 0.08333333333333333,
+          "answer_nll": 5.9403605461120605
+        },
+        {
+          "id": "private_56e127bccd28a01900c6765b",
+          "question": "On which magazine's cover did Tesla appear in 1931",
+          "expected": "Time magazine",
+          "answer": "The cover of the January 20, 1931 issue of Scientific American featured a photograph of a man wearing glasses and holding a pen. The caption read \"Tesla on the Eve of His Death\". Tesla was known for his work with alternating current electricity and his belief that electricity could be harnessed from",
+          "exact_match": 0.0,
+          "token_f1": 0.0,
+          "answer_nll": 5.57073450088501
+        },
+        {
+          "id": "private_572975511d046914007794a7",
+          "question": "What usually takes reenergized electrons?",
+          "expected": "NADP+",
+          "answer": "burning of fuel in an electric motor or generator.",
+          "exact_match": 0.0,
+          "token_f1": 0.0,
+          "answer_nll": 7.2139387130737305
+        },
+        {
+          "id": "private_56e059c8231d4119001ac057",
+          "question": "Where did Tesla work in 1888?",
+          "expected": "Pittsburgh",
+          "answer": "Tesla worked at the Western Electric Laboratory in Menlo Park, California, from 1888 until his death in 1943.",
+          "exact_match": 0.0,
+          "token_f1": 0.0,
+          "answer_nll": 11.169069290161133
+        },
+        {
+          "id": "public_5729fb003f37b31900478627",
+          "question": "What is partially responsible for weakened immune response in older individuals?",
+          "expected": "decline in hormone levels with age",
+          "answer": "aging-related diseases such as Alzheimer's disease and Parkinson's disease weaken the immune system in old age. This leads to an increased risk of infections and other illnesses that can affect both the skin and mucous membranes, which are important sites for immune function. Additionally, aging can lead to changes in how the immune system functions overall",
+          "exact_match": 0.0,
+          "token_f1": 0.06153846153846154,
+          "answer_nll": 3.361689805984497
+        },
+        {
+          "id": "private_5725d403ec44d21400f3d65b",
+          "question": "What was intended to take a CSM and LM, fully fueled, to the moon?",
+          "expected": "three-stage Saturn V",
+          "answer": "The Apollo 11 mission was intended to take a combined total of three astronauts \u2013 one from the United States and two from the Soviet Union \u2013 fully fueled to the moon's surface. The spacecraft was designed to carry them on a journey lasting approximately four hours and forty-five minutes.",
+          "exact_match": 0.0,
+          "token_f1": 0.037037037037037035,
+          "answer_nll": 5.444818019866943
+        },
+        {
+          "id": "public_56f87e95aef237190062610a",
+          "question": "What does Luther's hymn Christ unser Herr zum jordan kam concern?",
+          "expected": "baptism",
+          "answer": "Luther's hymn \"Christ unser Herr zum Jordan kam\" concerns the biblical story of Jesus' baptism in the Jordan River and his journey to Jerusalem. The song was written in 1543 and became popular among Protestants during the Reformation period. It was sung at baptisms and other religious ceremonies throughout",
+          "exact_match": 0.0,
+          "token_f1": 0.0392156862745098,
+          "answer_nll": 10.425277709960938
+        },
+        {
+          "id": "public_572809ab4b864d19001642ae",
+          "question": "Who played the War Doctor?",
+          "expected": "John Hurt",
+          "answer": "The War Doctor was portrayed by actor John Travolta in the 2006 film \"War of the Worlds\".",
+          "exact_match": 0.0,
+          "token_f1": 0.10526315789473684,
+          "answer_nll": 7.003457069396973
+        }
+      ]
+    }
+  },
+  "seconds": 48.01567695569247,
+  "limitations": [
+    "Same small diagnostic question set; not a new independent utility benchmark",
+    "Identical saved tokenizer isolates checkpoint weights; no prompt tuning",
+    "Comparison does not isolate missing context from model knowledge",
+    "If saved-model EM/F1 fails reproduction, investigate before interpreting differences"
+  ],
+  "audit_outputs_private": true
+}

@@ -6,6 +6,7 @@ public checkpoint snapshot. Audit events are private research artifacts.
 """
 from dataclasses import asdict, dataclass
 from contextlib import closing
+from concurrent.futures import ThreadPoolExecutor
 from hashlib import sha256
 import json
 from pathlib import Path
@@ -34,19 +35,25 @@ class GuardSettings:
     diagnostic: bool = False
     rejection_action: str = "refuse"
     runtime_directory: str | None = None
+    validation_workers: int = 1
 
     def metadata(self):
-        return {k: v for k, v in asdict(self).items() if k not in ("policy_json", "runtime_directory")}
+        data = {k: v for k, v in asdict(self).items() if k not in ("policy_json", "runtime_directory")}
+        if self.validation_workers == 1:
+            data.pop("validation_workers")  # Preserve the serial configuration identity.
+        return data
 
 
 def parse_guard(value, source):
-    allowed = {"mode", "policy_file", "release_budget", "detector_file", "detector_sha256", "diagnostic", "rejection_action"}
+    allowed = {"mode", "policy_file", "release_budget", "detector_file", "detector_sha256", "diagnostic", "rejection_action", "validation_workers"}
     if not isinstance(value, dict) or set(value) - allowed:
         raise ValueError("Invalid client_guard fields")
     if value.get("mode") not in ("rules", "classifier", "rules_classifier", "shadow"):
         raise ValueError("client_guard.mode must be rules, classifier, rules_classifier or shadow")
     if type(value.get("release_budget")) is not int or value["release_budget"] <= 0:
         raise ValueError("client_guard.release_budget must be positive")
+    if type(value.get("validation_workers", 1)) is not int or value.get("validation_workers", 1) not in (1, 2, 4):
+        raise ValueError("validation_workers must be 1, 2 or 4")
     if type(value.get("diagnostic", False)) is not bool or value.get("rejection_action", "refuse") != "refuse":
         raise ValueError("Invalid diagnostic or rejection_action")
     if not isinstance(value.get("policy_file"), str) or not value["policy_file"]:
@@ -80,6 +87,8 @@ def prepare_guard(settings, scope, parameters, *, rounds):
     if settings.runtime_directory is None:
         raise ValueError("Guard runtime requires a client-owned artifact directory")
     root = Path(settings.runtime_directory)
+    if (root.parent / "checkpoint-retirement.json").exists():
+        raise ValueError("Guard scope was retired; preserve its ledger and use a new approved run")
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     # A scope is chosen by the harness for one model/world, never fit_config.
     key = sha256(scope.encode()).hexdigest()
@@ -113,6 +122,31 @@ def parameter_digest(value):
     return digest.hexdigest()
 
 
+def _inspect_layer(stored, index, value, expected_digest):
+    """Each task owns one freshly read reference array; never cache its contents."""
+    timings = {}
+    tick = time.perf_counter()
+    prior = stored[f"arr_{index}"]
+    timings["reference_load"] = time.perf_counter() - tick
+    tick = time.perf_counter()
+    if parameter_digest(prior) != expected_digest:
+        raise ValueError("Approved checkpoint integrity mismatch")
+    timings["reference_hash"] = time.perf_counter() - tick
+    tick = time.perf_counter()
+    reason = None
+    if value.shape != prior.shape:
+        reason = "parameter_shapes_mismatch"
+    elif value.dtype != prior.dtype:
+        reason = "parameter_dtype_mismatch"
+    elif value.dtype.kind not in "fi" or not np.isfinite(value).all():
+        reason = "invalid_parameters"
+    timings["validation"] = time.perf_counter() - tick
+    tick = time.perf_counter()
+    features = parameter_features([value], [prior]) if reason is None else None
+    timings["feature_extraction"] = time.perf_counter() - tick
+    return reason, features, timings
+
+
 @dataclass(frozen=True)
 class GuardRuntime:
     settings: GuardSettings
@@ -134,6 +168,9 @@ class GuardRuntime:
         """
         from .runtime_memory import rss_gib
         start = time.perf_counter()
+        workers = self.settings.validation_workers
+        if type(workers) is not int or workers not in (1, 2, 4):
+            raise ValueError("validation_workers must be 1, 2 or 4")
         rss_before = rss_gib()
         stages = dict.fromkeys(("request_copy", "request_hash", "reference_load", "reference_hash", "validation",
                                "feature_extraction", "detector_load", "detector_inference",
@@ -142,7 +179,12 @@ class GuardRuntime:
         snapshot = [np.array(p, copy=True) for p in parameters]
         stages["request_copy"] = time.perf_counter() - tick
         tick = time.perf_counter()
-        request_digest = sha256("".join(parameter_digest(p) for p in snapshot).encode()).hexdigest()
+        if workers == 1:
+            digests = [parameter_digest(p) for p in snapshot]
+        else:
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                digests = list(pool.map(parameter_digest, snapshot))
+        request_digest = sha256("".join(digests).encode()).hexdigest()
         stages["request_hash"] = time.perf_counter() - tick
         tick = time.perf_counter()
         ledger = ReleaseLedger(Path(self.settings.runtime_directory) / "release-ledger.sqlite")
@@ -158,36 +200,39 @@ class GuardRuntime:
         # The reference stays pinned to the approved initialization. Later FL
         # parameters are measured against it, not silently promoted to trusted.
         layer_features = []
+        reference_start = time.perf_counter()
         with np.load(self.reference_path, allow_pickle=False) as stored:
             if len(snapshot) != len(stored.files) or len(snapshot) != len(self.reference_digests):
                 reason = "parameter_shapes_mismatch"
             elif reason in (None, "architecture_mismatch"):
-                for i, value in enumerate(snapshot):
-                    tick = time.perf_counter()
-                    prior = stored[f"arr_{i}"]
-                    stages["reference_load"] += time.perf_counter() - tick
-                    tick = time.perf_counter()
-                    if parameter_digest(prior) != self.reference_digests[i]:
-                        raise ValueError("Approved checkpoint integrity mismatch")
-                    stages["reference_hash"] += time.perf_counter() - tick
-                    tick = time.perf_counter()
-                    if value.shape != prior.shape:
-                        reason = "parameter_shapes_mismatch"
-                    elif value.dtype != prior.dtype:
-                        reason = "parameter_dtype_mismatch"
-                    elif value.dtype.kind not in "fi" or not np.isfinite(value).all():
-                        reason = "invalid_parameters"
-                    stages["validation"] += time.perf_counter() - tick
-                    if reason not in (None, "architecture_mismatch"):
-                        break
-                    tick = time.perf_counter()
-                    layer_features.append(parameter_features([value], [prior]))
-                    stages["feature_extraction"] += time.perf_counter() - tick
-                    del prior
+                def inspect(i):
+                    return _inspect_layer(stored, i, snapshot[i], self.reference_digests[i])
+                # ZipFile serializes seeks/reads through its shared-file lock.
+                # Hashing and feature reductions can overlap on owned arrays.
+                # Results are reduced in tensor order, preserving feature math.
+                if workers == 1:
+                    inspected = map(inspect, range(len(snapshot)))
+                    for layer_reason, layer_values, timings in inspected:
+                        for key, seconds in timings.items():
+                            stages[key] += seconds
+                        if layer_reason:
+                            reason = layer_reason
+                            break
+                        layer_features.append(layer_values)
+                else:
+                    with ThreadPoolExecutor(max_workers=workers) as pool:
+                        for layer_reason, layer_values, timings in pool.map(inspect, range(len(snapshot))):
+                            for key, seconds in timings.items():
+                                stages[key] += seconds
+                            if layer_reason and reason in (None, "architecture_mismatch"):
+                                reason = layer_reason
+                            if layer_values is not None:
+                                layer_features.append(layer_values)
                 if len(layer_features) == len(snapshot) and snapshot:
                     features = {"relative_delta": float(np.mean([f["relative_delta"] for f in layer_features])),
                                 "maximum_layer_delta": max(f["maximum_layer_delta"] for f in layer_features),
                                 "parameter_concentration": max(f["parameter_concentration"] for f in layer_features)}
+        reference_wall_seconds = time.perf_counter() - reference_start
         # Classifier-only is diagnostic: structural/numerical safety still applies.
         if features is not None and self.settings.detector_file is not None and reason in (None, "architecture_mismatch"):
             tick = time.perf_counter()
@@ -214,6 +259,9 @@ class GuardRuntime:
                  "policy_sha256": self.settings.policy_sha256, "detector_sha256": self.settings.detector_sha256,
                  "reservation_count": count, "seconds": time.perf_counter() - start,
                  "stages_seconds": stages,
+                 "validation_workers": workers,
+                 "reference_validation_wall_seconds": reference_wall_seconds,
+                 "stage_timing_scope": "request stages are wall time; reference stages sum per-layer elapsed time and may overlap with multiple workers",
                  "request_bytes": sum(p.nbytes for p in snapshot), "request_sha256": request_digest,
                  "rss_gib_before": rss_before, "rss_gib_after": rss_gib(),
                  "memory_scope": "process RSS samples; not peak GPU allocation",

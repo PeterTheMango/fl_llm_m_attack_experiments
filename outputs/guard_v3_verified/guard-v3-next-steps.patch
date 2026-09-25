@@ -1,0 +1,989 @@
+diff --git a/master_script/core/guard_runtime.py b/master_script/core/guard_runtime.py
+index b8e2b0d..5cde512 100644
+--- a/master_script/core/guard_runtime.py
++++ b/master_script/core/guard_runtime.py
+@@ -6,6 +6,7 @@ public checkpoint snapshot. Audit events are private research artifacts.
+ """
+ from dataclasses import asdict, dataclass
+ from contextlib import closing
++from concurrent.futures import ThreadPoolExecutor
+ from hashlib import sha256
+ import json
+ from pathlib import Path
+@@ -34,19 +35,25 @@ class GuardSettings:
+     diagnostic: bool = False
+     rejection_action: str = "refuse"
+     runtime_directory: str | None = None
++    validation_workers: int = 1
+ 
+     def metadata(self):
+-        return {k: v for k, v in asdict(self).items() if k not in ("policy_json", "runtime_directory")}
++        data = {k: v for k, v in asdict(self).items() if k not in ("policy_json", "runtime_directory")}
++        if self.validation_workers == 1:
++            data.pop("validation_workers")  # Preserve the serial configuration identity.
++        return data
+ 
+ 
+ def parse_guard(value, source):
+-    allowed = {"mode", "policy_file", "release_budget", "detector_file", "detector_sha256", "diagnostic", "rejection_action"}
++    allowed = {"mode", "policy_file", "release_budget", "detector_file", "detector_sha256", "diagnostic", "rejection_action", "validation_workers"}
+     if not isinstance(value, dict) or set(value) - allowed:
+         raise ValueError("Invalid client_guard fields")
+     if value.get("mode") not in ("rules", "classifier", "rules_classifier", "shadow"):
+         raise ValueError("client_guard.mode must be rules, classifier, rules_classifier or shadow")
+     if type(value.get("release_budget")) is not int or value["release_budget"] <= 0:
+         raise ValueError("client_guard.release_budget must be positive")
++    if type(value.get("validation_workers", 1)) is not int or value.get("validation_workers", 1) not in (1, 2, 4):
++        raise ValueError("validation_workers must be 1, 2 or 4")
+     if type(value.get("diagnostic", False)) is not bool or value.get("rejection_action", "refuse") != "refuse":
+         raise ValueError("Invalid diagnostic or rejection_action")
+     if not isinstance(value.get("policy_file"), str) or not value["policy_file"]:
+@@ -80,6 +87,8 @@ def prepare_guard(settings, scope, parameters, *, rounds):
+     if settings.runtime_directory is None:
+         raise ValueError("Guard runtime requires a client-owned artifact directory")
+     root = Path(settings.runtime_directory)
++    if (root.parent / "checkpoint-retirement.json").exists():
++        raise ValueError("Guard scope was retired; preserve its ledger and use a new approved run")
+     root.mkdir(parents=True, exist_ok=True, mode=0o700)
+     # A scope is chosen by the harness for one model/world, never fit_config.
+     key = sha256(scope.encode()).hexdigest()
+@@ -113,6 +122,31 @@ def parameter_digest(value):
+     return digest.hexdigest()
+ 
+ 
++def _inspect_layer(stored, index, value, expected_digest):
++    """Each task owns one freshly read reference array; never cache its contents."""
++    timings = {}
++    tick = time.perf_counter()
++    prior = stored[f"arr_{index}"]
++    timings["reference_load"] = time.perf_counter() - tick
++    tick = time.perf_counter()
++    if parameter_digest(prior) != expected_digest:
++        raise ValueError("Approved checkpoint integrity mismatch")
++    timings["reference_hash"] = time.perf_counter() - tick
++    tick = time.perf_counter()
++    reason = None
++    if value.shape != prior.shape:
++        reason = "parameter_shapes_mismatch"
++    elif value.dtype != prior.dtype:
++        reason = "parameter_dtype_mismatch"
++    elif value.dtype.kind not in "fi" or not np.isfinite(value).all():
++        reason = "invalid_parameters"
++    timings["validation"] = time.perf_counter() - tick
++    tick = time.perf_counter()
++    features = parameter_features([value], [prior]) if reason is None else None
++    timings["feature_extraction"] = time.perf_counter() - tick
++    return reason, features, timings
++
++
+ @dataclass(frozen=True)
+ class GuardRuntime:
+     settings: GuardSettings
+@@ -134,6 +168,9 @@ class GuardRuntime:
+         """
+         from .runtime_memory import rss_gib
+         start = time.perf_counter()
++        workers = self.settings.validation_workers
++        if type(workers) is not int or workers not in (1, 2, 4):
++            raise ValueError("validation_workers must be 1, 2 or 4")
+         rss_before = rss_gib()
+         stages = dict.fromkeys(("request_copy", "request_hash", "reference_load", "reference_hash", "validation",
+                                "feature_extraction", "detector_load", "detector_inference",
+@@ -142,7 +179,12 @@ class GuardRuntime:
+         snapshot = [np.array(p, copy=True) for p in parameters]
+         stages["request_copy"] = time.perf_counter() - tick
+         tick = time.perf_counter()
+-        request_digest = sha256("".join(parameter_digest(p) for p in snapshot).encode()).hexdigest()
++        if workers == 1:
++            digests = [parameter_digest(p) for p in snapshot]
++        else:
++            with ThreadPoolExecutor(max_workers=workers) as pool:
++                digests = list(pool.map(parameter_digest, snapshot))
++        request_digest = sha256("".join(digests).encode()).hexdigest()
+         stages["request_hash"] = time.perf_counter() - tick
+         tick = time.perf_counter()
+         ledger = ReleaseLedger(Path(self.settings.runtime_directory) / "release-ledger.sqlite")
+@@ -158,36 +200,39 @@ class GuardRuntime:
+         # The reference stays pinned to the approved initialization. Later FL
+         # parameters are measured against it, not silently promoted to trusted.
+         layer_features = []
++        reference_start = time.perf_counter()
+         with np.load(self.reference_path, allow_pickle=False) as stored:
+             if len(snapshot) != len(stored.files) or len(snapshot) != len(self.reference_digests):
+                 reason = "parameter_shapes_mismatch"
+             elif reason in (None, "architecture_mismatch"):
+-                for i, value in enumerate(snapshot):
+-                    tick = time.perf_counter()
+-                    prior = stored[f"arr_{i}"]
+-                    stages["reference_load"] += time.perf_counter() - tick
+-                    tick = time.perf_counter()
+-                    if parameter_digest(prior) != self.reference_digests[i]:
+-                        raise ValueError("Approved checkpoint integrity mismatch")
+-                    stages["reference_hash"] += time.perf_counter() - tick
+-                    tick = time.perf_counter()
+-                    if value.shape != prior.shape:
+-                        reason = "parameter_shapes_mismatch"
+-                    elif value.dtype != prior.dtype:
+-                        reason = "parameter_dtype_mismatch"
+-                    elif value.dtype.kind not in "fi" or not np.isfinite(value).all():
+-                        reason = "invalid_parameters"
+-                    stages["validation"] += time.perf_counter() - tick
+-                    if reason not in (None, "architecture_mismatch"):
+-                        break
+-                    tick = time.perf_counter()
+-                    layer_features.append(parameter_features([value], [prior]))
+-                    stages["feature_extraction"] += time.perf_counter() - tick
+-                    del prior
++                def inspect(i):
++                    return _inspect_layer(stored, i, snapshot[i], self.reference_digests[i])
++                # ZipFile serializes seeks/reads through its shared-file lock.
++                # Hashing and feature reductions can overlap on owned arrays.
++                # Results are reduced in tensor order, preserving feature math.
++                if workers == 1:
++                    inspected = map(inspect, range(len(snapshot)))
++                    for layer_reason, layer_values, timings in inspected:
++                        for key, seconds in timings.items():
++                            stages[key] += seconds
++                        if layer_reason:
++                            reason = layer_reason
++                            break
++                        layer_features.append(layer_values)
++                else:
++                    with ThreadPoolExecutor(max_workers=workers) as pool:
++                        for layer_reason, layer_values, timings in pool.map(inspect, range(len(snapshot))):
++                            for key, seconds in timings.items():
++                                stages[key] += seconds
++                            if layer_reason and reason in (None, "architecture_mismatch"):
++                                reason = layer_reason
++                            if layer_values is not None:
++                                layer_features.append(layer_values)
+                 if len(layer_features) == len(snapshot) and snapshot:
+                     features = {"relative_delta": float(np.mean([f["relative_delta"] for f in layer_features])),
+                                 "maximum_layer_delta": max(f["maximum_layer_delta"] for f in layer_features),
+                                 "parameter_concentration": max(f["parameter_concentration"] for f in layer_features)}
++        reference_wall_seconds = time.perf_counter() - reference_start
+         # Classifier-only is diagnostic: structural/numerical safety still applies.
+         if features is not None and self.settings.detector_file is not None and reason in (None, "architecture_mismatch"):
+             tick = time.perf_counter()
+@@ -214,6 +259,9 @@ class GuardRuntime:
+                  "policy_sha256": self.settings.policy_sha256, "detector_sha256": self.settings.detector_sha256,
+                  "reservation_count": count, "seconds": time.perf_counter() - start,
+                  "stages_seconds": stages,
++                 "validation_workers": workers,
++                 "reference_validation_wall_seconds": reference_wall_seconds,
++                 "stage_timing_scope": "request stages are wall time; reference stages sum per-layer elapsed time and may overlap with multiple workers",
+                  "request_bytes": sum(p.nbytes for p in snapshot), "request_sha256": request_digest,
+                  "rss_gib_before": rss_before, "rss_gib_after": rss_gib(),
+                  "memory_scope": "process RSS samples; not peak GPU allocation",
+diff --git a/master_script/tools/analyze_guard_study.py b/master_script/tools/analyze_guard_study.py
+index 7854cfc..cf3689c 100644
+--- a/master_script/tools/analyze_guard_study.py
++++ b/master_script/tools/analyze_guard_study.py
+@@ -50,6 +50,7 @@ def main():
+     parser = argparse.ArgumentParser(description=__doc__)
+     parser.add_argument("results", nargs="+"); parser.add_argument("--output", required=True)
+     parser.add_argument("--plot", help="Optional PNG with separate attack panels")
++    parser.add_argument("--protocol", help="Optional explicit utility protocol; old screening fields remain unchanged")
+     args = parser.parse_args()
+     raw = [Path(p).read_bytes() for p in args.results]
+     results = [json.loads(data) for data in raw]
+@@ -58,6 +59,11 @@ def main():
+     report["provenance"] = [{k: r.get(k) for k in ("run_id", "implementation_fingerprint", "method_version", "pipeline", "config")} for r in results]
+     report["paired_utility"] = paired_utility_report(results)
+     report["study_v2"] = joined_study_report(results)
++    if args.protocol:
++        from master_script.core.guard_protocol import utility_report
++        protocol_raw = Path(args.protocol).read_bytes()
++        report["utility_protocol"] = utility_report(results, json.loads(protocol_raw))
++        report["utility_protocol"]["sha256"] = sha256(protocol_raw).hexdigest()
+     with Path(args.output).open("x") as stream:
+         stream.write(json.dumps(report, indent=2, allow_nan=False) + "\n")
+     if args.plot:
+diff --git a/master_script/configs/guard/study_protocol_v3.json b/master_script/configs/guard/study_protocol_v3.json
+new file mode 100644
+--- /dev/null
++++ b/master_script/configs/guard/study_protocol_v3.json
+@@ -0,0 +1,11 @@
++{
++  "schema": "guard_utility_protocol_v3",
++  "purpose": "Prospective endpoint declarations; preserve the earlier no-context failure",
++  "endpoints": ["no_retrieval", "public_ordinary", "private_ordinary"],
++  "minimum_f1": 0.1,
++  "minimum_relative_f1": 0.9,
++  "maximum_em_loss": 0.05,
++  "maximum_round_overhead": 0.1,
++  "maximum_benign_rejection": 0.01,
++  "interpretation": "Every endpoint is separate and required for an all-endpoint utility pass. No-context remains required, not silently replaced by RAG. Missing endpoints are unmeasured, never passes. Repeated checks do not certify population rejection or privacy. Collection is diagnostic, not an effectiveness claim."
++}
+diff --git a/master_script/core/checkpoint_retention.py b/master_script/core/checkpoint_retention.py
+new file mode 100644
+--- /dev/null
++++ b/master_script/core/checkpoint_retention.py
+@@ -0,0 +1,57 @@
++"""Retire replay weights only after a new job's complete results are durable.
++
++Results, raw answer audits, request features, configuration and release ledgers
++are retained. A tombstone prevents reinitializing the retired guard scope.
++"""
++from hashlib import sha256
++import json
++from pathlib import Path
++from .queue import write_json
++
++
++def file_digest(path):
++    digest = sha256()
++    with Path(path).open("rb") as stream:
++        for block in iter(lambda: stream.read(1024 * 1024), b""):
++            digest.update(block)
++    return digest.hexdigest()
++
++
++def retire_checkpoints(result_path):
++    """Only the conventional artifact directory belonging to this result."""
++    path = Path(result_path).resolve()
++    result = json.loads(path.read_bytes())
++    if result.get("status") != "complete":
++        raise ValueError("Cannot retire incomplete experiment checkpoints")
++    artifact = path.parent / "artifacts" / path.stem
++    if artifact.is_symlink() or not artifact.is_dir():
++        raise ValueError("Missing or symlinked owned artifact directory")
++    local = json.loads((artifact / "result.json").read_bytes())
++    if local != result:
++        raise ValueError("Queue result and artifact result disagree; preserve checkpoints")
++    if result.get("pipeline", {}).get("client_guard"):
++        from .guard_runtime import read_guard_events
++        if not result.get("guard_events") or read_guard_events(artifact / "client-guard") != result["guard_events"]:
++            raise ValueError("Durable guard trace disagrees with result; preserve checkpoints")
++    tombstone = artifact / "checkpoint-retirement.json"
++    if tombstone.exists():
++        raise ValueError("Retirement already recorded; do not automatically retry partial deletion")
++    files = []
++    for p in sorted(artifact.rglob("*")):
++        if p.is_symlink():
++            raise ValueError("Unexpected symlink in owned artifact directory")
++        if p.is_file() and (p.suffix == ".safetensors" or p.match("pytorch_model*.bin")
++                            or p.name == "ami_probe.pt" or (p.suffix == ".npz" and p.parent.name == "client-guard")):
++            files.append({"path": str(p.relative_to(artifact)), "bytes": p.stat().st_size, "sha256": file_digest(p)})
++    report = {"schema": "checkpoint_retirement_v1", "run_id": result["run_id"],
++              "result_sha256": file_digest(path), "status": "retiring", "files": files,
++              "retained": "result/config/trace JSON, private audit JSONL, tokenizer metadata and SQLite ledgers",
++              "replay": "unavailable after retirement; never recreate this scope"}
++    # Publish the deletion inventory before unlinking anything. If interrupted,
++    # retain the partial tombstone and stop; the new collector never resumes it.
++    write_json(tombstone, report)
++    for item in files:
++        (artifact / item["path"]).unlink()
++    report.update(status="retired", reclaimed_bytes=sum(f["bytes"] for f in files))
++    write_json(tombstone, report)
++    return report
+diff --git a/master_script/core/guard_protocol.py b/master_script/core/guard_protocol.py
+new file mode 100644
+--- /dev/null
++++ b/master_script/core/guard_protocol.py
+@@ -0,0 +1,66 @@
++"""Explicit separate utility gates; never turn a missing/failed endpoint into a pass."""
++import math
++
++
++def validate_protocol(protocol):
++    required = {"schema", "purpose", "endpoints", "minimum_f1", "minimum_relative_f1",
++                "maximum_em_loss", "maximum_round_overhead", "maximum_benign_rejection", "interpretation"}
++    if set(protocol) != required or protocol["schema"] != "guard_utility_protocol_v3":
++        raise ValueError("Invalid utility protocol schema")
++    if protocol["endpoints"] != ["no_retrieval", "public_ordinary", "private_ordinary"]:
++        raise ValueError("Preserve all three separate required endpoints")
++    for key in required - {"schema", "purpose", "endpoints", "interpretation"}:
++        if type(protocol[key]) not in (float, int) or not math.isfinite(protocol[key]) or not 0 <= protocol[key] <= 1:
++            raise ValueError(f"Invalid protocol threshold: {key}")
++    return protocol
++
++
++def utility_report(results, protocol):
++    from master_script.tools.analyze_guard_study import pairing_key
++    validate_protocol(protocol)
++    baselines = {}
++    for r in results:
++        if r.get("pipeline", {}).get("condition") == "baseline" and r.get("status") == "complete":
++            key = pairing_key(r)
++            if key in baselines:
++                raise ValueError("Ambiguous baseline")
++            baselines[key] = r
++    reports = []
++    for r in results:
++        if r.get("pipeline", {}).get("condition") == "baseline":
++            continue
++        base = baselines.get(pairing_key(r))
++        report = {"run_id": r["run_id"], "baseline_run_id": base["run_id"] if base else None,
++                  "endpoints": {}, "all_measured_utility_gates_pass": False}
++        b_evals = {e["trial_id"]: e for e in (base or {}).get("pipeline_evaluations", [])}
++        r_evals = {e["trial_id"]: e for e in r.get("pipeline_evaluations", [])}
++        if len(b_evals) != len((base or {}).get("pipeline_evaluations", [])) or len(r_evals) != len(r.get("pipeline_evaluations", [])):
++            raise ValueError("Duplicate evaluation identities")
++        for endpoint in protocol["endpoints"]:
++            pairs = []
++            ids = set(b_evals) | set(r_evals)
++            for trial in sorted(ids):
++                def utility(e):
++                    if endpoint == "no_retrieval":
++                        return e.get("no_retrieval_utility", {})
++                    return e.get("rag_conditions", {}).get(endpoint, {}).get("utility", {})
++                bu, ru = utility(b_evals.get(trial, {})), utility(r_evals.get(trial, {}))
++                valid = all(type(u.get(k)) in (float, int) and math.isfinite(u[k]) and 0 <= u[k] <= 1
++                            for u in (bu, ru) for k in ("token_f1", "exact_match"))
++                if not valid:
++                    pairs.append({"trial_id": trial, "status": "unmeasured"})
++                    continue
++                floor = min(bu["token_f1"], ru["token_f1"]) >= protocol["minimum_f1"]
++                relative = ru["token_f1"] >= protocol["minimum_relative_f1"] * bu["token_f1"]
++                em = ru["exact_match"] >= bu["exact_match"] - protocol["maximum_em_loss"]
++                pairs.append({"trial_id": trial, "baseline": bu, "defended": ru,
++                              "absolute_floor_pass": floor, "relative_f1_pass": relative, "em_pass": em,
++                              "status": "pass" if floor and relative and em else "fail"})
++            operational = base is not None and r.get("status") == "complete"
++            status = ("unmeasured" if not operational or not pairs or any(p["status"] == "unmeasured" for p in pairs)
++                      else "fail" if any(p["status"] == "fail" for p in pairs) else "pass")
++            report["endpoints"][endpoint] = {"status": status, "paired_evaluations": pairs}
++        report["all_measured_utility_gates_pass"] = all(e["status"] == "pass" for e in report["endpoints"].values())
++        reports.append(report)
++    return {"protocol": protocol, "runs": reports,
++            "interpretation": "Endpoint engineering checks only; no privacy score averaging or population claim. A protocol supplied after collection is a labeled reanalysis, not a predeclared study."}
+diff --git a/master_script/docs/client_guard_v3_handoff.md b/master_script/docs/client_guard_v3_handoff.md
+new file mode 100644
+--- /dev/null
++++ b/master_script/docs/client_guard_v3_handoff.md
+@@ -0,0 +1,87 @@
++# Guard cost, bounded collection and explicit utility endpoints
++
++This continuation implements the three next steps after the September 24 paired run and pretrained utility control. The observed 70.8% round overhead, successful architecture-preserving probe, and failed no-context utility floor remain recorded failures. No GPU effectiveness result or learned detector is fabricated by this change.
++
++## 1. Concurrent checks with unchanged integrity requirements
++
++`client_guard.validation_workers` accepts 1, 2 or 4 and defaults to 1. It is a client-owned harness setting, never a server `fit_config` override. Counts above one appear in pipeline identity and audit events. Request copying remains a fresh owned snapshot. Hashing independent tensors and inspecting independent reference layers can execute concurrently; returned hashes and feature reductions retain tensor order. Each reference layer is still freshly read once and checked against its pinned content digest on every request. There is no checkpoint cache, timestamp-only approval, omitted feature calculation or bypass after an integrity error.
++
++One worker retains the serial behavior. Up to one owned reference layer per worker can be live at once, in addition to the request snapshot. Concurrency trades CPU/RAM pressure for possible lower elapsed time; it is opt-in until measured on the actual machine. NumPy/ZipFile serializes shared-file reads as needed while hashes/reductions can overlap. No claim is made that this alone reaches the 10% FL-round target.
++
++`seconds` is the total guard wall time, excluding the separately recorded audit commit, as before. `reference_validation_wall_seconds` measures the combined reference section. Reference entries in `stages_seconds` **sum task elapsed times and overlap with multiple workers**; do not divide their sum into total wall time to produce a time breakdown. The event explicitly labels that distinction. RSS fields remain samples, not peak memory measurements.
++
++First remote command, using the recent paired run whose snapshots were retained:
++
++```bash
++run_dir=outputs/guard-v2-paired-check-20260924-095524-b38414b5/results/20260924-095524-72a408e220e8
++python -m master_script.tools.benchmark_guard_workers \
++  --run-dir "$run_dir" --workers 1 2 4 --repeats 2 \
++  --output "$run_dir/guard-workers-$(date +%Y%m%d-%H%M%S).json"
++```
++
++This is six CPU checks on the initial approved checkpoint, in forward/reverse worker order. It verifies snapshot provenance and identical reported request hashes/features, keeps the historical snapshot/ledger read-only, and uses a temporary isolated ledger. It loads no model, accesses no private records, allocates no GPU and saves no checkpoint. Based on the preceding roughly 11-second serial checks, allow approximately one to two minutes plus loading; actual timing depends on hardware/load. Return the small `guard-workers-*.json` before selecting a worker count for GPU collection. Initial weights alone cannot establish malicious/late-round feature equivalence; nonzero updates, shape/numerical failures and reference tampering are separately tested locally. Actual GPU round overhead must still be checked on fresh matched controls after choosing the configuration.
++
++## 2. Storage-bounded independent-target collection
++
++The new collection tool prepares **24 one-target jobs** by default: eight seeds, each with shadow probe-head AMIA, shadow architecture-preserving AMIA, and paired-world Reference. Each AMIA job has four observations; each Reference job has two training worlds. The settings remain three FL rounds, four clients and 12 probe epochs. Model checkpoints are not reused across targets.
++
++Seeds are assigned roles before execution: four train, two validation, two test. All variants/worlds for one target retain one role. The complete target identities are resolved on the remote host before private work. Repeated target selection under different seeds, cross-role collisions, attack variants selecting different targets, overlap with the known smoke target, or changes on later invocations cause an explicit stop. Model/dataset revisions remain pinned. Additional already-used target exclusions should be added to a new launch before its first execution if other cohorts exist; the built-in exclusion is the known September smoke target, not a global experiment registry.
++
++`causal_gradient_alignment` remains the held-out malicious variant for detector fitting: its train/validation malicious rows are excluded by the existing dataset assembler, while legitimate training rows remain usable. This tests whether a detector trained on the known probe generalizes to the architecture-preserving probe; a negative outcome is valid. The small number of groups does not certify a 1% false-positive rate, validate a final privacy bound or replace larger independent confirmation. Detector collection can proceed diagnostically despite failed utility/cost gates, but cannot be reported as a successful defense study.
++
++Prepare on the remote host after selecting a measured worker count. The example keeps the conservative serial setting:
++
++```bash
++python -m master_script.tools.collect_guard_traces prepare \
++  outputs/guard-v3-collection --workers 1 --targets 8 --seed 2000
++```
++
++This writes frozen configurations, the utility protocol and `launch.json`; it starts no training. Choose a new output directory if that one already exists. Inspect the launch before explicitly starting a job:
++
++```bash
++python -m master_script.tools.collect_guard_traces run \
++  outputs/guard-v3-collection/launch.json --gpu 0 --max-jobs 1
++```
++
++Each invocation defaults to **one** job. Repeating the command selects the next unstarted job after verifying the prior results and frozen plan; it does not rerun completed private worlds. The full plan is a multi-hour study. Time a first job before budgeting larger `--max-jobs` invocations. There is no automatic background execution or scheduled continuation.
++
++Before every job, the tool requires an estimated 20 GiB free on the output volume and 4 GiB on scratch. These are headroom estimates, not disk reservations or guarantees. Configurations can live on a larger mounted volume. `--scratch-root` can select an existing scratch volume; keep its path short for Ray sockets. The driver uses a new short, privately created Ray directory for each subprocess and never cleans another job's `/tmp/ray`.
++
++After a successful job, the runner verifies the target, implementation/source identities, both durable copies of the complete result, and the saved SQLite guard events. Only then does it retire model/probe weights and guard NPZ snapshots in that job's owned artifact directory. Result JSON, configuration, features, raw answer JSONL and ledgers remain. A retirement inventory records each removed file's SHA256 and size; the original result JSON is not rewritten, so the dataset source hash stays stable. The retained artifact metadata references retired checkpoints; they cannot be replayed. A tombstone prevents `prepare_guard` from silently recreating those scopes.
++
++Ray text logs are archived before that invocation's own scratch directory is removed. The output accumulates small traces/audits/logs instead of all model weights. Log volume and cache growth are still possible; preflight checks repeat per job. The tool does not purge shared Hugging Face caches, old experiments or unrelated temporary files.
++
++Failed/interrupted jobs retain all artifacts and their active-job marker. A restart stops for inspection; it never resets budgets or automatically retries a partial private world. An exclusive collector lock prevents concurrent invocations from launching the same job twice; a lock left by process termination requires inspection. Interrupted retirement keeps its inventory and blocks automatic recreation. Recovery is deliberately conservative rather than claiming resumable private computation.
++
++After all jobs complete, `splits.complete.json` contains checksummed sources and the declared target roles. A partial manifest is labeled partial and must not be presented as a complete dataset. The existing fitting workflow then applies:
++
++```bash
++python -m master_script.tools.assemble_guard_dataset \
++  outputs/guard-v3-collection/splits.complete.json outputs/guard-v3-dataset.json
++python -m master_script.tools.train_guard_detector \
++  outputs/guard-v3-dataset.json outputs/guard-v3-detector.json --max-fpr 0.01 --prevalence 0.01
++```
++
++Use new output names for exclusive artifact writers. Independent attacker-calibration and final-evaluation targets remain separate future stages. Do not use these detector train/validation/test targets as fresh final attack evidence.
++
++## 3. Utility protocol and reporting
++
++`configs/guard/study_protocol_v3.json` declares all three endpoints separately: no-context, public ordinary RAG and private ordinary RAG. Every endpoint is required for an overall utility pass. The absolute F1 floor remains 0.10, relative F1 at least 90% of a useful matched baseline, and EM loss at most 0.05. Missing or nonfinite endpoint data are unmeasured, never passes. The 10% round-overhead and 1% benign-rejection targets are preserved in the declaration; utility success alone supplies neither privacy nor population rejection evidence.
++
++The collector snapshots this protocol and its hash in the launch before jobs begin and verifies it on later invocations. The parser/model prompts, question set and scoring are unchanged. No failed historical utility endpoint is silently demoted to an optional diagnostic. A future protocol change must be explicit and prospective.
++
++The analyzer accepts an optional `--protocol` and adds separate endpoint results while retaining the existing no-context `utility_valid`, `exclusion`, raw privacy and matched overhead fields:
++
++```bash
++python -m master_script.tools.analyze_guard_study RESULT_BASELINE.json RESULT_DEFENDED.json \
++  --protocol master_script/configs/guard/study_protocol_v3.json \
++  --output outputs/new-joined-endpoints.json
++```
++
++The shadow-only collection has no matched baseline and consequently cannot pass matched utility gates. Adding the new report to an old run is explicitly a reanalysis, not a retroactively predeclared protocol. Historical paired-run reanalysis still marks no-context failed even when both RAG endpoints pass. Privacy units remain separate: fresh batch, training record, and retrieval datastore.
++
++## Local verification and remaining evidence
++
++The full local suite passed **536 tests, with 11 skipped**. New tests exercise concurrent work, exact hashes and feature agreement on nonzero updates, tampered references, invalid values, duplicate reservations, safe retirement, immutable trace evidence, retired-scope refusal, bounded job advancement, exclusive collection, scratch ownership, frozen split roles, and missing/failed utility endpoints. A small synthetic worker benchmark is recorded under `outputs/guard_v3_verified`; it is not a full-model speedup measurement.
++
++The 24-job configuration was generated and validated locally without model downloads or training. No remote GPU experiment, classifier fit, publication or history cleanup was performed in this turn. The next user action is the CPU worker benchmark above. A useful worker count, actual FL-round improvement, collected detector data and any held-out detector benefit remain unmeasured.
+diff --git a/master_script/tools/benchmark_guard_workers.py b/master_script/tools/benchmark_guard_workers.py
+new file mode 100644
+--- /dev/null
++++ b/master_script/tools/benchmark_guard_workers.py
+@@ -0,0 +1,79 @@
++"""Compare serial and concurrent full guard checks on a saved public snapshot."""
++import argparse
++from dataclasses import replace
++from hashlib import sha256
++import json
++from pathlib import Path
++import platform
++import statistics
++import tempfile
++import numpy as np
++from master_script.core.guard_runtime import GuardRuntime, GuardSettings, parameter_digest, read_guard_events
++from master_script.core.config import implementation_fingerprint
++from master_script.core.storage import atomic_binary
++from master_script.tools.benchmark_guard_runtime import select_snapshot
++
++
++def benchmark(run_dir, workers=(1, 2, 4), repeats=2):
++    if not workers or len(set(workers)) != len(workers) or any(type(w) is not int or w not in (1, 2, 4) for w in workers):
++        raise ValueError("Use distinct worker counts from 1, 2, 4")
++    if type(repeats) is not int or not 1 <= repeats <= 6:
++        raise ValueError("repeats must be between 1 and 6")
++    path, historical, result = select_snapshot(run_dir)
++    with np.load(path, allow_pickle=False) as stored:
++        parameters = [stored[f"arr_{i}"] for i in range(len(stored.files))]
++    digests = tuple(parameter_digest(p) for p in parameters)
++    request_hash = sha256("".join(digests).encode()).hexdigest()
++    if request_hash != historical["request_sha256"]:
++        raise ValueError("Snapshot differs from the recorded initial training request")
++    samples = {str(w): [] for w in workers}
++    policy = json.dumps({"schema": "client_guard_v1", "observation_architecture": "causal_lm"})
++    with tempfile.TemporaryDirectory(prefix="guard-workers-") as temporary:
++        settings = GuardSettings("rules", "benchmark", sha256(policy.encode()).hexdigest(), policy, 1,
++                                 runtime_directory=temporary, diagnostic=True)
++        for repeat in range(repeats):
++            order = list(workers) if repeat % 2 == 0 else list(reversed(workers))
++            for w in order:
++                runtime = GuardRuntime(replace(settings, validation_workers=w), f"benchmark:{repeat}:{w}",
++                                       str(path), 1, digests)
++                owned = runtime.authorize(parameters, 0, 1)
++                if owned is None:
++                    raise ValueError("Public benchmark request was rejected")
++                del owned
++                samples[str(w)].append(read_guard_events(temporary)[-1])
++    first = next(iter(samples.values()))[0]
++    for events in samples.values():
++        for event in events:
++            if event["request_sha256"] != first["request_sha256"] or event["features"] != first["features"]:
++                raise ValueError("Worker settings changed request identity or features")
++    medians = {w: statistics.median(e["seconds"] for e in events) for w, events in samples.items()}
++    return {"schema": "guard_worker_benchmark_v1", "implementation_fingerprint": implementation_fingerprint(),
++            "snapshot_source_run": result["run_id"], "snapshot_request_sha256": request_hash,
++            "request_bytes": historical["request_bytes"], "repeats": repeats,
++            "environment": {"platform": platform.platform(), "python": platform.python_version(), "numpy": np.__version__},
++            "median_wall_seconds": medians, "features_and_hashes_identical": True, "samples": samples,
++            "limits": ["Initial approved weights only; warm-cache CPU measurements",
++                       "Reference task times overlap; use event seconds for total elapsed cost",
++                       "Workers hold up to one reference layer each in addition to the owned request",
++                       "No private computation, GPU, original-ledger mutation or historical checkpoint writes",
++                       "No automatic worker selection or 10% FL overhead claim"]}
++
++
++def main():
++    p = argparse.ArgumentParser(description=__doc__)
++    p.add_argument("--run-dir", required=True)
++    p.add_argument("--output", required=True)
++    p.add_argument("--workers", nargs="+", type=int, default=[1, 2, 4])
++    p.add_argument("--repeats", type=int, default=2)
++    args = p.parse_args()
++    output = Path(args.output)
++    if output.exists():
++        raise FileExistsError("Choose a new benchmark output")
++    report = benchmark(args.run_dir, args.workers, args.repeats)
++    with atomic_binary(output, exclusive=True) as stream:
++        stream.write((json.dumps(report, indent=2, allow_nan=False) + "\n").encode())
++    print(json.dumps({"output": str(output), "median_wall_seconds": report["median_wall_seconds"]}, indent=2))
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/master_script/tools/collect_guard_traces.py b/master_script/tools/collect_guard_traces.py
+new file mode 100644
+--- /dev/null
++++ b/master_script/tools/collect_guard_traces.py
+@@ -0,0 +1,221 @@
++"""Prepare and execute bounded independent-target trace collection.
++
++Each job is one AMIA target or one paired Reference target. Checkpoints from
++new successful jobs are retired after result/trace verification. Failed jobs
++and all historical outputs are preserved. Execution defaults to one job.
++"""
++import argparse
++from copy import deepcopy
++from hashlib import sha256
++import json
++import os
++from pathlib import Path
++import shutil
++import subprocess
++import sys
++import tarfile
++import tempfile
++import time
++import yaml
++from master_script.core.config import implementation_fingerprint
++from master_script.core.queue import write_json, load_batch
++from master_script.core.checkpoint_retention import retire_checkpoints, file_digest
++from master_script.tools.build_guard_stage import build_stage, ROOT
++
++
++SMOKE_TARGET = "2e016354fa6fa91efc79d0ba65e673f5392708522aed8ad3dee8cf86f5f9b6ad"
++
++
++def prepare(output, *, workers=1, targets=8, seed=2000):
++    if workers not in (1, 2, 4) or not 3 <= targets <= 24 or seed < 2000:
++        raise ValueError("Use 1/2/4 workers, 3–24 targets, and a fresh seed band >=2000")
++    output = Path(output).resolve()
++    plan = json.loads((ROOT / "guard/stages/collection_v2.json").read_bytes())
++    plan.update(targets=1)
++    doc = build_stage(plan)
++    train_count = targets // 2
++    val_count = max(1, (targets - train_count) // 2)
++    jobs = []
++    documents = []
++    for i in range(targets):
++        role = "train" if i < train_count else "validation" if i < train_count + val_count else "test"
++        for attack, arms in doc["attacks"].items():
++            for arm in arms["variants"]:
++                job = deepcopy(doc)
++                job["defaults"]["seed"] = seed + i
++                job["attacks"] = {attack: {**deepcopy(arms), "variants": [deepcopy(arm)]}}
++                job["attacks"][attack]["variants"][0]["pipeline"]["client_guard"]["validation_workers"] = workers
++                name = f"job-{len(jobs):03d}.yaml"
++                text = yaml.safe_dump(job, sort_keys=False)
++                from master_script.core.yaml_config import load_config_doc
++                pairs = load_config_doc(job, source=str(output / name))
++                if len(pairs) != 1:
++                    raise ValueError("Each storage-bounded job must expand to one run")
++                config, spec = pairs[0]
++                jobs.append({"config": name, "sha256": sha256(text.encode()).hexdigest(), "seed": seed + i,
++                             "role": role, "attack": attack, "variant": getattr(config, "attack_variant", None)})
++                documents.append((name, text))
++    protocol_raw = (ROOT / "guard/study_protocol_v3.json").read_bytes()
++    launch = {"schema": "guard_collection_v3", "created_unix": time.time(),
++              "implementation_fingerprint": implementation_fingerprint(), "validation_workers": workers,
++              "planned_targets": targets, "jobs": jobs, "held_out_variants": ["causal_gradient_alignment"],
++              "excluded_targets": [SMOKE_TARGET], "protocol_file": "utility-protocol.json",
++              "protocol_sha256": sha256(protocol_raw).hexdigest(),
++              "retention": "retire completed new-job model/probe weights and guard NPZ after result/ledger verification; keep JSON/JSONL/SQLite",
++              "purpose": "Diagnostic detector data only, not a claim that privacy/utility/overhead gates pass",
++              "duration": "Default execution is one job; the complete plan is a multi-hour study requiring deliberate bounded execution",
++              "storage": "20 GiB free output and 4 GiB scratch preflight per job; estimates, not reservations or guarantees"}
++    output.mkdir(parents=True, exist_ok=False)
++    for name, text in documents:
++        (output / name).write_text(text)
++    (output / "utility-protocol.json").write_bytes(protocol_raw)
++    write_json(output / "launch.json", launch)
++    return launch
++
++
++def require_headroom(path, gib):
++    path = Path(path)
++    while not path.exists():
++        path = path.parent
++    if shutil.disk_usage(path).free < gib * 1024 ** 3:
++        raise ValueError(f"Need {gib} GiB free on {path} before starting another job")
++
++
++def execute(launch_path, *, gpu, max_jobs=1, scratch_root=None):
++    lock = Path(launch_path).resolve().parent / ".collector.lock"
++    try:
++        fd = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
++    except FileExistsError as exc:
++        raise ValueError("Collector is running or its lock survived interruption; inspect before removing the lock") from exc
++    try:
++        with os.fdopen(fd, "w") as stream:
++            json.dump({"pid": os.getpid(), "started_unix": time.time()}, stream)
++        return _execute(launch_path, gpu=gpu, max_jobs=max_jobs, scratch_root=scratch_root)
++    finally:
++        lock.unlink()
++
++
++def _execute(launch_path, *, gpu, max_jobs=1, scratch_root=None):
++    launch_path = Path(launch_path).resolve()
++    root = launch_path.parent
++    launch = json.loads(launch_path.read_bytes())
++    if launch["schema"] != "guard_collection_v3" or implementation_fingerprint() != launch["implementation_fingerprint"]:
++        raise ValueError("Collection code changed; prepare a new frozen launch")
++    if file_digest(root / launch["protocol_file"]) != launch["protocol_sha256"]:
++        raise ValueError("Utility protocol changed after declaration")
++    if not str(gpu).isdigit() or type(max_jobs) is not int or max_jobs <= 0:
++        raise ValueError("Select a numeric GPU and positive max_jobs")
++    batches = []
++    for job in launch["jobs"]:
++        p = root / job["config"]
++        if p.parent != root or file_digest(p) != job["sha256"]:
++            raise ValueError("Collection configuration changed")
++        batch = load_batch([p])
++        if len(batch.pairs) != 1:
++            raise ValueError("Job must contain exactly one run")
++        batches.append(batch)
++    state_path = root / "progress.json"
++    state = json.loads(state_path.read_bytes()) if state_path.exists() else {
++        "launch_sha256": file_digest(launch_path), "completed": [], "active_job": None}
++    if state["launch_sha256"] != file_digest(launch_path) or state["active_job"] is not None:
++        raise ValueError("Changed launch or interrupted/failed job: preserve artifacts and inspect before continuing")
++    for completed_job in state["completed"]:
++        saved = (root / completed_job["result"]).resolve()
++        if root not in saved.parents or file_digest(saved) != completed_job["sha256"]:
++            raise ValueError("A completed trace changed; preserve it and inspect before continuing")
++    # Resolve all identities before GPU/private work. Repeated seeds are not
++    # assumed independent, and the same target can never acquire two roles.
++    from master_script.core.datasets import target_record_for
++    targets, groups = {}, {}
++    for job, batch in zip(launch["jobs"], batches):
++        config, _ = batch.pairs[0]
++        target = sha256(target_record_for(config, "").encode()).hexdigest()
++        seed = str(job["seed"])
++        if target in launch["excluded_targets"]:
++            raise ValueError("Collection overlaps the diagnostic smoke target")
++        if seed in targets and targets[seed] != target:
++            raise ValueError("Related attack variants selected different targets")
++        if seed not in targets and target in targets.values():
++            raise ValueError("Different seeds selected the same target; prepare a disjoint cohort")
++        targets[seed] = target
++        if target in groups and groups[target] != job["role"]:
++            raise ValueError("A target cannot cross split roles")
++        groups[target] = job["role"]
++    if state.get("targets", targets) != targets:
++        raise ValueError("Target identities changed since the first collection job")
++    state["targets"] = targets
++    write_json(state_path, state)
++    scratch_root = Path(scratch_root or tempfile.gettempdir()).resolve()
++    if not scratch_root.is_dir():
++        raise ValueError("Scratch root must be an existing writable directory")
++    completed = {r["job"] for r in state["completed"]}
++    for index in [i for i in range(len(batches)) if i not in completed][:max_jobs]:
++        require_headroom(root, 20)
++        require_headroom(scratch_root, 4)
++        job = launch["jobs"][index]
++        scratch = Path(tempfile.mkdtemp(prefix="gcv3-", dir=scratch_root))
++        job_output = root / "results" / f"job-{index:03d}"
++        state["active_job"] = {"index": index, "scratch": str(scratch)}
++        write_json(state_path, state)
++        command = [sys.executable, "-m", "master_script.perform_experiments", "--queue", str(root / job["config"]),
++                   "--queue-output", str(job_output), "--no-firestore", "--no-charts"]
++        # Each job is a new process; no private-world or ledger retry occurs.
++        subprocess.run(command, env={**os.environ, "EXPERIMENT_GPU": str(gpu), "RAY_TMPDIR": str(scratch)}, check=True)
++        manifests = list(job_output.glob("*/manifest.json"))
++        if len(manifests) != 1:
++            raise ValueError("Unexpected batch layout; preserve artifacts")
++        manifest = json.loads(manifests[0].read_bytes())
++        if manifest["status"] != "complete" or len(manifest["entries"]) != 1 or manifest["entries"][0]["status"] != "complete":
++            raise ValueError("Job did not complete; its artifacts are preserved")
++        entry = manifest["entries"][0]
++        if Path(entry["result_file"]).name != entry["result_file"] or entry.get("source_sha256") != job["sha256"]:
++            raise ValueError("Executed job source or result location differs from the declaration")
++        result_path = manifests[0].parent / entry["result_file"]
++        result = json.loads(result_path.read_bytes())
++        found = {t.get("target_sha256") or t.get("candidate_sha256") for t in result["attack_trials"]}
++        if found != {targets[str(job["seed"])]}:
++            raise ValueError("Actual private run target differs from the declared target")
++        if result.get("implementation_fingerprint") != launch["implementation_fingerprint"]:
++            raise ValueError("Executed code differs from frozen launch")
++        retirement = retire_checkpoints(result_path)
++        # Preserve Ray text logs, then remove only the temporary directory
++        # created by this invocation, after its experiment process has exited.
++        with tarfile.open(job_output / "ray-logs.tar.gz", "x:gz") as tar:
++            for log in scratch.rglob("*"):
++                if log.is_file() and not log.is_symlink() and log.suffix in (".log", ".out", ".err"):
++                    tar.add(log, arcname=str(log.relative_to(scratch)))
++        shutil.rmtree(scratch)
++        state["completed"].append({"job": index, "result": str(result_path.relative_to(root)),
++                                   "sha256": file_digest(result_path), "reclaimed_bytes": retirement["reclaimed_bytes"]})
++        state["active_job"] = None
++        write_json(state_path, state)
++        print(f"Completed and retired {index + 1}/{len(batches)}; retained trace: {result_path}", flush=True)
++    splits = {"schema": "guard_splits_v2", "sources": [{"path": r["result"], "sha256": r["sha256"]} for r in state["completed"]],
++              "groups": groups, "held_out_variants": launch["held_out_variants"]}
++    write_json(root / "splits.partial.json", splits)
++    if len(state["completed"]) == len(batches):
++        write_json(root / "splits.complete.json", splits)
++        print("Collection complete. Use splits.complete.json with assemble_guard_dataset.")
++    else:
++        print("Bounded invocation complete; rerun the same launch to execute the next unstarted job(s).")
++
++
++def main():
++    p = argparse.ArgumentParser(description=__doc__)
++    sub = p.add_subparsers(dest="action", required=True)
++    prep = sub.add_parser("prepare")
++    prep.add_argument("output"); prep.add_argument("--workers", type=int, choices=[1, 2, 4], default=1)
++    prep.add_argument("--targets", type=int, default=8); prep.add_argument("--seed", type=int, default=2000)
++    run = sub.add_parser("run")
++    run.add_argument("launch"); run.add_argument("--gpu", required=True)
++    run.add_argument("--max-jobs", type=int, default=1); run.add_argument("--scratch-root")
++    args = p.parse_args()
++    if args.action == "prepare":
++        launch = prepare(args.output, workers=args.workers, targets=args.targets, seed=args.seed)
++        print(f"Prepared {len(launch['jobs'])} one-target jobs. No training started. Default execution is one job.")
++    else:
++        execute(args.launch, gpu=args.gpu, max_jobs=args.max_jobs, scratch_root=args.scratch_root)
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/tests/test_guard_v3.py b/tests/test_guard_v3.py
+new file mode 100644
+--- /dev/null
++++ b/tests/test_guard_v3.py
+@@ -0,0 +1,232 @@
++from dataclasses import replace
++from hashlib import sha256
++import json
++from pathlib import Path
++import threading
++from types import SimpleNamespace
++import numpy as np
++import pytest
++from master_script.core import guard_runtime
++from master_script.core.guard_runtime import prepare_guard, read_guard_events, parse_guard
++from master_script.core.checkpoint_retention import retire_checkpoints
++from master_script.core.guard_protocol import utility_report
++from master_script.tools import collect_guard_traces
++from master_script.tools.benchmark_guard_workers import benchmark
++from tests.test_guard_integration import settings
++
++
++@pytest.mark.parametrize("workers", [1, 2, 4])
++def test_parallel_checks_preserve_features_hashes_and_owned_nonzero_updates(tmp_path, workers):
++    rng = np.random.default_rng(55)
++    prior = [rng.normal(size=65539).astype("float32") for _ in range(5)]
++    value = [p + np.float32(.0002) for p in prior]
++    serial = prepare_guard(settings(tmp_path), "serial", prior, rounds=1)
++    parallel = prepare_guard(replace(serial.settings, validation_workers=workers), "parallel", prior, rounds=1)
++    a = serial.authorize(value, 0, 1)
++    b = parallel.authorize(value, 0, 1)
++    assert all(np.array_equal(x, y) for x, y in zip(a, b))
++    for x in value:
++        x[:] = np.nan
++    assert all(np.isfinite(x).all() for x in b)
++    es = read_guard_events(tmp_path / "local")
++    assert es[-1]["features"] == es[-2]["features"]
++    assert es[-1]["request_sha256"] == es[-2]["request_sha256"]
++    assert es[-1]["validation_workers"] == workers
++    assert parallel.authorize(a, 0, 1) is None  # No duplicate-release bypass.
++
++
++def test_reference_work_really_overlaps_and_reads_each_array_once(tmp_path, monkeypatch):
++    guard = replace(settings(tmp_path), validation_workers=4)
++    runtime = prepare_guard(guard, "parallel", [np.ones(8)] * 4, rounds=1)
++    barrier = threading.Barrier(4)
++    threads = set()
++    original = guard_runtime._inspect_layer
++    def inspect(*args):
++        threads.add(threading.get_ident())
++        barrier.wait(timeout=5)
++        return original(*args)
++    monkeypatch.setattr(guard_runtime, "_inspect_layer", inspect)
++    reads = []
++    get = np.lib.npyio.NpzFile.__getitem__
++    def observed(self, key):
++        reads.append(key)
++        return get(self, key)
++    monkeypatch.setattr(np.lib.npyio.NpzFile, "__getitem__", observed)
++    assert runtime.authorize([np.ones(8)] * 4, 0, 1) is not None
++    assert len(threads) == 4 and sorted(reads) == [f"arr_{i}" for i in range(4)]
++
++
++@pytest.mark.parametrize("workers", [2, 4])
++def test_parallel_tampering_and_invalid_parameters_fail_before_reservation(tmp_path, workers):
++    guard = replace(settings(tmp_path), validation_workers=workers)
++    runtime = prepare_guard(guard, "parallel", [np.ones(8)] * 4, rounds=2)
++    value = [np.ones(8)] * 3 + [np.full(8, np.nan)]
++    assert runtime.authorize(value, 0, 1) is None
++    event = read_guard_events(tmp_path / "local")[-1]
++    assert event["features"] is None and event["reservation_count"] == 0
++    np.savez(runtime.reference_path, *([np.zeros(8)] * 4))
++    with pytest.raises(ValueError, match="integrity"):
++        runtime.authorize([np.ones(8)] * 4, 0, 2)
++    from master_script.core.release_ledger import ReleaseLedger
++    assert ReleaseLedger(tmp_path / "local/release-ledger.sqlite").count("parallel:0") == 0
++
++
++def test_worker_config_is_client_owned_and_strict(tmp_path):
++    guard = settings(tmp_path)
++    value = {"mode": "rules", "policy_file": guard.policy_file, "release_budget": 2}
++    assert "validation_workers" not in parse_guard(value, "<config>").metadata()
++    for invalid in [True, 0, 3, 8, "4"]:
++        with pytest.raises(ValueError, match="validation_workers"):
++            parse_guard({**value, "validation_workers": invalid}, "<config>")
++    assert parse_guard({**value, "validation_workers": 4}, "<config>").metadata()["validation_workers"] == 4
++
++
++def completed_fixture(tmp_path):
++    path = tmp_path / "0000-example.json"
++    artifact = tmp_path / "artifacts/0000-example"
++    guard = replace(settings(tmp_path), runtime_directory=str(artifact / "client-guard"))
++    runtime = prepare_guard(guard, "training:2000:True", [np.ones(8, dtype="float32")], rounds=1)
++    runtime.authorize([np.ones(8, dtype="float32")], 0, 1)
++    result = {"status": "complete", "run_id": "example", "implementation_fingerprint": "old",
++              "pipeline": {"client_guard": {"mode": "rules"}},
++              "guard_events": read_guard_events(artifact / "client-guard")}
++    path.write_text(json.dumps(result))
++    (artifact / "result.json").write_text(json.dumps(result))
++    (tmp_path / "manifest.json").write_text(json.dumps({"entries": [
++        {"status": "complete", "run_id": "example", "result_file": path.name}]}))
++    (artifact / "model.safetensors").write_bytes(b"weights")
++    (artifact / "answers.jsonl").write_text('{"answer":"keep"}\n')
++    return path, artifact, runtime
++
++
++def test_retirement_preserves_evidence_and_prevents_reinitialization(tmp_path):
++    path, artifact, runtime = completed_fixture(tmp_path)
++    kept = [path, artifact / "result.json", artifact / "answers.jsonl", artifact / "client-guard/release-ledger.sqlite"]
++    hashes = {p: sha256(p.read_bytes()).hexdigest() for p in kept}
++    report = retire_checkpoints(path)
++    assert report["status"] == "retired" and report["reclaimed_bytes"] > 0
++    assert len(report["files"]) == 2
++    assert not Path(runtime.reference_path).exists()
++    assert all(sha256(p.read_bytes()).hexdigest() == h for p, h in hashes.items())
++    with pytest.raises(ValueError, match="retired"):
++        prepare_guard(runtime.settings, runtime.scope, [np.ones(8, dtype="float32")], rounds=1)
++
++
++@pytest.mark.parametrize("problem", ["failed", "mismatch", "symlink"])
++def test_retirement_refuses_unsafe_or_incomplete_artifacts(tmp_path, problem):
++    path, artifact, runtime = completed_fixture(tmp_path)
++    if problem == "failed":
++        d = json.loads(path.read_text()); d["status"] = "failed"; path.write_text(json.dumps(d))
++    elif problem == "mismatch":
++        (artifact / "result.json").write_text('{}')
++    else:
++        (artifact / "cache.safetensors").symlink_to(path)
++    with pytest.raises(ValueError):
++        retire_checkpoints(path)
++    assert Path(runtime.reference_path).exists() and (artifact / "model.safetensors").exists()
++    assert not (artifact / "checkpoint-retirement.json").exists()
++
++
++def test_worker_benchmark_never_changes_original_files(tmp_path):
++    path, artifact, runtime = completed_fixture(tmp_path)
++    files = [p for p in tmp_path.rglob("*") if p.is_file()]
++    before = {p: p.read_bytes() for p in files}
++    report = benchmark(tmp_path, repeats=1)
++    assert report["features_and_hashes_identical"]
++    assert set(report["samples"]) == {"1", "2", "4"}
++    assert all(p.read_bytes() == contents for p, contents in before.items())
++
++
++def test_collection_plan_is_one_target_per_job_and_roles_are_frozen(tmp_path):
++    out = tmp_path / "new"
++    launch = collect_guard_traces.prepare(out, targets=8, workers=2)
++    assert len(launch["jobs"]) == 24
++    assert len({j["seed"] for j in launch["jobs"]}) == 8
++    for seed in {j["seed"] for j in launch["jobs"]}:
++        assert len({j["role"] for j in launch["jobs"] if j["seed"] == seed}) == 1
++    from master_script.core.queue import load_batch
++    for job in launch["jobs"]:
++        batch = load_batch([out / job["config"]])
++        cfg, spec = batch.pairs[0]
++        assert spec.pipeline.client_guard.validation_workers == 2
++        assert cfg.attack_trials in (2, 4)
++        assert getattr(cfg, "attack_targets", 1) == 1
++
++
++def test_collection_does_not_retry_an_interrupted_private_job(tmp_path):
++    out = tmp_path / "new"
++    collect_guard_traces.prepare(out, targets=3)
++    (out / "progress.json").write_text(json.dumps({
++        "launch_sha256": sha256((out / "launch.json").read_bytes()).hexdigest(),
++        "active_job": {"index": 0}, "completed": []}))
++    with pytest.raises(ValueError, match="interrupted"):
++        collect_guard_traces.execute(out / "launch.json", gpu="0")
++    assert not (out / ".collector.lock").exists()
++
++
++def test_collection_lock_prevents_duplicate_private_jobs(tmp_path):
++    lock = tmp_path / ".collector.lock"
++    lock.write_text('active collector')
++    with pytest.raises(ValueError, match="Collector is running"):
++        collect_guard_traces.execute(tmp_path / "launch.json", gpu="0")
++    assert lock.read_text() == 'active collector'
++
++
++def test_collection_runs_bounded_jobs_keeps_traces_and_cleans_only_owned_scratch(tmp_path, monkeypatch):
++    from master_script.core import datasets
++    from master_script.core.queue import load_batch, write_json
++    from master_script.core.config import implementation_fingerprint
++    out = tmp_path / "collection"
++    collect_guard_traces.prepare(out, targets=3)
++    scratch = tmp_path / "scratch"; scratch.mkdir()
++    unrelated = scratch / "other-job.log"; unrelated.write_text("keep")
++    monkeypatch.setattr(datasets, "target_record_for", lambda cfg, fallback: f"target-{cfg.seed}")
++    monkeypatch.setattr(collect_guard_traces, "require_headroom", lambda *args: None)
++    calls = []
++    def run(command, *, env, check):
++        calls.append(command)
++        ray = Path(env["RAY_TMPDIR"])
++        (ray / "raylet.out").write_text("retained log")
++        (ray / "object-store").write_bytes(b"discard temporary object")
++        cfg, spec = load_batch([command[command.index("--queue") + 1]]).pairs[0]
++        batch = Path(command[command.index("--queue-output") + 1]) / "batch"
++        batch.mkdir(parents=True)
++        filename = "0000-example.json"
++        artifact = batch / "artifacts/0000-example"
++        opts = replace(spec.pipeline.client_guard, runtime_directory=str(artifact / "client-guard"))
++        runtime = prepare_guard(opts, f"training:{cfg.seed}:True", [np.ones(2)], rounds=1)
++        runtime.authorize([np.ones(2)], 0, 1)
++        result = {"run_id": "example", "status": "complete", "implementation_fingerprint": implementation_fingerprint(),
++                  "pipeline": spec.pipeline.metadata(), "guard_events": read_guard_events(artifact / "client-guard"),
++                  "attack_trials": [{"target_sha256": sha256(f"target-{cfg.seed}".encode()).hexdigest()}]}
++        write_json(batch / filename, result); write_json(artifact / "result.json", result)
++        write_json(batch / "manifest.json", {"status": "complete", "entries": [{"status": "complete", "result_file": filename,
++            "source_sha256": sha256(Path(command[command.index("--queue") + 1]).read_bytes()).hexdigest()}]})
++    monkeypatch.setattr(collect_guard_traces.subprocess, "run", run)
++    for _ in range(2):
++        collect_guard_traces.execute(out / "launch.json", gpu="0", scratch_root=scratch)
++    state = json.loads((out / "progress.json").read_bytes())
++    assert len(calls) == 2 and [r["job"] for r in state["completed"]] == [0, 1]
++    assert state["active_job"] is None
++    assert list(scratch.iterdir()) == [unrelated]
++    assert len(list(out.rglob("ray-logs.tar.gz"))) == 2
++    assert len(list(out.rglob("release-ledger.sqlite"))) == 2
++    assert not list(out.rglob("*.npz"))
++    assert len(json.loads((out / "splits.partial.json").read_bytes())["sources"]) == 2
++
++
++@pytest.mark.parametrize("missing", [False, True])
++def test_rag_passes_cannot_hide_no_context_failure_or_missing_data(missing):
++    protocol = json.loads((collect_guard_traces.ROOT / "guard/study_protocol_v3.json").read_bytes())
++    def row(condition):
++        e = {"trial_id": 0, "no_retrieval_utility": {"token_f1": .02, "exact_match": 0.},
++             "rag_conditions": {k: {"utility": {"token_f1": .4, "exact_match": .2}}
++                                for k in ("public_ordinary", "private_ordinary")}}
++        if missing and condition == "rules_only":
++            e.pop("no_retrieval_utility")
++        return {"run_id": condition, "pipeline": {"condition": condition}, "status": "complete",
++                "config": {}, "attack_name": "amia", "pipeline_evaluations": [e]}
++    report = utility_report([row("baseline"), row("rules_only")], protocol)["runs"][0]
++    assert not report["all_measured_utility_gates_pass"]
++    assert report["endpoints"]["no_retrieval"]["status"] == ("unmeasured" if missing else "fail")
++    assert all(report["endpoints"][e]["status"] == "pass" for e in ("public_ordinary", "private_ordinary"))
