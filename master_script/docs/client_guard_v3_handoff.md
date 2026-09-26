@@ -85,3 +85,7 @@ The shadow-only collection has no matched baseline and consequently cannot pass 
 The full local suite passed **536 tests, with 11 skipped**. New tests exercise concurrent work, exact hashes and feature agreement on nonzero updates, tampered references, invalid values, duplicate reservations, safe retirement, immutable trace evidence, retired-scope refusal, bounded job advancement, exclusive collection, scratch ownership, frozen split roles, and missing/failed utility endpoints. A small synthetic worker benchmark is recorded under `outputs/guard_v3_verified`; it is not a full-model speedup measurement.
 
 The 24-job configuration was generated and validated locally without model downloads or training. No remote GPU experiment, classifier fit, publication or history cleanup was performed in this turn. The next user action is the CPU worker benchmark above. A useful worker count, actual FL-round improvement, collected detector data and any held-out detector benefit remain unmeasured.
+
+## September 26 completed-collection follow-up
+
+The completed collection reproduced a negative generalization result: 0/8 causal-gradient requests detected on two test targets, with decisions identical to relative delta. See [the v4 audit and bounded pilot](client_guard_v4_handoff.md) for preserved evidence, reference/task confounds, the opt-in `parameter_structure_v2` implementation, local costs and fresh-target commands. Historical results and the utility/overhead/rejection gates remain unchanged.

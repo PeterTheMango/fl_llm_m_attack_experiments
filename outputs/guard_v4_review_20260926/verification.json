@@ -1,0 +1,74 @@
+{
+  "schema": "guard_v4_local_verification_v1",
+  "created_utc": "2026-09-26T20:00:59.579464+00:00",
+  "baseline_commit": "e2b812ad8807d97543ee54bea2483ebe1019f08b",
+  "initial_worktree": "clean",
+  "implementation_fingerprint": "489525a1da38",
+  "source_sha256": {
+    "master_script/core/guard_detector.py": "391a3c5ec8bb22d91e781666eb3d784bb282df7d6f05e51f41b4391ff3a10503",
+    "master_script/core/guard_features.py": "7ff56e508cedb9f9d5d7b484eedf729aee369659e89816be7f2d8a1ee30bbcae",
+    "master_script/core/guard_replay.py": "3cf43687e952f9d8454fa1f5f7e72ebc2929d910d19cba8ac053a0aa6692eaaf",
+    "master_script/core/guard_runtime.py": "13c4cc8616470ddf363896f6ff2e4b6382169d5d99aa6a39eaadc1bccc644c32",
+    "master_script/docs/client_guard_v3_handoff.md": "03f6eb118ca17e5aa2f3fb4dd4cbcb3245938d54c8cb91d41bec24e343b62142",
+    "master_script/docs/client_guard_v4_handoff.md": "b90c027b92f7c268f16fa9ea276d4e4991a66b8ff8b1bc9deb78d68aba95c5c5",
+    "master_script/tools/assemble_guard_dataset.py": "00b32bb078eda86e1bc1bb58a4b6eaa0bc978692362e8f2b11f0e51796f40b5f",
+    "master_script/tools/benchmark_guard_structure.py": "3dc42ae1c54fc042912504dd6fac81f14e6708dc61f8d0074ef5bee31da4620a",
+    "master_script/tools/benchmark_guard_workers.py": "87fdd5934183f822ca14047f7f848cffa9c8e96c5b5c6c3548a2c7f9d68d4a42",
+    "master_script/tools/build_guard_dataset.py": "acf488e6097046f17d2f68f2c3c7451c43d8f3a7a9f561b7599781a318344fad",
+    "master_script/tools/build_guard_stage.py": "97b1d935b52af179c09e78893305a38502bf654fa4fd7b99571104d8c2776b81",
+    "master_script/tools/collect_guard_traces.py": "4633e2c8fb1aece81f8e401e6bd4c2999246f47facc45f17d39960cd251c08e2",
+    "master_script/tools/review_guard_v3.py": "c33c4deba0e33c23e8e302b85cd56c8efb010f01f99a0f7a474993d0db98102e",
+    "master_script/tools/train_guard_detector.py": "64a25f064dcd271c173c3cce467047d03fd215e1a527536e382479d06dde40ee",
+    "tests/test_guard_structure.py": "a5f7f259b823346f7ad71b79678a1b820d6aa35086f5c9f43c15af8fb561aaf2"
+  },
+  "patch_sha256": "507d92959899774dfb1f592e0a8f97fc23ac4242f6da1166d8539c3f3ed3b177",
+  "patch_applies_to_baseline_and_reproduces_all_changed_files": true,
+  "test_command": "/opt/anaconda3/bin/python -m pytest -q tests",
+  "test_result": {
+    "passed": 554,
+    "skipped": 11,
+    "seconds": 20.79
+  },
+  "root_pytest_limitation": "Three archived img2vec collection errors because torch is absent; maintained tests/ suite passes.",
+  "current_runtime_loads_frozen_v1_detector": true,
+  "frozen_v1_test_counts_requests_rejected": {
+    "legitimate_training": [
+      96,
+      0
+    ],
+    "probe_head": [
+      8,
+      8
+    ],
+    "causal_gradient_alignment": [
+      8,
+      0
+    ]
+  },
+  "artifacts_sha256": {
+    "benchmark.json": "ea99ff2067a266dd4967070b8ecbda5c2ed68256aa8cace4000c2785a2f1a437",
+    "benchmark_optimized.json": "b84720d95fa2c7dc919936e9c1e1c9d89d1a27ade65cd71e38276109a6357f20",
+    "reproduced_evidence/review.json": "a768bc7df6226a4a3f6fe2b22eb69ae69dc41988ca4a83875e2a7627fbe5bd05",
+    "tests_final_verified.txt": "bb12233191a9f3d2cdda0aba90d57ae215ce56e39d61d572454fa43e5a51870d",
+    "pilot-preview-final/launch.json": "d8c70c9b9d292ac10f1378a90dbd2d7fcad37056e0367e6d085bcf336e07093f"
+  },
+  "pilot": {
+    "development_targets": 3,
+    "jobs": 9,
+    "reserved_final_targets": 4,
+    "local_config_validation": true,
+    "real_target_resolution": "not run locally; exact remote CPU command in handoff",
+    "GPU_jobs_launched": 0
+  },
+  "historical_detector_retuned": false,
+  "remote_commands_executed": false,
+  "privacy_effectiveness": "unestablished",
+  "matched_utility_preservation": "unestablished; historical no-context endpoint fails",
+  "full_model_FL_overhead": "unestablished",
+  "population_false_rejection": "unestablished",
+  "notes": [
+    "benchmark.json records superseded multi-pass code; benchmark_optimized.json is current.",
+    "pilot-preview is superseded by pilot-preview-final with orchestration pins.",
+    "evidence/review.json is initial review; reproduced_evidence/review.json includes historical Git verification."
+  ]
+}

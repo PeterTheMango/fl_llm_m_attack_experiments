@@ -1,0 +1,135 @@
+{
+  "schema": "guard_collection_v4",
+  "created_unix": 1790452774.203799,
+  "implementation_fingerprint": "489525a1da38",
+  "validation_workers": 4,
+  "collection_tool_sha256": "97d3fd27aa1827e0384ed8adc565a735da77b17daa3aa5f2da19ff73f23888fb",
+  "planned_targets": 3,
+  "jobs": [
+    {
+      "config": "job-000.yaml",
+      "sha256": "4ef211eeb41ba28d8e4dd5b1ac4ca528b81c4b31dea58c5f7d670f62ea873990",
+      "seed": 4000,
+      "role": "train",
+      "attack": "amia",
+      "variant": "probe_head"
+    },
+    {
+      "config": "job-001.yaml",
+      "sha256": "7e2d7bed51739176636d70b3eef39aabba2c71736f88b61b40acd11c3c8fb2d0",
+      "seed": 4000,
+      "role": "train",
+      "attack": "amia",
+      "variant": "causal_gradient_alignment"
+    },
+    {
+      "config": "job-002.yaml",
+      "sha256": "55932140967bdeb793bff84d21cafd362b54d214e98b95a523b87bafffb5a4ab",
+      "seed": 4000,
+      "role": "train",
+      "attack": "reference",
+      "variant": null
+    },
+    {
+      "config": "job-003.yaml",
+      "sha256": "ea286fe5ef4c4eff46046dd33b10371f8a73c55d62bb84ff7d05714cfcb1aba4",
+      "seed": 4001,
+      "role": "validation",
+      "attack": "amia",
+      "variant": "probe_head"
+    },
+    {
+      "config": "job-004.yaml",
+      "sha256": "d8c222209cd7e1a3d5328ed79cdced76078ab4bbaf16c67df1e76cecfa81bccc",
+      "seed": 4001,
+      "role": "validation",
+      "attack": "amia",
+      "variant": "causal_gradient_alignment"
+    },
+    {
+      "config": "job-005.yaml",
+      "sha256": "74d55a6767df0fcb0f8993cbd0a9bdf40daf764fcb4ba1caabb08e40d8faa0a4",
+      "seed": 4001,
+      "role": "validation",
+      "attack": "reference",
+      "variant": null
+    },
+    {
+      "config": "job-006.yaml",
+      "sha256": "3e6a601718ab5757c419a936b638af5a907c4bdd1737924cc3e0006a27467db6",
+      "seed": 4002,
+      "role": "test",
+      "attack": "amia",
+      "variant": "probe_head"
+    },
+    {
+      "config": "job-007.yaml",
+      "sha256": "bf966a2be677ee23ea574f6eaefa3eb41c6b092acb093fe0cf23102a7345d8a1",
+      "seed": 4002,
+      "role": "test",
+      "attack": "amia",
+      "variant": "causal_gradient_alignment"
+    },
+    {
+      "config": "job-008.yaml",
+      "sha256": "3e9b491786bcc59a678a4c2a748c0049050418779464a6f64a7df86c9c5a23af",
+      "seed": 4002,
+      "role": "test",
+      "attack": "reference",
+      "variant": null
+    }
+  ],
+  "held_out_variants": [
+    "causal_gradient_alignment"
+  ],
+  "excluded_targets": [
+    "25ef28965141910f7167922ef72bccec0c1a1c194a369cd40d17aa729f90906b",
+    "2756296696f93334b28f206baad7b61948066dd25b1057758723b2087cb7fef4",
+    "2e016354fa6fa91efc79d0ba65e673f5392708522aed8ad3dee8cf86f5f9b6ad",
+    "3f77d7de701d9ee3b92e3252136d5b21a994e0942faaba726a1d89c3e2af2939",
+    "56d863484568d07757c9eba3f1817c43321b3ef6a43f951c00096f665feabb63",
+    "7d7460611a9cdcd1864301e6b0a49533f4f85794f8b24d6e3b041025a2198a56",
+    "c353f3e585ed1d44a2c05a4bb9139e218bf92247d4cc1ec95015db3acfe5b0f4",
+    "ea913b272b8a5de3e5e3ec4c17be88cb76a90fe98e5cb4dfed8cb6ec2ce15164",
+    "f50bbd93d9b20a35f83e60315d162834e6b228b1763a28cbba23d4251821d3fc"
+  ],
+  "exclusion_sources": [
+    {
+      "path": "outputs/guard_v4_review_20260926/evidence/splits.complete.json",
+      "sha256": "67b114788783ae4069bdf23306634da15ff029539aa1bd1e19be8507ed014407"
+    }
+  ],
+  "feature_schema": "parameter_structure_v2",
+  "reserved_final": [
+    {
+      "config": "reserved-final-000.yaml",
+      "sha256": "4f13c8fb6d838d5b9dca97625118ae506c0fc311acd8c3b311c6bb1719acca04",
+      "seed": 5000,
+      "role": "final"
+    },
+    {
+      "config": "reserved-final-001.yaml",
+      "sha256": "0d3398d72bbafe5a79fb894e3e224647a776ff054f4e3c53620de03ac72903ac",
+      "seed": 5001,
+      "role": "final"
+    },
+    {
+      "config": "reserved-final-002.yaml",
+      "sha256": "b4f5ba77633822c11d7b71fe541ba68ed3bcd81fb7f455a8c140c430f5af78b6",
+      "seed": 5002,
+      "role": "final"
+    },
+    {
+      "config": "reserved-final-003.yaml",
+      "sha256": "a2747e4909e22d30680ae7a1ed819c07e7631fcf78f057b1be2a2614a04dc070",
+      "seed": 5003,
+      "role": "final"
+    }
+  ],
+  "protocol_file": "utility-protocol.json",
+  "protocol_sha256": "4c35fc9efbf3363947caa80238c425573e476cf23065470bb163f0038fb90334",
+  "retention": "retire completed new-job model/probe weights and guard NPZ after result/ledger verification; keep JSON/JSONL/SQLite",
+  "purpose": "Diagnostic detector data only, not a claim that privacy/utility/overhead gates pass",
+  "duration": "Default execution is one job; the complete plan is a multi-hour study requiring deliberate bounded execution",
+  "storage": "20 GiB free output and 4 GiB scratch preflight per job; estimates, not reservations or guarantees"
+}

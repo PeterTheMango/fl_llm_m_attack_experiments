@@ -3,6 +3,7 @@ import argparse
 from hashlib import sha256
 import json
 from pathlib import Path
+from master_script.core.guard_features import FEATURE_SCHEMA
 from master_script.core.guard_detector import fit_detector, detector_score
 from master_script.core.metrics import base_metrics, scientific_metrics
 
@@ -17,6 +18,7 @@ def evaluate_detector(data, rows, split):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--feature-schema", default=FEATURE_SCHEMA)
     parser.add_argument("dataset"); parser.add_argument("output")
     parser.add_argument("--max-fpr", type=float, default=.01)
     parser.add_argument("--prevalence", type=float, default=.01)
@@ -25,7 +27,7 @@ def main():
         parser.error("prevalence must lie in (0,1)")
     raw = Path(args.dataset).read_bytes()
     rows = json.loads(raw)
-    artifact = fit_detector(rows, max_false_positive_rate=args.max_fpr)
+    artifact = fit_detector(rows, max_false_positive_rate=args.max_fpr, schema=args.feature_schema)
     encoded = (json.dumps(artifact, indent=2, allow_nan=False) + "\n").encode()
     with Path(args.output).open("xb") as stream:
         stream.write(encoded)

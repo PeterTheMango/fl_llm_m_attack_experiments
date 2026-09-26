@@ -9,10 +9,11 @@ import argparse
 from hashlib import sha256
 import json
 from pathlib import Path
-from master_script.core.guard_features import feature_vector
+from master_script.core.guard_features import feature_vector, FEATURE_SCHEMA, feature_names
 
 
-def assemble(manifest, base):
+def assemble(manifest, base, schema=FEATURE_SCHEMA):
+    feature_names(schema)
     if manifest.get("schema") != "guard_splits_v2" or set(manifest) != {"schema", "sources", "groups", "held_out_variants"}:
         raise ValueError("Invalid versioned split manifest")
     roles = {"train", "validation", "test", "attacker_validation", "final"}
@@ -52,7 +53,9 @@ def assemble(manifest, base):
                 excluded[split] += 1; continue
             if event.get("features") is None:
                 excluded["no_features"] += 1; continue
-            feature_vector(event["features"])
+            if event.get("feature_schema", FEATURE_SCHEMA) != schema:
+                raise ValueError("Mixed or unexpected feature schemas")
+            feature_vector(event["features"], schema)
             variant = result.get("config", {}).get("attack_variant", "probe_head") if kind == "observation" else "legitimate_training"
             if variant in manifest["held_out_variants"] and split != "test":
                 excluded["held_out_variant"] += 1; continue
@@ -66,14 +69,15 @@ def assemble(manifest, base):
         raise ValueError("Detector trace dataset must use one implementation revision")
     return rows, {"schema": "guard_dataset_v2", "manifest_sha256": sha256(json.dumps(manifest, sort_keys=True).encode()).hexdigest(),
                   "implementation_fingerprint": next(iter(fingerprints)), "provenance": provenance, "excluded": excluded,
+                  "feature_schema": schema,
                   "feature_scope": "public_parameters_only; identities_labels_and_paths_are_provenance_not_features"}
 
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("manifest"); p.add_argument("output")
+    p.add_argument("--feature-schema", default=FEATURE_SCHEMA); p.add_argument("manifest"); p.add_argument("output")
     args = p.parse_args(); path = Path(args.manifest)
-    rows, metadata = assemble(json.loads(path.read_text()), path.parent)
+    rows, metadata = assemble(json.loads(path.read_text()), path.parent, args.feature_schema)
     metadata["dataset_sha256"] = sha256((json.dumps(rows, indent=2, allow_nan=False)+"\n").encode()).hexdigest()
     for filename, data in ((args.output, rows), (args.output + ".provenance.json", metadata)):
         with Path(filename).open("x") as stream:

@@ -1,0 +1,41 @@
+{
+  "schema": "parameter_behavior_v1",
+  "features": [
+    "relative_delta",
+    "maximum_layer_delta",
+    "parameter_concentration"
+  ],
+  "mean": [
+    0.17863936586698215,
+    0.3258051909222106,
+    0.9916742133999074
+  ],
+  "scale": [
+    0.6161933091496061,
+    1.1313274658726384,
+    0.002403447646813915
+  ],
+  "weights": [
+    0.786524868576965,
+    0.7472965302480706,
+    0.8056854980131518
+  ],
+  "intercept": -3.806985552264812,
+  "threshold": 0.011303227541612549,
+  "split_groups": {
+    "train": [
+      "25ef28965141910f7167922ef72bccec0c1a1c194a369cd40d17aa729f90906b",
+      "2756296696f93334b28f206baad7b61948066dd25b1057758723b2087cb7fef4",
+      "56d863484568d07757c9eba3f1817c43321b3ef6a43f951c00096f665feabb63",
+      "ea913b272b8a5de3e5e3ec4c17be88cb76a90fe98e5cb4dfed8cb6ec2ce15164"
+    ],
+    "validation": [
+      "7d7460611a9cdcd1864301e6b0a49533f4f85794f8b24d6e3b041025a2198a56",
+      "c353f3e585ed1d44a2c05a4bb9139e218bf92247d4cc1ec95015db3acfe5b0f4"
+    ],
+    "test": [
+      "3f77d7de701d9ee3b92e3252136d5b21a994e0942faaba726a1d89c3e2af2939",
+      "f50bbd93d9b20a35f83e60315d162834e6b228b1763a28cbba23d4251821d3fc"
+    ]
+  }
+}

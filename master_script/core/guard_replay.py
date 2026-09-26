@@ -33,7 +33,7 @@ def adaptive_public_requests(approved, malicious, detector, query_budget):
     for index in range(query_budget):
         fraction = high if index == 0 else (low + high) / 2
         request = interpolate_request(approved, malicious, fraction)
-        score = detector_score(detector, parameter_features(request, approved))
+        score = detector_score(detector, parameter_features(request, approved, detector["schema"]))
         accepted = score <= detector["threshold"]
         yield {"query": index + 1, "fraction": fraction, "parameters": request,
                "public_score": score, "public_decision": accepted}

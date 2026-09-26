@@ -28,8 +28,8 @@ def build_stage(plan, *, detector=None, adaptive=False):
     pin = {}
     if detector:
         detector = Path(detector).resolve(); digest = sha256(detector.read_bytes()).hexdigest()
-        load_detector(detector, digest)
-        pin = {"detector_file": str(detector), "detector_sha256": digest}
+        artifact = load_detector(detector, digest)
+        pin = {"detector_file": str(detector), "detector_sha256": digest, "feature_schema": artifact["schema"]}
     modes = {"rules_only": "rules", "classifier_only": "classifier", "rules_classifier": "rules_classifier",
              "rules_classifier_noise": "rules_classifier", "shadow": "shadow"}
     def pipeline(condition):

@@ -8,10 +8,10 @@ before fitting, with the same group across related runs and attack variants.
 import argparse
 import json
 from pathlib import Path
-from master_script.core.guard_features import feature_vector
+from master_script.core.guard_features import feature_vector, FEATURE_SCHEMA
 
 
-def build_dataset(events, labels):
+def build_dataset(events, labels, schema=FEATURE_SCHEMA):
     rows, seen = [], set()
     for label in labels:
         if set(label) != {"event_index", "group", "split", "malicious", "variant"}:
@@ -21,7 +21,9 @@ def build_dataset(events, labels):
             raise ValueError("Invalid or duplicate event index")
         seen.add(index)
         features = events[index]["features"]
-        feature_vector(features)  # Structural refusals have no behavioral features.
+        if events[index].get("feature_schema", FEATURE_SCHEMA) != schema:
+            raise ValueError("Mixed or unexpected feature schemas")
+        feature_vector(features, schema)  # Structural refusals have no behavioral features.
         rows.append({k: v for k, v in label.items() if k != "event_index"} | {"features": features})
     if not rows:
         raise ValueError("No usable public request traces")
@@ -30,12 +32,13 @@ def build_dataset(events, labels):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--feature-schema", default=FEATURE_SCHEMA)
     parser.add_argument("events"); parser.add_argument("labels"); parser.add_argument("output")
     args = parser.parse_args()
     events = json.loads(Path(args.events).read_text())
     if isinstance(events, dict):
         events = events["guard_events"]
-    rows = build_dataset(events, json.loads(Path(args.labels).read_text()))
+    rows = build_dataset(events, json.loads(Path(args.labels).read_text()), args.feature_schema)
     Path(args.output).write_text(json.dumps(rows, indent=2, allow_nan=False) + "\n")
 
 

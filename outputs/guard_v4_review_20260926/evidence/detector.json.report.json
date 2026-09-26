@@ -1,0 +1,103 @@
+{
+  "relative_delta_baseline": {
+    "threshold": 0.0023755022589852077,
+    "tp": 8,
+    "tn": 96,
+    "fp": 0,
+    "fn": 8,
+    "tpr": 0.5,
+    "tnr": 1.0,
+    "adv": 0.75,
+    "accuracy": 0.9285714285714286,
+    "precision": 1.0,
+    "recall": 0.5,
+    "f1": 0.6666666666666666,
+    "num_trials": 112
+  },
+  "detector_sha256": "6336c89076e67aed223c95e258554898830d9200d64e5fd309a238bd3aefa752",
+  "dataset_sha256": "174bab0e00f45d247cc99e84d818da21014fcc0ddc9f752fce5655701cfe174e",
+  "validation": {
+    "tp": 8,
+    "tn": 96,
+    "fp": 0,
+    "fn": 0,
+    "tpr": 1.0,
+    "tnr": 1.0,
+    "adv": 1.0,
+    "accuracy": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1": 1.0,
+    "num_trials": 104,
+    "roc_auc": 1.0,
+    "nonmember_count": 96,
+    "member_count": 8,
+    "low_fpr_resolution": 0.010416666666666666,
+    "tpr_at_fpr_0_1": 1.0,
+    "tpr_at_fpr_0_05": 1.0,
+    "tpr_at_fpr_0_01": null,
+    "tpr_at_fpr_0_001": null,
+    "low_fpr_note": "Null denotes insufficient empirical FPR resolution; no population guarantee.",
+    "label_scope": "request_origin_not_membership",
+    "independent_groups": 2,
+    "declared_prevalence": 0.01,
+    "precision_at_declared_prevalence": 1.0,
+    "per_variant": {
+      "legitimate_training": {
+        "requests": 96,
+        "groups": 2,
+        "rejection_rate": 0.0
+      },
+      "probe_head": {
+        "requests": 8,
+        "groups": 2,
+        "rejection_rate": 1.0
+      }
+    }
+  },
+  "test": {
+    "tp": 8,
+    "tn": 96,
+    "fp": 0,
+    "fn": 8,
+    "tpr": 0.5,
+    "tnr": 1.0,
+    "adv": 0.75,
+    "accuracy": 0.9285714285714286,
+    "precision": 1.0,
+    "recall": 0.5,
+    "f1": 0.6666666666666666,
+    "num_trials": 112,
+    "roc_auc": 0.6666666666666666,
+    "nonmember_count": 96,
+    "member_count": 16,
+    "low_fpr_resolution": 0.010416666666666666,
+    "tpr_at_fpr_0_1": 0.5,
+    "tpr_at_fpr_0_05": 0.5,
+    "tpr_at_fpr_0_01": null,
+    "tpr_at_fpr_0_001": null,
+    "low_fpr_note": "Null denotes insufficient empirical FPR resolution; no population guarantee.",
+    "label_scope": "request_origin_not_membership",
+    "independent_groups": 2,
+    "declared_prevalence": 0.01,
+    "precision_at_declared_prevalence": 1.0,
+    "per_variant": {
+      "causal_gradient_alignment": {
+        "requests": 8,
+        "groups": 2,
+        "rejection_rate": 0.0
+      },
+      "legitimate_training": {
+        "requests": 96,
+        "groups": 2,
+        "rejection_rate": 0.0
+      },
+      "probe_head": {
+        "requests": 8,
+        "groups": 2,
+        "rejection_rate": 1.0
+      }
+    }
+  },
+  "warning": "Empirical grouped evaluation; a small validation set cannot establish a 1% population FPR"
+}

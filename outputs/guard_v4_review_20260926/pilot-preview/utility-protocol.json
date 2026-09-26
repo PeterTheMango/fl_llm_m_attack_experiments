@@ -1,0 +1,11 @@
+{
+  "schema": "guard_utility_protocol_v3",
+  "purpose": "Prospective endpoint declarations; preserve the earlier no-context failure",
+  "endpoints": ["no_retrieval", "public_ordinary", "private_ordinary"],
+  "minimum_f1": 0.1,
+  "minimum_relative_f1": 0.9,
+  "maximum_em_loss": 0.05,
+  "maximum_round_overhead": 0.1,
+  "maximum_benign_rejection": 0.01,
+  "interpretation": "Every endpoint is separate and required for an all-endpoint utility pass. No-context remains required, not silently replaced by RAG. Missing endpoints are unmeasured, never passes. Repeated checks do not certify population rejection or privacy. Collection is diagnostic, not an effectiveness claim."
+}

@@ -1,0 +1,1422 @@
+diff --git a/master_script/core/guard_detector.py b/master_script/core/guard_detector.py
+index 91c10e4..18c70d0 100644
+--- a/master_script/core/guard_detector.py
++++ b/master_script/core/guard_detector.py
+@@ -7,18 +7,19 @@ from hashlib import sha256
+ import json
+ from pathlib import Path
+ import numpy as np
+-from .guard_features import FEATURE_NAMES, FEATURE_SCHEMA, feature_vector
++from .guard_features import FEATURE_SCHEMA, feature_vector, feature_names
+ 
+ 
+ def validate_detector(data):
+     keys = {"schema", "features", "mean", "scale", "weights", "intercept", "threshold", "split_groups"}
+     if not isinstance(data, dict) or set(data) != keys:
+         raise ValueError("Invalid detector artifact schema")
+-    if data["schema"] != FEATURE_SCHEMA or data["features"] != list(FEATURE_NAMES):
++    names = feature_names(data["schema"])
++    if data["features"] != list(names):
+         raise ValueError("Incompatible detector feature schema")
+     for key in ("mean", "scale", "weights"):
+         values = data[key]
+-        if not isinstance(values, list) or len(values) != len(FEATURE_NAMES) or any(type(v) not in (int, float) for v in values) or not np.isfinite(values).all():
++        if not isinstance(values, list) or len(values) != len(names) or any(type(v) not in (int, float) for v in values) or not np.isfinite(values).all():
+             raise ValueError(f"Invalid detector {key}")
+     if any(v <= 0 for v in data["scale"]):
+         raise ValueError("Detector scales must be positive")
+@@ -48,7 +49,7 @@ def load_detector(path, expected_sha256):
+ def detector_score(data, features):
+     with np.errstate(over="raise", invalid="raise", divide="raise"):
+         try:
+-            x = (feature_vector(features) - np.asarray(data["mean"])) / np.asarray(data["scale"])
++            x = (feature_vector(features, data["schema"]) - np.asarray(data["mean"])) / np.asarray(data["scale"])
+             z = float(np.dot(x, data["weights"]) + data["intercept"])
+         except FloatingPointError as exc:
+             raise ValueError("Nonfinite detector computation") from exc
+@@ -57,7 +58,8 @@ def detector_score(data, features):
+     return float(1 / (1 + np.exp(-np.clip(z, -700, 700))))
+ 
+ 
+-def fit_detector(rows, *, max_false_positive_rate=0.01, iterations=1000):
++def fit_detector(rows, *, max_false_positive_rate=0.01, iterations=1000, schema=FEATURE_SCHEMA):
++    names = feature_names(schema)
+     if not rows or not 0 <= max_false_positive_rate < 1 or type(iterations) is not int or iterations <= 0:
+         raise ValueError("Invalid detector fitting inputs")
+     groups = {k: set() for k in ("train", "validation", "test")}
+@@ -67,7 +69,7 @@ def fit_detector(rows, *, max_false_positive_rate=0.01, iterations=1000):
+             raise ValueError("Trace rows require group, split, malicious, features and variant")
+         if type(row["malicious"]) is not bool or not isinstance(row["group"], str) or not row["group"] or not isinstance(row["variant"], str) or not row["variant"]:
+             raise ValueError("Invalid trace labels or group")
+-        feature_vector(row["features"])
++        feature_vector(row["features"], schema)
+         groups[row["split"]].add(row["group"])
+         by_split[row["split"]].append(row)
+     if any(not g for g in groups.values()) or any(groups[a] & groups[b] for a, b in (("train", "validation"), ("train", "test"), ("validation", "test"))):
+@@ -79,7 +81,7 @@ def fit_detector(rows, *, max_false_positive_rate=0.01, iterations=1000):
+     if not test_variants - trained_variants:
+         raise ValueError("Reserve at least one unseen attack variant for final testing")
+     train = by_split["train"]
+-    x = np.array([feature_vector(r["features"]) for r in train])
++    x = np.array([feature_vector(r["features"], schema) for r in train])
+     y = np.array([r["malicious"] for r in train], dtype=float)
+     mean, scale = x.mean(axis=0), x.std(axis=0)
+     scale[scale < 1e-12] = 1
+@@ -90,7 +92,7 @@ def fit_detector(rows, *, max_false_positive_rate=0.01, iterations=1000):
+         residual = 1 / (1 + np.exp(-np.clip(x @ weights + intercept, -50, 50))) - y
+         weights -= .1 * (x.T @ residual / len(y) + .01 * weights)
+         intercept -= .1 * residual.mean()
+-    data = {"schema": FEATURE_SCHEMA, "features": list(FEATURE_NAMES), "mean": mean.tolist(),
++    data = {"schema": schema, "features": list(names), "mean": mean.tolist(),
+             "scale": scale.tolist(), "weights": weights.tolist(), "intercept": float(intercept),
+             "threshold": 1., "split_groups": {k: sorted(v) for k, v in groups.items()}}
+     benign = sorted(detector_score(data, r["features"]) for r in by_split["validation"] if not r["malicious"])
+diff --git a/master_script/core/guard_features.py b/master_script/core/guard_features.py
+index 76e9494..16e430e 100644
+--- a/master_script/core/guard_features.py
++++ b/master_script/core/guard_features.py
+@@ -3,21 +3,86 @@ import numpy as np
+ 
+ FEATURE_SCHEMA = "parameter_behavior_v1"
+ FEATURE_NAMES = ("relative_delta", "maximum_layer_delta", "parameter_concentration")
++STRUCTURE_SCHEMA = "parameter_structure_v2"
++STRUCTURE_NAMES = FEATURE_NAMES + ("median_layer_delta", "p90_layer_delta",
++    "mean_update_reference_cosine", "minimum_update_reference_cosine", "maximum_update_reference_cosine",
++    "mean_update_concentration", "maximum_update_concentration")
++FEATURE_SCHEMAS = {FEATURE_SCHEMA: FEATURE_NAMES, STRUCTURE_SCHEMA: STRUCTURE_NAMES}
++CHUNK_ELEMENTS = 65536
++
++
++def feature_names(schema):
++    if not isinstance(schema, str) or schema not in FEATURE_SCHEMAS:
++        raise ValueError("Incompatible detector feature schema")
++    return FEATURE_SCHEMAS[schema]
++
++
++def _update_geometry(value, prior):
++    """Cosine(delta, reference) and L-inf(delta)/L2(delta), bounded scratch.
++
++    Normalize before subtraction, including float64 extremes. A second scaling
++    of delta prevents squaring tiny representable relative updates to zero.
++    Undefined zero-vector cosines/concentrations are defined as zero. flat
++    slices bound copies even for noncontiguous tensors. No full delta is kept.
++    """
++    scale = 0.
++    for start in range(0, value.size, CHUNK_ELEMENTS):
++        a = value.flat[start:start + CHUNK_ELEMENTS].astype(np.float64)
++        b = prior.flat[start:start + CHUNK_ELEMENTS].astype(np.float64)
++        if not np.isfinite(a).all() or not np.isfinite(b).all():
++            raise ValueError("Feature inputs must be finite")
++        scale = max(scale, float(np.max(np.abs(a), initial=0)), float(np.max(np.abs(b), initial=0)))
++    if scale == 0:
++        return 0., 0.
++    delta_scale = prior_scale = 0.
++    for start in range(0, value.size, CHUNK_ELEMENTS):
++        a = value.flat[start:start + CHUNK_ELEMENTS].astype(np.float64) / scale
++        b = prior.flat[start:start + CHUNK_ELEMENTS].astype(np.float64) / scale
++        delta_scale = max(delta_scale, float(np.max(np.abs(a - b), initial=0)))
++        prior_scale = max(prior_scale, float(np.max(np.abs(b), initial=0)))
++    if delta_scale == 0:
++        return 0., 0.
++    dot = delta2 = prior2 = 0.
++    for start in range(0, value.size, CHUNK_ELEMENTS):
++        a = value.flat[start:start + CHUNK_ELEMENTS].astype(np.float64) / scale
++        b = prior.flat[start:start + CHUNK_ELEMENTS].astype(np.float64) / scale
++        delta = (a - b) / delta_scale
++        b = b / prior_scale if prior_scale else b
++        dot += float(np.einsum("i,i->", delta, b))
++        delta2 += float(np.einsum("i,i->", delta, delta))
++        prior2 += float(np.einsum("i,i->", b, b))
++    cosine = dot / np.sqrt(delta2) / np.sqrt(prior2) if prior2 else 0.
++    return float(np.clip(cosine, -1, 1)), float(1 / np.sqrt(delta2))
++
++
++def reduce_layer_features(layers, schema=FEATURE_SCHEMA):
++    feature_names(schema)
++    if not layers:
++        raise ValueError("Feature extraction needs nonempty tensors")
++    deltas = [f["relative_delta"] for f in layers]
++    result = dict(zip(FEATURE_NAMES, (float(np.mean(deltas)), max(deltas),
++        max(f["parameter_concentration"] for f in layers))))
++    if schema == STRUCTURE_SCHEMA:
++        cosines = [f["mean_update_reference_cosine"] for f in layers]
++        concentrations = [f["mean_update_concentration"] for f in layers]
++        result.update(zip(STRUCTURE_NAMES[3:], (float(np.median(deltas)), float(np.quantile(deltas, .9)),
++            float(np.mean(cosines)), min(cosines), max(cosines), float(np.mean(concentrations)), max(concentrations))))
++    return result
+ 
+ 
+ def _scaled_layer_features(value, prior):
+     """Bounded two-pass reference calculation, also safe for float64 extremes."""
+-    v, p = value.reshape(-1), prior.reshape(-1)
++    v, p = value, prior
+     scale = 1e-12
+     for start in range(0, v.size, 65536):
+-        a, b = v[start:start + 65536].astype(np.float64), p[start:start + 65536].astype(np.float64)
++        a, b = v.flat[start:start + 65536].astype(np.float64), p.flat[start:start + 65536].astype(np.float64)
+         if not np.isfinite(a).all() or not np.isfinite(b).all():
+             raise ValueError("Feature inputs must be finite")
+         scale = max(scale, float(np.max(np.abs(a), initial=0)), float(np.max(np.abs(b), initial=0)))
+     delta2, prior2, value2, maximum = 0., 0., 0., 0.
+     for start in range(0, v.size, 65536):
+-        a = v[start:start + 65536].astype(np.float64) / scale
+-        b = p[start:start + 65536].astype(np.float64) / scale
++        a = v.flat[start:start + 65536].astype(np.float64) / scale
++        b = p.flat[start:start + 65536].astype(np.float64) / scale
+         delta2 += float(np.sum((a - b) ** 2))
+         prior2 += float(np.sum(b * b)); value2 += float(np.sum(a * a))
+         maximum = max(maximum, float(np.max(np.abs(a), initial=0)))
+@@ -25,7 +90,7 @@ def _scaled_layer_features(value, prior):
+             float(maximum / max(np.sqrt(value2), 1e-12)))
+ 
+ 
+-def _small_float_layer_features(value, prior):
++def _small_float_layer_features(value, prior, geometry=False):
+     """One pass for <=32-bit floats, with double-precision accumulation.
+ 
+     Even squared float32 extrema times the largest addressable array size fit
+@@ -33,11 +98,12 @@ def _small_float_layer_features(value, prior):
+     Preserve the scaled calculation's denominator floor algebraically; do not
+     subtract squared norms (which loses small updates to cancellation).
+     """
+-    v, p = value.reshape(-1), prior.reshape(-1)
++    v, p = value, prior
+     delta2, prior2, value2, maximum, scale = 0., 0., 0., 0., 1e-12
++    dot, delta_maximum = 0., 0.
+     for start in range(0, v.size, 65536):
+-        a = v[start:start + 65536].astype(np.float64)
+-        b = p[start:start + 65536].astype(np.float64)
++        a = v.flat[start:start + 65536].astype(np.float64)
++        b = p.flat[start:start + 65536].astype(np.float64)
+         if not np.isfinite(a).all() or not np.isfinite(b).all():
+             raise ValueError("Feature inputs must be finite")
+         maximum = max(maximum, float(np.max(np.abs(a), initial=0)))
+@@ -48,32 +114,49 @@ def _small_float_layer_features(value, prior):
+         delta2 += float(np.einsum("i,i->", delta, delta))
+         prior2 += float(np.einsum("i,i->", b, b))
+         value2 += float(np.einsum("i,i->", a, a))
+-    return (float(min(np.sqrt(delta2) / max(np.sqrt(prior2), scale * 1e-12), 1e6)),
+-            float(maximum / max(np.sqrt(value2), scale * 1e-12)))
++        if geometry:
++            dot += float(np.einsum("i,i->", delta, b))
++            delta_maximum = max(delta_maximum, float(np.max(np.abs(delta), initial=0)))
++    result = (float(min(np.sqrt(delta2) / max(np.sqrt(prior2), scale * 1e-12), 1e6)),
++              float(maximum / max(np.sqrt(value2), scale * 1e-12)))
++    if geometry:
++        cosine = dot / np.sqrt(delta2) / np.sqrt(prior2) if delta2 and prior2 else 0.
++        concentration = delta_maximum / np.sqrt(delta2) if delta2 else 0.
++        return result + (float(np.clip(cosine, -1, 1)), float(concentration))
++    return result
+ 
+ 
+-def parameter_features(parameters, reference):
++def parameter_features(parameters, reference, schema=FEATURE_SCHEMA):
++    feature_names(schema)
+     if not parameters:
+         raise ValueError("Feature extraction needs matched nonempty parameter lists")
+-    deltas, concentrations = [], []
++    layers = []
+     for value, prior in zip(parameters, reference, strict=True):
+         value, prior = np.asarray(value), np.asarray(prior)
+         if value.shape != prior.shape or value.dtype.kind not in "fi" or prior.dtype.kind not in "fi":
+             raise ValueError("Feature inputs must have equal numeric shapes")
+         calculate = (_small_float_layer_features if all(a.dtype.kind == "f" and a.dtype.itemsize <= 4
+                                                         for a in (value, prior)) else _scaled_layer_features)
+-        delta, concentration = calculate(value, prior)
+-        deltas.append(delta)
+-        concentrations.append(concentration)
+-    return dict(zip(FEATURE_NAMES, (float(np.mean(deltas)), max(deltas), max(concentrations))))
++        if schema == STRUCTURE_SCHEMA and calculate is _small_float_layer_features:
++            delta, concentration, cosine, update_concentration = calculate(value, prior, geometry=True)
++        else:
++            delta, concentration = calculate(value, prior)
++            if schema == STRUCTURE_SCHEMA:
++                cosine, update_concentration = _update_geometry(value, prior)
++        layer = dict(zip(FEATURE_NAMES, (delta, delta, concentration)))
++        if schema == STRUCTURE_SCHEMA:
++            layer.update(mean_update_reference_cosine=cosine, mean_update_concentration=update_concentration)
++        layers.append(layer)
++    return reduce_layer_features(layers, schema)
+ 
+ 
+-def feature_vector(features):
+-    if not isinstance(features, dict) or set(features) != set(FEATURE_NAMES):
++def feature_vector(features, schema=FEATURE_SCHEMA):
++    names = feature_names(schema)
++    if not isinstance(features, dict) or set(features) != set(names):
+         raise ValueError("Detector features must match the strict public-feature allowlist")
+-    if any(type(features[k]) not in (int, float) for k in FEATURE_NAMES):
++    if any(type(features[k]) not in (int, float) for k in names):
+         raise ValueError("Feature values must be numeric")
+-    values = np.array([features[k] for k in FEATURE_NAMES], dtype=float)
++    values = np.array([features[k] for k in names], dtype=float)
+     if not np.isfinite(values).all():
+         raise ValueError("Features must be finite")
+     return values
+diff --git a/master_script/core/guard_replay.py b/master_script/core/guard_replay.py
+index b998005..d4c6d8f 100644
+--- a/master_script/core/guard_replay.py
++++ b/master_script/core/guard_replay.py
+@@ -33,7 +33,7 @@ def adaptive_public_requests(approved, malicious, detector, query_budget):
+     for index in range(query_budget):
+         fraction = high if index == 0 else (low + high) / 2
+         request = interpolate_request(approved, malicious, fraction)
+-        score = detector_score(detector, parameter_features(request, approved))
++        score = detector_score(detector, parameter_features(request, approved, detector["schema"]))
+         accepted = score <= detector["threshold"]
+         yield {"query": index + 1, "fraction": fraction, "parameters": request,
+                "public_score": score, "public_decision": accepted}
+diff --git a/master_script/core/guard_runtime.py b/master_script/core/guard_runtime.py
+index 5cde512..3b06fcc 100644
+--- a/master_script/core/guard_runtime.py
++++ b/master_script/core/guard_runtime.py
+@@ -14,7 +14,7 @@ import sqlite3
+ import time
+ from zipfile import BadZipFile
+ import numpy as np
+-from .guard_features import FEATURE_SCHEMA, parameter_features
++from .guard_features import FEATURE_SCHEMA, parameter_features, feature_names, reduce_layer_features
+ from .guard_detector import load_detector, detector_score
+ from .release_ledger import ReleaseLedger
+ 
+@@ -36,16 +36,19 @@ class GuardSettings:
+     rejection_action: str = "refuse"
+     runtime_directory: str | None = None
+     validation_workers: int = 1
++    feature_schema: str = FEATURE_SCHEMA
+ 
+     def metadata(self):
+         data = {k: v for k, v in asdict(self).items() if k not in ("policy_json", "runtime_directory")}
+         if self.validation_workers == 1:
+             data.pop("validation_workers")  # Preserve the serial configuration identity.
++        if self.feature_schema == FEATURE_SCHEMA:
++            data.pop("feature_schema")  # Preserve historical v1 identities.
+         return data
+ 
+ 
+ def parse_guard(value, source):
+-    allowed = {"mode", "policy_file", "release_budget", "detector_file", "detector_sha256", "diagnostic", "rejection_action", "validation_workers"}
++    allowed = {"mode", "policy_file", "release_budget", "detector_file", "detector_sha256", "diagnostic", "rejection_action", "validation_workers", "feature_schema"}
+     if not isinstance(value, dict) or set(value) - allowed:
+         raise ValueError("Invalid client_guard fields")
+     if value.get("mode") not in ("rules", "classifier", "rules_classifier", "shadow"):
+@@ -58,6 +61,8 @@ def parse_guard(value, source):
+         raise ValueError("Invalid diagnostic or rejection_action")
+     if not isinstance(value.get("policy_file"), str) or not value["policy_file"]:
+         raise ValueError("client_guard.policy_file is required")
++    schema = value.get("feature_schema", FEATURE_SCHEMA)
++    feature_names(schema)
+     base = Path(source).resolve().parent if source != "<config>" else Path.cwd()
+     path = (base / value["policy_file"]).resolve()
+     raw = path.read_bytes()
+@@ -76,7 +81,8 @@ def parse_guard(value, source):
+         if not isinstance(detector, str) or not detector or not isinstance(digest, str) or len(digest) != 64:
+             raise ValueError("Invalid detector pin")
+         detector = str((base / detector).resolve())
+-        load_detector(detector, digest)
++        if load_detector(detector, digest)["schema"] != schema:
++            raise ValueError("Detector and runtime feature schema mismatch")
+     return GuardSettings(**{**value, "policy_file": str(path), "policy_sha256": sha256(raw).hexdigest(),
+                             "policy_json": raw.decode(), "detector_file": detector})
+ 
+@@ -122,7 +128,7 @@ def parameter_digest(value):
+     return digest.hexdigest()
+ 
+ 
+-def _inspect_layer(stored, index, value, expected_digest):
++def _inspect_layer(stored, index, value, expected_digest, schema=FEATURE_SCHEMA):
+     """Each task owns one freshly read reference array; never cache its contents."""
+     timings = {}
+     tick = time.perf_counter()
+@@ -142,7 +148,10 @@ def _inspect_layer(stored, index, value, expected_digest):
+         reason = "invalid_parameters"
+     timings["validation"] = time.perf_counter() - tick
+     tick = time.perf_counter()
+-    features = parameter_features([value], [prior]) if reason is None else None
++    features = None
++    if reason is None:
++        features = (parameter_features([value], [prior]) if schema == FEATURE_SCHEMA else
++                    parameter_features([value], [prior], schema))
+     timings["feature_extraction"] = time.perf_counter() - tick
+     return reason, features, timings
+ 
+@@ -171,6 +180,7 @@ class GuardRuntime:
+         workers = self.settings.validation_workers
+         if type(workers) is not int or workers not in (1, 2, 4):
+             raise ValueError("validation_workers must be 1, 2 or 4")
++        feature_names(self.settings.feature_schema)
+         rss_before = rss_gib()
+         stages = dict.fromkeys(("request_copy", "request_hash", "reference_load", "reference_hash", "validation",
+                                "feature_extraction", "detector_load", "detector_inference",
+@@ -206,7 +216,7 @@ class GuardRuntime:
+                 reason = "parameter_shapes_mismatch"
+             elif reason in (None, "architecture_mismatch"):
+                 def inspect(i):
+-                    return _inspect_layer(stored, i, snapshot[i], self.reference_digests[i])
++                    return _inspect_layer(stored, i, snapshot[i], self.reference_digests[i], self.settings.feature_schema)
+                 # ZipFile serializes seeks/reads through its shared-file lock.
+                 # Hashing and feature reductions can overlap on owned arrays.
+                 # Results are reduced in tensor order, preserving feature math.
+@@ -229,9 +239,7 @@ class GuardRuntime:
+                             if layer_values is not None:
+                                 layer_features.append(layer_values)
+                 if len(layer_features) == len(snapshot) and snapshot:
+-                    features = {"relative_delta": float(np.mean([f["relative_delta"] for f in layer_features])),
+-                                "maximum_layer_delta": max(f["maximum_layer_delta"] for f in layer_features),
+-                                "parameter_concentration": max(f["parameter_concentration"] for f in layer_features)}
++                    features = reduce_layer_features(layer_features, self.settings.feature_schema)
+         reference_wall_seconds = time.perf_counter() - reference_start
+         # Classifier-only is diagnostic: structural/numerical safety still applies.
+         if features is not None and self.settings.detector_file is not None and reason in (None, "architecture_mismatch"):
+@@ -239,6 +247,8 @@ class GuardRuntime:
+             detector = load_detector(self.settings.detector_file, self.settings.detector_sha256)
+             stages["detector_load"] = time.perf_counter() - tick
+             tick = time.perf_counter()
++            if detector["schema"] != self.settings.feature_schema:
++                raise ValueError("Detector and runtime feature schema mismatch")
+             score = detector_score(detector, features)
+             stages["detector_inference"] = time.perf_counter() - tick
+             if reason is None and score > detector["threshold"]:
+@@ -255,7 +265,8 @@ class GuardRuntime:
+         event = {"scope": self.scope, "client_id": client_id, "round_id": round_id,
+                  "decision": "accepted" if accepted else "rejected", "would_accept": proposed,
+                  "reason": reason or "accepted", "mode": self.settings.mode,
+-                 "features": features, "detector_score": score, "feature_schema": FEATURE_SCHEMA,
++                 "features": features, "detector_score": score, "feature_schema": self.settings.feature_schema,
++                 "reference_sha256": sha256("".join(self.reference_digests).encode()).hexdigest(),
+                  "policy_sha256": self.settings.policy_sha256, "detector_sha256": self.settings.detector_sha256,
+                  "reservation_count": count, "seconds": time.perf_counter() - start,
+                  "stages_seconds": stages,
+diff --git a/master_script/docs/client_guard_v3_handoff.md b/master_script/docs/client_guard_v3_handoff.md
+index b5da2e6..2fedb4f 100644
+--- a/master_script/docs/client_guard_v3_handoff.md
++++ b/master_script/docs/client_guard_v3_handoff.md
+@@ -85,3 +85,7 @@ The shadow-only collection has no matched baseline and consequently cannot pass
+ The full local suite passed **536 tests, with 11 skipped**. New tests exercise concurrent work, exact hashes and feature agreement on nonzero updates, tampered references, invalid values, duplicate reservations, safe retirement, immutable trace evidence, retired-scope refusal, bounded job advancement, exclusive collection, scratch ownership, frozen split roles, and missing/failed utility endpoints. A small synthetic worker benchmark is recorded under `outputs/guard_v3_verified`; it is not a full-model speedup measurement.
+ 
+ The 24-job configuration was generated and validated locally without model downloads or training. No remote GPU experiment, classifier fit, publication or history cleanup was performed in this turn. The next user action is the CPU worker benchmark above. A useful worker count, actual FL-round improvement, collected detector data and any held-out detector benefit remain unmeasured.
++
++## September 26 completed-collection follow-up
++
++The completed collection reproduced a negative generalization result: 0/8 causal-gradient requests detected on two test targets, with decisions identical to relative delta. See [the v4 audit and bounded pilot](client_guard_v4_handoff.md) for preserved evidence, reference/task confounds, the opt-in `parameter_structure_v2` implementation, local costs and fresh-target commands. Historical results and the utility/overhead/rejection gates remain unchanged.
+diff --git a/master_script/tools/assemble_guard_dataset.py b/master_script/tools/assemble_guard_dataset.py
+index 3e8c322..2c3f70b 100644
+--- a/master_script/tools/assemble_guard_dataset.py
++++ b/master_script/tools/assemble_guard_dataset.py
+@@ -9,10 +9,11 @@ import argparse
+ from hashlib import sha256
+ import json
+ from pathlib import Path
+-from master_script.core.guard_features import feature_vector
++from master_script.core.guard_features import feature_vector, FEATURE_SCHEMA, feature_names
+ 
+ 
+-def assemble(manifest, base):
++def assemble(manifest, base, schema=FEATURE_SCHEMA):
++    feature_names(schema)
+     if manifest.get("schema") != "guard_splits_v2" or set(manifest) != {"schema", "sources", "groups", "held_out_variants"}:
+         raise ValueError("Invalid versioned split manifest")
+     roles = {"train", "validation", "test", "attacker_validation", "final"}
+@@ -52,7 +53,9 @@ def assemble(manifest, base):
+                 excluded[split] += 1; continue
+             if event.get("features") is None:
+                 excluded["no_features"] += 1; continue
+-            feature_vector(event["features"])
++            if event.get("feature_schema", FEATURE_SCHEMA) != schema:
++                raise ValueError("Mixed or unexpected feature schemas")
++            feature_vector(event["features"], schema)
+             variant = result.get("config", {}).get("attack_variant", "probe_head") if kind == "observation" else "legitimate_training"
+             if variant in manifest["held_out_variants"] and split != "test":
+                 excluded["held_out_variant"] += 1; continue
+@@ -66,14 +69,15 @@ def assemble(manifest, base):
+         raise ValueError("Detector trace dataset must use one implementation revision")
+     return rows, {"schema": "guard_dataset_v2", "manifest_sha256": sha256(json.dumps(manifest, sort_keys=True).encode()).hexdigest(),
+                   "implementation_fingerprint": next(iter(fingerprints)), "provenance": provenance, "excluded": excluded,
++                  "feature_schema": schema,
+                   "feature_scope": "public_parameters_only; identities_labels_and_paths_are_provenance_not_features"}
+ 
+ 
+ def main():
+     p = argparse.ArgumentParser(description=__doc__)
+-    p.add_argument("manifest"); p.add_argument("output")
++    p.add_argument("--feature-schema", default=FEATURE_SCHEMA); p.add_argument("manifest"); p.add_argument("output")
+     args = p.parse_args(); path = Path(args.manifest)
+-    rows, metadata = assemble(json.loads(path.read_text()), path.parent)
++    rows, metadata = assemble(json.loads(path.read_text()), path.parent, args.feature_schema)
+     metadata["dataset_sha256"] = sha256((json.dumps(rows, indent=2, allow_nan=False)+"\n").encode()).hexdigest()
+     for filename, data in ((args.output, rows), (args.output + ".provenance.json", metadata)):
+         with Path(filename).open("x") as stream:
+diff --git a/master_script/tools/benchmark_guard_workers.py b/master_script/tools/benchmark_guard_workers.py
+index 8fa84b8..f5b76b6 100644
+--- a/master_script/tools/benchmark_guard_workers.py
++++ b/master_script/tools/benchmark_guard_workers.py
+@@ -10,11 +10,13 @@ import tempfile
+ import numpy as np
+ from master_script.core.guard_runtime import GuardRuntime, GuardSettings, parameter_digest, read_guard_events
+ from master_script.core.config import implementation_fingerprint
++from master_script.core.guard_features import FEATURE_SCHEMA, feature_names
+ from master_script.core.storage import atomic_binary
+ from master_script.tools.benchmark_guard_runtime import select_snapshot
+ 
+ 
+-def benchmark(run_dir, workers=(1, 2, 4), repeats=2):
++def benchmark(run_dir, workers=(1, 2, 4), repeats=2, feature_schema=FEATURE_SCHEMA):
++    feature_names(feature_schema)
+     if not workers or len(set(workers)) != len(workers) or any(type(w) is not int or w not in (1, 2, 4) for w in workers):
+         raise ValueError("Use distinct worker counts from 1, 2, 4")
+     if type(repeats) is not int or not 1 <= repeats <= 6:
+@@ -30,7 +32,7 @@ def benchmark(run_dir, workers=(1, 2, 4), repeats=2):
+     policy = json.dumps({"schema": "client_guard_v1", "observation_architecture": "causal_lm"})
+     with tempfile.TemporaryDirectory(prefix="guard-workers-") as temporary:
+         settings = GuardSettings("rules", "benchmark", sha256(policy.encode()).hexdigest(), policy, 1,
+-                                 runtime_directory=temporary, diagnostic=True)
++                                 runtime_directory=temporary, diagnostic=True, feature_schema=feature_schema)
+         for repeat in range(repeats):
+             order = list(workers) if repeat % 2 == 0 else list(reversed(workers))
+             for w in order:
+@@ -48,7 +50,7 @@ def benchmark(run_dir, workers=(1, 2, 4), repeats=2):
+                 raise ValueError("Worker settings changed request identity or features")
+     medians = {w: statistics.median(e["seconds"] for e in events) for w, events in samples.items()}
+     return {"schema": "guard_worker_benchmark_v1", "implementation_fingerprint": implementation_fingerprint(),
+-            "snapshot_source_run": result["run_id"], "snapshot_request_sha256": request_hash,
++            "feature_schema": feature_schema, "snapshot_source_run": result["run_id"], "snapshot_request_sha256": request_hash,
+             "request_bytes": historical["request_bytes"], "repeats": repeats,
+             "environment": {"platform": platform.platform(), "python": platform.python_version(), "numpy": np.__version__},
+             "median_wall_seconds": medians, "features_and_hashes_identical": True, "samples": samples,
+@@ -61,6 +63,7 @@ def benchmark(run_dir, workers=(1, 2, 4), repeats=2):
+ 
+ def main():
+     p = argparse.ArgumentParser(description=__doc__)
++    p.add_argument("--feature-schema", default=FEATURE_SCHEMA)
+     p.add_argument("--run-dir", required=True)
+     p.add_argument("--output", required=True)
+     p.add_argument("--workers", nargs="+", type=int, default=[1, 2, 4])
+@@ -69,7 +72,7 @@ def main():
+     output = Path(args.output)
+     if output.exists():
+         raise FileExistsError("Choose a new benchmark output")
+-    report = benchmark(args.run_dir, args.workers, args.repeats)
++    report = benchmark(args.run_dir, args.workers, args.repeats, args.feature_schema)
+     with atomic_binary(output, exclusive=True) as stream:
+         stream.write((json.dumps(report, indent=2, allow_nan=False) + "\n").encode())
+     print(json.dumps({"output": str(output), "median_wall_seconds": report["median_wall_seconds"]}, indent=2))
+diff --git a/master_script/tools/build_guard_dataset.py b/master_script/tools/build_guard_dataset.py
+index 16d9bbb..edbc89f 100644
+--- a/master_script/tools/build_guard_dataset.py
++++ b/master_script/tools/build_guard_dataset.py
+@@ -8,10 +8,10 @@ before fitting, with the same group across related runs and attack variants.
+ import argparse
+ import json
+ from pathlib import Path
+-from master_script.core.guard_features import feature_vector
++from master_script.core.guard_features import feature_vector, FEATURE_SCHEMA
+ 
+ 
+-def build_dataset(events, labels):
++def build_dataset(events, labels, schema=FEATURE_SCHEMA):
+     rows, seen = [], set()
+     for label in labels:
+         if set(label) != {"event_index", "group", "split", "malicious", "variant"}:
+@@ -21,7 +21,9 @@ def build_dataset(events, labels):
+             raise ValueError("Invalid or duplicate event index")
+         seen.add(index)
+         features = events[index]["features"]
+-        feature_vector(features)  # Structural refusals have no behavioral features.
++        if events[index].get("feature_schema", FEATURE_SCHEMA) != schema:
++            raise ValueError("Mixed or unexpected feature schemas")
++        feature_vector(features, schema)  # Structural refusals have no behavioral features.
+         rows.append({k: v for k, v in label.items() if k != "event_index"} | {"features": features})
+     if not rows:
+         raise ValueError("No usable public request traces")
+@@ -30,12 +32,13 @@ def build_dataset(events, labels):
+ 
+ def main():
+     parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("--feature-schema", default=FEATURE_SCHEMA)
+     parser.add_argument("events"); parser.add_argument("labels"); parser.add_argument("output")
+     args = parser.parse_args()
+     events = json.loads(Path(args.events).read_text())
+     if isinstance(events, dict):
+         events = events["guard_events"]
+-    rows = build_dataset(events, json.loads(Path(args.labels).read_text()))
++    rows = build_dataset(events, json.loads(Path(args.labels).read_text()), args.feature_schema)
+     Path(args.output).write_text(json.dumps(rows, indent=2, allow_nan=False) + "\n")
+ 
+ 
+diff --git a/master_script/tools/build_guard_stage.py b/master_script/tools/build_guard_stage.py
+index 021eec9..89d7e11 100644
+--- a/master_script/tools/build_guard_stage.py
++++ b/master_script/tools/build_guard_stage.py
+@@ -28,8 +28,8 @@ def build_stage(plan, *, detector=None, adaptive=False):
+     pin = {}
+     if detector:
+         detector = Path(detector).resolve(); digest = sha256(detector.read_bytes()).hexdigest()
+-        load_detector(detector, digest)
+-        pin = {"detector_file": str(detector), "detector_sha256": digest}
++        artifact = load_detector(detector, digest)
++        pin = {"detector_file": str(detector), "detector_sha256": digest, "feature_schema": artifact["schema"]}
+     modes = {"rules_only": "rules", "classifier_only": "classifier", "rules_classifier": "rules_classifier",
+              "rules_classifier_noise": "rules_classifier", "shadow": "shadow"}
+     def pipeline(condition):
+diff --git a/master_script/tools/collect_guard_traces.py b/master_script/tools/collect_guard_traces.py
+index e09a76f..cf98d6d 100644
+--- a/master_script/tools/collect_guard_traces.py
++++ b/master_script/tools/collect_guard_traces.py
+@@ -18,6 +18,7 @@ import tempfile
+ import time
+ import yaml
+ from master_script.core.config import implementation_fingerprint
++from master_script.core.guard_features import FEATURE_SCHEMA, STRUCTURE_SCHEMA, feature_names
+ from master_script.core.queue import write_json, load_batch
+ from master_script.core.checkpoint_retention import retire_checkpoints, file_digest
+ from master_script.tools.build_guard_stage import build_stage, ROOT
+@@ -26,7 +27,30 @@ from master_script.tools.build_guard_stage import build_stage, ROOT
+ SMOKE_TARGET = "2e016354fa6fa91efc79d0ba65e673f5392708522aed8ad3dee8cf86f5f9b6ad"
+ 
+ 
+-def prepare(output, *, workers=1, targets=8, seed=2000):
++def collection_tool_digest():
++    """The core implementation fingerprint does not include orchestration tools."""
++    digest = sha256()
++    for name in ("collect_guard_traces.py", "build_guard_stage.py"):
++        digest.update(name.encode())
++        digest.update(Path(__file__).with_name(name).read_bytes())
++    return digest.hexdigest()
++
++
++def prepare(output, *, workers=1, targets=8, seed=2000, feature_schema=FEATURE_SCHEMA,
++            exclude_manifests=(), reserve_final_targets=0):
++    feature_names(feature_schema)
++    if type(reserve_final_targets) is not int or not 0 <= reserve_final_targets <= 1000:
++        raise ValueError("Invalid final cohort size")
++    if feature_schema == STRUCTURE_SCHEMA and (not exclude_manifests or reserve_final_targets < 2):
++        raise ValueError("v2 collection requires prior cohort exclusions and at least two reserved final targets")
++    excluded, exclusion_sources = {SMOKE_TARGET}, []
++    for manifest_path in exclude_manifests:
++        raw = Path(manifest_path).read_bytes()
++        manifest = json.loads(raw)
++        if manifest.get("schema") != "guard_splits_v2" or not manifest.get("groups"):
++            raise ValueError("Exclusions require a nonempty guard_splits_v2 manifest")
++        excluded.update(manifest["groups"])
++        exclusion_sources.append({"path": str(manifest_path), "sha256": sha256(raw).hexdigest()})
+     if workers not in (1, 2, 4) or not 3 <= targets <= 24 or seed < 2000:
+         raise ValueError("Use 1/2/4 workers, 3–24 targets, and a fresh seed band >=2000")
+     output = Path(output).resolve()
+@@ -45,6 +69,8 @@ def prepare(output, *, workers=1, targets=8, seed=2000):
+                 job["defaults"]["seed"] = seed + i
+                 job["attacks"] = {attack: {**deepcopy(arms), "variants": [deepcopy(arm)]}}
+                 job["attacks"][attack]["variants"][0]["pipeline"]["client_guard"]["validation_workers"] = workers
++                if feature_schema != FEATURE_SCHEMA:
++                    job["attacks"][attack]["variants"][0]["pipeline"]["client_guard"]["feature_schema"] = feature_schema
+                 name = f"job-{len(jobs):03d}.yaml"
+                 text = yaml.safe_dump(job, sort_keys=False)
+                 from master_script.core.yaml_config import load_config_doc
+@@ -55,11 +81,22 @@ def prepare(output, *, workers=1, targets=8, seed=2000):
+                 jobs.append({"config": name, "sha256": sha256(text.encode()).hexdigest(), "seed": seed + i,
+                              "role": role, "attack": attack, "variant": getattr(config, "attack_variant", None)})
+                 documents.append((name, text))
++    reserved = []
++    for i in range(reserve_final_targets):
++        reserved_doc = yaml.safe_load(documents[0][1])
++        reserved_doc["defaults"]["seed"] = seed + 1000 + i
++        name = f"reserved-final-{i:03d}.yaml"
++        text = yaml.safe_dump(reserved_doc, sort_keys=False)
++        reserved.append({"config": name, "sha256": sha256(text.encode()).hexdigest(),
++                         "seed": seed + 1000 + i, "role": "final"})
++        documents.append((name, text))
+     protocol_raw = (ROOT / "guard/study_protocol_v3.json").read_bytes()
+-    launch = {"schema": "guard_collection_v3", "created_unix": time.time(),
++    launch = {"schema": "guard_collection_v4" if feature_schema != FEATURE_SCHEMA or reserved else "guard_collection_v3", "created_unix": time.time(),
+               "implementation_fingerprint": implementation_fingerprint(), "validation_workers": workers,
++              "collection_tool_sha256": collection_tool_digest(),
+               "planned_targets": targets, "jobs": jobs, "held_out_variants": ["causal_gradient_alignment"],
+-              "excluded_targets": [SMOKE_TARGET], "protocol_file": "utility-protocol.json",
++              "excluded_targets": sorted(excluded), "exclusion_sources": exclusion_sources,
++              "feature_schema": feature_schema, "reserved_final": reserved, "protocol_file": "utility-protocol.json",
+               "protocol_sha256": sha256(protocol_raw).hexdigest(),
+               "retention": "retire completed new-job model/probe weights and guard NPZ after result/ledger verification; keep JSON/JSONL/SQLite",
+               "purpose": "Diagnostic detector data only, not a claim that privacy/utility/overhead gates pass",
+@@ -81,7 +118,7 @@ def require_headroom(path, gib):
+         raise ValueError(f"Need {gib} GiB free on {path} before starting another job")
+ 
+ 
+-def execute(launch_path, *, gpu, max_jobs=1, scratch_root=None):
++def execute(launch_path, *, gpu=None, max_jobs=1, scratch_root=None, resolve_only=False):
+     lock = Path(launch_path).resolve().parent / ".collector.lock"
+     try:
+         fd = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+@@ -90,20 +127,22 @@ def execute(launch_path, *, gpu, max_jobs=1, scratch_root=None):
+     try:
+         with os.fdopen(fd, "w") as stream:
+             json.dump({"pid": os.getpid(), "started_unix": time.time()}, stream)
+-        return _execute(launch_path, gpu=gpu, max_jobs=max_jobs, scratch_root=scratch_root)
++        return _execute(launch_path, gpu=gpu, max_jobs=max_jobs, scratch_root=scratch_root, resolve_only=resolve_only)
+     finally:
+         lock.unlink()
+ 
+ 
+-def _execute(launch_path, *, gpu, max_jobs=1, scratch_root=None):
++def _execute(launch_path, *, gpu, max_jobs=1, scratch_root=None, resolve_only=False):
+     launch_path = Path(launch_path).resolve()
+     root = launch_path.parent
+     launch = json.loads(launch_path.read_bytes())
+-    if launch["schema"] != "guard_collection_v3" or implementation_fingerprint() != launch["implementation_fingerprint"]:
++    if launch["schema"] not in ("guard_collection_v3", "guard_collection_v4") or implementation_fingerprint() != launch["implementation_fingerprint"]:
+         raise ValueError("Collection code changed; prepare a new frozen launch")
++    if launch["schema"] == "guard_collection_v4" and launch.get("collection_tool_sha256") != collection_tool_digest():
++        raise ValueError("Collection orchestration changed; prepare a new frozen launch")
+     if file_digest(root / launch["protocol_file"]) != launch["protocol_sha256"]:
+         raise ValueError("Utility protocol changed after declaration")
+-    if not str(gpu).isdigit() or type(max_jobs) is not int or max_jobs <= 0:
++    if (not resolve_only and not str(gpu).isdigit()) or type(max_jobs) is not int or max_jobs <= 0:
+         raise ValueError("Select a numeric GPU and positive max_jobs")
+     batches = []
+     for job in launch["jobs"]:
+@@ -143,8 +182,36 @@ def _execute(launch_path, *, gpu, max_jobs=1, scratch_root=None):
+         groups[target] = job["role"]
+     if state.get("targets", targets) != targets:
+         raise ValueError("Target identities changed since the first collection job")
++    reserved_targets = {}
++    for reservation in launch.get("reserved_final", []):
++        p = root / reservation["config"]
++        if p.parent != root or file_digest(p) != reservation["sha256"]:
++            raise ValueError("Reserved final configuration changed")
++        reserved_batch = load_batch([p])
++        if len(reserved_batch.pairs) != 1:
++            raise ValueError("Final reservation needs one target configuration")
++        config, _ = reserved_batch.pairs[0]
++        target = sha256(target_record_for(config, "").encode()).hexdigest()
++        if target in groups or target in launch["excluded_targets"]:
++            raise ValueError("Reserved final cohort overlaps development or historical targets")
++        groups[target] = "final"
++        reserved_targets[str(reservation["seed"])] = target
++    if state.get("reserved_final_targets", reserved_targets) != reserved_targets:
++        raise ValueError("Reserved final target identities changed")
+     state["targets"] = targets
++    state["reserved_final_targets"] = reserved_targets
++    cohort = {"schema": "guard_splits_v2", "sources": [], "groups": groups,
++              "held_out_variants": launch["held_out_variants"]}
++    cohort_path = root / "cohort.json"
++    if cohort_path.exists() and json.loads(cohort_path.read_bytes()) != cohort:
++        raise ValueError("Frozen cohort changed; preserve the original declaration")
++    if not cohort_path.exists():
++        write_json(cohort_path, cohort)
+     write_json(state_path, state)
++    if resolve_only:
++        print("Resolved and froze development and reserved final targets. No GPU/private job started.")
++        return
++
+     scratch_root = Path(scratch_root or tempfile.gettempdir()).resolve()
+     if not scratch_root.is_dir():
+         raise ValueError("Scratch root must be an existing writable directory")
+@@ -206,13 +273,21 @@ def main():
+     prep = sub.add_parser("prepare")
+     prep.add_argument("output"); prep.add_argument("--workers", type=int, choices=[1, 2, 4], default=1)
+     prep.add_argument("--targets", type=int, default=8); prep.add_argument("--seed", type=int, default=2000)
++    prep.add_argument("--feature-schema", default=FEATURE_SCHEMA, choices=[FEATURE_SCHEMA, STRUCTURE_SCHEMA])
++    prep.add_argument("--exclude-manifest", action="append", default=[])
++    prep.add_argument("--reserve-final-targets", type=int, default=0)
++    resolve = sub.add_parser("resolve"); resolve.add_argument("launch")
+     run = sub.add_parser("run")
+     run.add_argument("launch"); run.add_argument("--gpu", required=True)
+     run.add_argument("--max-jobs", type=int, default=1); run.add_argument("--scratch-root")
+     args = p.parse_args()
+     if args.action == "prepare":
+-        launch = prepare(args.output, workers=args.workers, targets=args.targets, seed=args.seed)
++        launch = prepare(args.output, workers=args.workers, targets=args.targets, seed=args.seed,
++                         feature_schema=args.feature_schema, exclude_manifests=args.exclude_manifest,
++                         reserve_final_targets=args.reserve_final_targets)
+         print(f"Prepared {len(launch['jobs'])} one-target jobs. No training started. Default execution is one job.")
++    elif args.action == "resolve":
++        execute(args.launch, resolve_only=True)
+     else:
+         execute(args.launch, gpu=args.gpu, max_jobs=args.max_jobs, scratch_root=args.scratch_root)
+ 
+diff --git a/master_script/tools/train_guard_detector.py b/master_script/tools/train_guard_detector.py
+index d902893..bdde0bf 100644
+--- a/master_script/tools/train_guard_detector.py
++++ b/master_script/tools/train_guard_detector.py
+@@ -3,6 +3,7 @@ import argparse
+ from hashlib import sha256
+ import json
+ from pathlib import Path
++from master_script.core.guard_features import FEATURE_SCHEMA
+ from master_script.core.guard_detector import fit_detector, detector_score
+ from master_script.core.metrics import base_metrics, scientific_metrics
+ 
+@@ -17,6 +18,7 @@ def evaluate_detector(data, rows, split):
+ 
+ def main():
+     parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("--feature-schema", default=FEATURE_SCHEMA)
+     parser.add_argument("dataset"); parser.add_argument("output")
+     parser.add_argument("--max-fpr", type=float, default=.01)
+     parser.add_argument("--prevalence", type=float, default=.01)
+@@ -25,7 +27,7 @@ def main():
+         parser.error("prevalence must lie in (0,1)")
+     raw = Path(args.dataset).read_bytes()
+     rows = json.loads(raw)
+-    artifact = fit_detector(rows, max_false_positive_rate=args.max_fpr)
++    artifact = fit_detector(rows, max_false_positive_rate=args.max_fpr, schema=args.feature_schema)
+     encoded = (json.dumps(artifact, indent=2, allow_nan=False) + "\n").encode()
+     with Path(args.output).open("xb") as stream:
+         stream.write(encoded)
+diff --git a/master_script/docs/client_guard_v4_handoff.md b/master_script/docs/client_guard_v4_handoff.md
+new file mode 100644
+index 0000000..2a9c0bb
+--- /dev/null
++++ b/master_script/docs/client_guard_v4_handoff.md
+@@ -0,0 +1,183 @@
++# Guard v4: negative-result audit and public update geometry pilot
++
++## Outcome
++
++The frozen v3 detector failed to generalize to the architecture-preserving attack. This change adds an **opt-in diagnostic feature schema**, `parameter_structure_v2`, and a bounded fresh-target pilot. It does not deliver a demonstrated privacy defense or a fitted v2 detector. Defaults and historical v1 artifacts remain supported.
++
++Repository inspection started at clean commit `e2b812ad8807d97543ee54bea2483ebe1019f08b`. The historical experiment fingerprint is `7d9f9493f7c3`. The implemented core fingerprint is `489525a1da38`; never resume the historical launch under it.
++
++Review evidence: `outputs/guard_v4_review_20260926/reproduced_evidence/review.json`. The accompanying archive, dataset, detector, manifests, worker benchmark and first raw result are byte-preserved copies of the supplied inputs. The final reproduction also reconstructs the historical core fingerprint from Git blobs and confirms `7d9f9493f7c3`. `review_guard_v3.py` independently recomputes scores with scalar arithmetic and AUC with pair comparisons; it does not fit or change the detector.
++
++## 1. What the evidence establishes
++
++| Frozen test result | Reproduced value |
++|---|---:|
++| Legitimate requests rejected | 0/96 |
++| Probe-head requests rejected | 8/8 |
++| Causal-gradient requests rejected | 0/8 |
++| Attack recall | 0.5 |
++| ROC AUC | 0.6666667 |
++| Independent test targets | 2 |
++| Decisions equal validation-calibrated relative-delta baseline | All 112 |
++
++The dataset has 424 rows: train 192 legitimate + 16 probe, validation 96 + 8, test 96 + 8 probe + 8 causal. Source mappings, target roles, artifact hashes, training means/scales and validation threshold all reconcile. The threshold is `0.011303227541612549`, the maximum of 96 validation legitimate scores: with a 1% empirical allowance, `floor(.01*96)=0`. The strict `score > threshold` rule accepts ties. No inspected test row selects normalization, weights, or threshold in the fitting code.
++
++The review can directly reconstruct **16 rows from one raw result**. The other 23 raw results, original launch and configurations were not supplied locally. Their hashes and mappings reconcile across provenance/progress/splits, but their contents and the chronology of prospective declaration cannot be independently verified here. Retired weights prevent recomputing historical features. These are limits of the local audit, not a reason to silently treat metadata as full raw evidence.
++
++### Extraction, labels and supported explanations
++
++* `relative_delta` is the **unweighted mean of per-tensor relative L2 changes**, not the model-wide relative norm. `maximum_layer_delta` is their maximum. Here “layer” means an array in state-dict order, including biases/buffers/tied entries; it does not mean a transformer block. Ratios use the historical scale-dependent denominator floor and cap at 1e6.
++* `parameter_concentration` is the maximum **incoming weight** L-infinity/L2 ratio, not update concentration. AMIProbe includes a scalar `fc2.bias`: any nonzero scalar has ratio 1. Probe test concentration is exactly 1; LM concentration is about .990979. This is an architectural shortcut available to the classifier, not evidence of membership protection.
++* Observation scopes are labeled malicious by experiment construction. Training scopes are labeled legitimate. These are **request-origin labels**, not actual membership, successful leakage, or a semantic maliciousness oracle. Public calibration is excluded; causal malicious rows in train/validation are excluded. Group/seed/path/client/round/revisions remain provenance only.
++* Normalization uses 208 training rows, with large probe changes dominating scale. All three learned coefficients are positive. Causal relative changes are only `3.54e-5–9.27e-5`, versus legitimate `0–.002331` and probe `1.637–2.465`. Causal detector scores `.0111873–.0112375` lie inside legitimate `.0111724–.0112961`.
++* **Score overlap is not feature-vector equality.** Test concentration has a tiny opposite-direction gap (causal maximum .9909791423, legitimate minimum .9909792371). This is a post-inspection diagnostic, not a valid threshold selection. No new rule is fitted to that gap.
++
++### Reference and attack-construction audit
++
++| Request | Pinned harness reference | What the delta measures |
++|---|---|---|
++| AMIA/Reference legitimate FL training | Initial LM for that world | Cumulative training movement from initialization |
++| Causal-gradient observation | Post-FL LM before attack optimization | Candidate-directed perturbation only |
++| Probe-head observation | Fixed seed-0 head template | Difference between a trained head and a different template |
++
++The causal attack performs 12 normalized candidate-loss-ascent steps at LR .005 in the declared configuration, retains the LM parameter structure and scores released gradients against a public candidate gradient. Its summed ideal step-length bound is .06 before interpolation/rounding. It has no inherited chosen-neuron AMIA guarantee. The head is trained with a different procedure and reference. Thus request type, architecture, reference stage and attack construction are confounded in the existing positive/negative comparison. The client runtime pins the harness-provided reference; this is not remote attestation or a solution to malicious-server trust establishment.
++
++**Supported:** the frozen classifier learned the large probe/reference difference, failed on small structure-preserving changes, and adds no test decisions beyond relative delta. **Hypotheses requiring fresh data:** a per-tensor distribution, signed direction, update sparsity, or a comparable reference can separate legitimate optimization from candidate-directed requests. Neither score overlap nor this small test proves that all public-parameter features are useless.
++
++## 2. Implemented candidate and its limits
++
++The v2 schema retains all three v1 values and adds seven summaries:
++
++| Feature | Definition across parameter tensors |
++|---|---|
++| `median_layer_delta`, `p90_layer_delta` | Median and linear-interpolated .9 quantile of the existing relative deltas |
++| `mean_update_reference_cosine`, `minimum_update_reference_cosine`, `maximum_update_reference_cosine` | Mean/min/max of cosine(incoming − reference, reference) |
++| `mean_update_concentration`, `maximum_update_concentration` | Mean/max of L-infinity(update)/L2(update) |
++
++Undefined zero-update/reference cosines are 0; zero-update concentration is 0. Tensors are equally weighted, consistently with v1; localization and transformer-block identity are still discarded. Synthetic tests construct matching v1 summaries with opposite v2 directions and norm-matched sparse/dense changes. They establish additional information, not detection of the real attack.
++
++For float16/32, new reductions share the existing pass using float64 accumulators. Wider floats/integers use scaled chunk passes to avoid overflow and underflow in ordinary extreme cases. Chunk size is 65,536 elements; strided arrays use bounded slice copies. V1 arithmetic and feature names remain supported. Scratch is O(chunk size), plus O(tensor count) scalar summaries; the full guard still owns a request snapshot and up to one reference tensor per worker. Extreme mixed dynamic ranges and quantization can erase information; no arithmetic recovers a perturbation rounded away in incoming parameters.
++
++The client legitimately has the incoming request and a locally pinned approved reference. It does not need private records, membership labels, target identities, filenames, seeds, split roles, a candidate text or private gradients. The reference can be derived from earlier private training but is already distributed to the client; “public” here means observable input to the client, not a claim that training data became public.
++
++The runtime now records a combined `reference_sha256` beside its request digest. Every reference tensor is freshly loaded and hashed before use. Snapshot ownership, exact dtype/shape/byte hashes, structural refusals in shadow mode, reservation ordering, duplicate-release checks, budgets and durable ledgers remain in place. Schema mismatch fails before release reservation. Schema is client-owned configuration, included in new pipeline identities; it is not supplied by server fit configuration.
++
++Detector JSON, strict vector allowlists, assembler, explicit-label exporter, trainer, stage builder and public replay all dispatch by schema. The default remains `parameter_behavior_v1`; a v2 detector cannot silently run on v1 features. No historical detector/result was overwritten or retuned. No v2 coefficients exist yet. New extraction requires **fresh requests** because the retained v3 summaries cannot reconstruct directions or update concentrations.
++
++Alternatives considered:
++
++* A full fixed per-block vector retains localization but requires a pinned topology/name map and more samples. Arbitrary array indices must not become incidental model/task identifiers. Defer until the small pilot supports pursuing it.
++* Direction relative to a fixed public loss gradient is closer to optimization behavior, but requires approved public text/tokenizer/loss, model forward/backward work, more memory and fresh collection. It was not implemented under the current cost constraints.
++* A previous accepted server request is not automatically a trusted reference. Promoting it permits gradual drift and poisoning. A new reference policy needs independent client trust, content pins, schedule/lineage, and matched collection. Existing references are preserved and their mismatch is disclosed.
++
++Even exact parameter inspection cannot universally distinguish legitimate and malicious uses of **identical requests**. A server may learn from an accepted unmodified-model gradient. Parameter detection cannot by itself bound batch-membership leakage, training-record leakage, or retrieval-document leakage. If fresh matched controls show no stable separability, stop developing a classifier as a privacy solution and investigate separately justified release protection/accounting.
++
++## 3. Local verification and cost
++
++See `tests_final_verified.txt`, `benchmark_optimized.json` and `verification.json` in the review directory. Tests cover dense numerical oracles, old-feature projection, opposite directions, benign rescaling, sparse perturbations, zeros/subnormals/extrema, strided arrays, schema/label isolation, test-data independence, owned snapshots, tampered references, duplicate accounting, reserved cohorts and no-GPU target resolution. The maintained suite passes (554 passed, 11 skipped); archived vision tests outside `tests/` could not be collected because this Python environment lacks PyTorch. GPU-dependent tests remain skipped.
++
++Synthetic float32 CPU measurements on this Mac, 16 tensors, three repeats, separate processes per configuration:
++
++| Request bytes | Workers | v1 full guard median | v2 full guard median |
++|---|---:|---:|---:|
++| 64 MiB | 1 | .208 s | .233 s |
++| 64 MiB | 4 | .146 s | .172 s |
++| 256 MiB | 1 | .819 s | .857 s |
++| 256 MiB | 4 | .658 s | .642 s |
++
++At 256 MiB/one worker, extraction was .560 s v1 versus .589 s v2; full-check increment was approximately 4.7%. Three repeats cannot support a speed advantage from the slightly lower four-worker number. Extraction-only `tracemalloc` peak was about **2.36 MB** at both sizes. Whole-process RSS peaks at 256 MiB were approximately 914–1,008 MB, including input arrays and snapshot preparation; these are not incremental feature memory measurements. RSS and tracemalloc cover different scopes. The full guard timings exclude the separately recorded primary audit commit, consistent with previous reporting.
++
++`benchmark.json` retains the initial slower multi-pass implementation's measurement and fingerprint: its 256 MiB v2 medians were 2.159 s (one worker) and 2.115 s (four). The optimized report supersedes it for current code. Neither report measures a full-model FL round, GPU memory, malicious-attack success, utility or production concurrency. Historical 11.13→5.01 s worker improvement and first-job 5.067 s checks remain **v3** measurements.
++
++## 4. Exact next remote actions — none launched here
++
++The next remote action is CPU verification and cohort resolution. Apply the supplied patch only after reviewing the checkout; `git apply --check` must succeed. Transfer the patch and exclusion manifest from this Mac:
++
++```bash
++scp 'outputs/guard_v4_review_20260926/implementation.patch' calc08:/tmp/guard-v4.patch
++scp 'outputs/guard_v4_review_20260926/evidence/splits.complete.json' calc08:/tmp/guard-v3-splits.complete.json
++```
++
++On calc08, in the existing experiment environment:
++
++```bash
++cd /home/calc08/projects/LLMPrivacy/fl_llm_m_attack_experiments
++git status --short
++git rev-parse HEAD
++git apply --check /tmp/guard-v4.patch
++git apply /tmp/guard-v4.patch
++python -m pytest -q tests/test_guard_structure.py tests/test_guard_v3.py tests/test_guard_detector.py tests/test_guard_release_ledger.py tests/test_guard_integration.py
++python -m master_script.tools.benchmark_guard_structure \
++  --mib 64 256 --workers 1 4 --repeats 3 \
++  --output outputs/guard-v4-cpu-cost.json
++python -m master_script.tools.collect_guard_traces prepare \
++  outputs/guard-v4-pilot --workers 4 --targets 3 --seed 4000 \
++  --feature-schema parameter_structure_v2 \
++  --exclude-manifest /tmp/guard-v3-splits.complete.json \
++  --reserve-final-targets 4
++python -m master_script.tools.collect_guard_traces resolve \
++  outputs/guard-v4-pilot/launch.json
++```
++
++Use the actual SSH alias if `calc08` is not configured locally. The patch excludes local outputs; the manifest transfer is required. Preserve any unrelated remote changes. A failed patch check requires reconciliation, not a checkout reset. Use new output names if these exist. Local `pilot-preview-final/` demonstrates nine validated job configs plus four reservation configs; recreate on remote so absolute policy paths are correct.
++
++`resolve` loads the pinned dataset on CPU and hashes target selections. It launches no subprocess training. Version-4 launches also pin the collector and stage-builder source hashes, since the core fingerprint excludes tools. It freezes three distinct development targets and four reserved final targets in `progress.json` and `cohort.json`, rejects historical/smoke overlap, repeated targets across seeds, cross-variant target changes, and final/development collisions. Repeated `--exclude-manifest` flags can include other known prior cohorts: the supplied eight targets plus the built-in smoke target are not a global history registry. If any selected target collides, stop and prepare a new directory with a fresh predeclared seed band; never rewrite an active launch. Final reservations have **no scheduled jobs**. Do not execute their YAML files directly. All four remain outcome-untouched; four is far too small for a population claim.
++
++After CPU checks and the declaration are reviewed, this is the bounded **future GPU command**, provided but not executed:
++
++```bash
++python -m master_script.tools.collect_guard_traces run \
++  outputs/guard-v4-pilot/launch.json --gpu 0 --max-jobs 1 --scratch-root /tmp
++```
++
++Inspect each job before issuing the next one. Nine jobs total: three targets × (probe, causal, paired Reference), three FL rounds/four clients, same utility protocol. The final four targets never enter this queue. Every job still checks 20 GiB free output and 4 GiB scratch; these are headroom estimates, not enforced disk quotas. Successful new jobs retire owned weights only after result/ledger verification. Failed/interrupted jobs retain weights and stop; never reset their ledger or auto-retry a private world. No historical checkpoint is deleted by these instructions.
++
++Resources: one GPU with the same capacity used for completed v3 Qwen-0.5B jobs, one concurrent simulated FL client, four CPU validation workers, and sufficient host RAM for the ~2.52 GB request, its owned copy, live reference tensors and model/Ray processes. GPU/total RAM peaks have not been measured locally; record them on the first job. Allow roughly 10–25 minutes for an initial job as a rough historical scheduling estimate, and several hours for nine jobs; hardware/load/variant can change this. The CPU benchmark itself needs about 1 GB process memory plus filesystem cache at 256 MiB, no model download and no GPU. Dataset resolution may access the pinned dataset cache/network.
++
++Required returned artifacts: launch, frozen protocol, all job/reservation YAMLs, exclusion manifests, `cohort.json`, progress, complete/partial splits, all result JSONs, JSONL answers, SQLite ledgers and audit timing tables, checkpoint-retirement inventories, archived Ray logs, CPU benchmark, code fingerprint/diff and device/RAM/disk observations. Return small traces rather than retired weights. These are private research artifacts; never publish raw audit data as a client response.
++
++After completion, for diagnostic fitting only in new artifact names:
++
++```bash
++python -m master_script.tools.assemble_guard_dataset \
++  outputs/guard-v4-pilot/splits.complete.json outputs/guard-v4-pilot-dataset.json \
++  --feature-schema parameter_structure_v2
++python -m master_script.tools.train_guard_detector \
++  outputs/guard-v4-pilot-dataset.json outputs/guard-v4-pilot-detector.json \
++  --feature-schema parameter_structure_v2 --max-fpr 0.01 --prevalence 0.01
++```
++
++The three-target pilot has only one target per train/validation/diagnostic-test role. Its `test` target is consumed development data once inspected. **It is not the reserved final cohort.** A fitted classifier from this pilot is exploratory and must not be deployed as a validated defense.
++
++## 5. Prospective decisions and remaining gaps
++
++**Stop immediately:** hash/schema/target-role mismatch, failed reservation/integrity checks, nonfinite features, unexpected storage growth or interrupted job. Preserve artifacts. Do not trade away integrity to improve timing.
++
++**Continue to larger development only:** the complete pilot is auditable, costs are feasible, and new features show a plausible signal across targets beyond v1 and request-type shortcuts. Any apparent signal must next be checked against legitimate post-FL requests with the same reference policy, ordinary benign update trajectories, varying magnitudes and benign sparse/rescaled controls. The nine-job pilot does not resolve that reference confound by itself. If only probe-head discrimination remains, or matched legitimate requests overlap causal requests, record another negative result and stop escalating this classifier.
++
++Before further fitting, freeze a larger development/validation cohort, a separate attacker-validation cohort, and expanded untouched final cohorts. Exclude every inspected v3 and pilot target and every reserved final target from development. Carry forward `cohort.json` via exclusion manifests. Plan any new attack family for final testing before seeing its outcomes; causal-gradient alignment is now a **known** diagnostic family, even if its examples remain held out from a particular detector fit. An operationally held-out family is not scientifically novel after this review.
++
++Select normalization, feature subset, regularization and rejection threshold using development/validation only. Report v1 projection, magnitude-only baseline and v2 using identical fresh target roles; do not tune a v1 replacement on historical test data. Freeze artifact hashes, reference policy, attack optimization/query budgets and thresholds before final execution. Fit attacker score direction, gradient/decision/timing transcript classifiers and thresholds only on separate defended attacker-validation groups. Include adaptive low-magnitude/interpolated and unchanged-request attacks; successful release is not equivalent to successful inference.
++
++Retain all declared gates unchanged:
++
++* All three utility endpoints required: F1 ≥ .10, F1 ≥ 90% of a useful matched baseline, EM loss ≤ .05. First historical job no-context F1 .0608 fails; public/private RAG .2459/.5086 do not repair it. Shadow collection supplies no matched preservation evidence.
++* Legitimate rejection ≤1%. Use independent target-level/cluster-aware uncertainty with explicit request sampling. Repeated checks do not create new independent trials. Even 299 independent error-free Bernoulli observations are needed for a one-sided 95% upper bound below 1%; two or four targets cannot establish this. Final cohort/sample design must be expanded prospectively for that claim.
++* Median **matched FL round overhead ≤10%**, measured on fresh interleaved baseline/defended runs with identical source, workload and hardware; include process/host/GPU memory and end-to-end latency. A 4.7% increment in guard cost is not a 4.7% FL overhead result.
++* A privacy advance requires improved held-out attack/utility tradeoff with uncertainty, not just request-origin recall. Report fresh-batch gradient/decision/timing leakage, paired training-record Reference leakage, and retrieval-document leakage separately. Missing/all-rejected numeric attack scores remain undefined; refusal/timing channels still matter.
++
++Final outcomes are opened once after freezing the shortlist. A failed final gate becomes a documented failure, never a reason to tune on that cohort. If public-parameter features cannot discriminate the relevant requests without rejecting legitimate ones, they cannot support the intended protection; release mechanisms with an independently specified privacy scope must carry that burden. General privacy, utility preservation, cross-target/model generalization, full-model cost and the trust basis for deployment remain unestablished.
++
++## Reproduce this local review
++
++Run from the repository root, with a Python environment containing NumPy, PyYAML and pytest:
++
++```bash
++python -m master_script.tools.review_guard_v3 \
++  outputs/guard_v4_review_20260926/evidence outputs/guard-v3-review-reproduced
++python -m pytest -q tests
++python -m master_script.tools.benchmark_guard_structure \
++  --mib 64 256 --workers 1 4 --repeats 3 --output outputs/guard-v4-cost-reproduced.json
++```
++
++Choose unused output paths. The reviewer needs the historical commit in Git. Outputs record input hashes and the historical/current source identities; wall times and process RSS vary by host. `verification.json` pins this delivery's source, patch and evidence hashes.
+diff --git a/master_script/tools/benchmark_guard_structure.py b/master_script/tools/benchmark_guard_structure.py
+new file mode 100644
+index 0000000..dbf6682
+--- /dev/null
++++ b/master_script/tools/benchmark_guard_structure.py
+@@ -0,0 +1,99 @@
++"""CPU-only synthetic v1/v2 extraction and full-runtime costs in fresh processes."""
++import argparse
++from hashlib import sha256
++import json
++from pathlib import Path
++import platform
++import resource
++import statistics
++import subprocess
++import sys
++import tempfile
++import time
++import tracemalloc
++import numpy as np
++from master_script.core.config import implementation_fingerprint
++from master_script.core.guard_features import FEATURE_SCHEMA, STRUCTURE_SCHEMA, FEATURE_NAMES, parameter_features
++from master_script.core.guard_runtime import GuardSettings, prepare_guard, read_guard_events
++
++
++def sample(mib, workers, schema, repeats):
++    # Deterministic nonzero dense and sparse updates; fixed tensor count makes
++    # comparisons at two sizes test scratch growth independently of layer count.
++    count = mib*1024*1024//4//16
++    prior=[np.full(count,1+i/16,dtype='float32') for i in range(16)]
++    values=[p.copy() for p in prior]
++    for i,v in enumerate(values):
++        v[::(1 if i%2 else 97)] += np.float32(.001)
++    parameter_features(values,prior,schema)  # warm-up, outside timed samples
++    extraction=[]
++    for _ in range(repeats):
++        tick=time.perf_counter(); features=parameter_features(values,prior,schema)
++        extraction.append(time.perf_counter()-tick)
++    tracemalloc.start()
++    parameter_features(values,prior,schema)
++    _,scratch_peak=tracemalloc.get_traced_memory();tracemalloc.stop()
++    with tempfile.TemporaryDirectory(prefix='guard-structure-') as tmp:
++        policy=json.dumps({'schema':'client_guard_v1','observation_architecture':'causal_lm'})
++        settings=GuardSettings('shadow','benchmark',sha256(policy.encode()).hexdigest(),policy,repeats,
++            runtime_directory=tmp,diagnostic=True,validation_workers=workers,feature_schema=schema)
++        runtime=prepare_guard(settings,'synthetic',prior,rounds=repeats)
++        for i in range(repeats):
++            snapshot=runtime.authorize(values,0,i+1)
++            if snapshot is None:raise ValueError('Benchmark request unexpectedly rejected')
++            del snapshot
++        events=read_guard_events(tmp)
++    if any(e['features']!=features for e in events):raise ValueError('Runtime feature mismatch')
++    return {'mib':mib,'workers':workers,'feature_schema':schema,'tensor_count':16,
++        'extraction_seconds':extraction,'median_extraction_seconds':statistics.median(extraction),
++        'runtime_seconds':[e['seconds'] for e in events],
++        'median_runtime_seconds':statistics.median(e['seconds'] for e in events),
++        'extraction_tracemalloc_peak_bytes':scratch_peak,
++        'process_peak_rss_bytes':resource.getrusage(resource.RUSAGE_SELF).ru_maxrss*(1 if sys.platform=='darwin' else 1024),
++        'request_sha256':events[0]['request_sha256'],'reference_sha256':events[0]['reference_sha256'],
++        'features':features,'last_event':events[-1]}
++
++
++def main():
++    parser=argparse.ArgumentParser(description=__doc__)
++    parser.add_argument('--mib',type=int,nargs='+',default=[64,256])
++    parser.add_argument('--workers',type=int,nargs='+',default=[1,4])
++    parser.add_argument('--repeats',type=int,default=3)
++    parser.add_argument('--output');parser.add_argument('--child',action='store_true')
++    parser.add_argument('--schema',choices=[FEATURE_SCHEMA,STRUCTURE_SCHEMA],default=FEATURE_SCHEMA)
++    args=parser.parse_args()
++    if any(m<=0 or m>4096 for m in args.mib) or any(w not in (1,2,4) for w in args.workers) or not 1<=args.repeats<=10:
++        parser.error('Use 1–4096 MiB, workers 1/2/4, repeats 1–10')
++    if args.child:
++        print(json.dumps(sample(args.mib[0],args.workers[0],args.schema,args.repeats)));return
++    if not args.output:parser.error('--output required')
++    path=Path(args.output)
++    if path.exists():raise FileExistsError(path)
++    samples=[]
++    for mib in args.mib:
++        for workers in args.workers:
++            for schema in [FEATURE_SCHEMA,STRUCTURE_SCHEMA]:
++                command=[sys.executable,'-m',__spec__.name,'--child','--mib',str(mib),'--workers',str(workers),
++                    '--schema',schema,'--repeats',str(args.repeats)]
++                samples.append(json.loads(subprocess.check_output(command,text=True)))
++    for mib in args.mib:
++        subset=[s for s in samples if s['mib']==mib]; first=subset[0]
++        for s in subset:
++            if s['request_sha256']!=first['request_sha256'] or s['reference_sha256']!=first['reference_sha256']:
++                raise ValueError('Schema/worker comparison changed exact parameter identity')
++            if any(s['features'][k]!=first['features'][k] for k in FEATURE_NAMES):
++                raise ValueError('Legacy feature projection changed')
++    report={'schema':'guard_structure_cost_v1','implementation_fingerprint':implementation_fingerprint(),
++        'environment':{'platform':platform.platform(),'python':platform.python_version(),'numpy':np.__version__},
++        'repeats':args.repeats,'samples':samples,'hashes_and_v1_projection_identical':True,
++        'limits':['Synthetic CPU arrays; no full-model FL, GPU, utility or privacy measurement.',
++            'Runtime includes owned request copy, exact hashes, reference read/hash, features and reservation; primary audit commit is separate.',
++            'Fresh-process RSS peak includes input arrays and snapshot preparation; not incremental extractor memory.',
++            'tracemalloc peak is measured on extraction only, not a complete RSS or native-library peak measurement.',
++            'Fixed 16-tensor layout and warm caches do not predict production concurrency, disk I/O or FL overhead.']}
++    path.parent.mkdir(parents=True,exist_ok=True)
++    with path.open('x') as stream:json.dump(report,stream,indent=2,allow_nan=False);stream.write('\n')
++    print(json.dumps([{k:s[k] for k in ['mib','workers','feature_schema','median_extraction_seconds','median_runtime_seconds','extraction_tracemalloc_peak_bytes','process_peak_rss_bytes']} for s in samples],indent=2))
++
++
++if __name__=='__main__':main()
+diff --git a/master_script/tools/review_guard_v3.py b/master_script/tools/review_guard_v3.py
+new file mode 100644
+index 0000000..3f49fa3
+--- /dev/null
++++ b/master_script/tools/review_guard_v3.py
+@@ -0,0 +1,133 @@
++"""Reproduce frozen guard-v3 results without fitting or modifying its detector."""
++import argparse
++from collections import Counter
++from hashlib import sha256
++import json
++import math
++from pathlib import Path
++import tarfile
++import subprocess
++
++
++def digest(raw):
++    return sha256(raw).hexdigest()
++
++
++def review(downloads, output):
++    downloads, output = Path(downloads), Path(output)
++    output.mkdir(parents=True, exist_ok=False)
++    inputs = {}
++    names = ['progress.json', 'splits.complete.json', 'guard-workers-20260926-060354.json',
++             '0000-theory_v2_7d9f9493f7c3_pipeline_v1_49612f2d54dbc42393c1344f.json']
++    raw = (downloads / 'detector-review.tar.gz').read_bytes()
++    inputs['detector-review.tar.gz'] = digest(raw)
++    (output / 'detector-review.tar.gz').write_bytes(raw)
++    with tarfile.open(downloads / 'detector-review.tar.gz') as archive:
++        for name in ['dataset.json', 'dataset.json.provenance.json', 'detector.json', 'detector.json.report.json']:
++            raw = archive.extractfile(name).read()
++            inputs[name] = digest(raw)
++            (output / name).write_bytes(raw)
++    for name in names:
++        raw = (downloads / name).read_bytes(); inputs[name] = digest(raw)
++        (output / name).write_bytes(raw)
++    read = lambda name: json.loads((output / name).read_bytes())
++    rows, provenance, detector, old_report = map(read, ['dataset.json', 'dataset.json.provenance.json', 'detector.json', 'detector.json.report.json'])
++    splits, progress, workers, source = map(read, ['splits.complete.json', 'progress.json', names[2], names[3]])
++    assert inputs['dataset.json'] == provenance['dataset_sha256'] == old_report['dataset_sha256']
++    assert inputs['detector.json'] == old_report['detector_sha256']
++    assert digest(json.dumps(splits, sort_keys=True).encode()) == provenance['manifest_sha256']
++    assert progress['active_job'] is None and len(progress['completed']) == 24
++    assert {r['job'] for r in progress['completed']} == set(range(24))
++    assert {(r['result'], r['sha256']) for r in progress['completed']} == {(r['path'], r['sha256']) for r in splits['sources']}
++    assert set(progress['targets'].values()) == set(splits['groups']) and len(set(progress['targets'].values())) == 8
++    assert len(rows) == len(provenance['provenance']) == 424
++    source_hashes = {s['sha256'] for s in splits['sources']}
++    for row, trace in zip(rows, provenance['provenance'], strict=True):
++        assert row['group'] == trace['target_sha256']
++        assert splits['groups'][row['group']] == row['split']
++        assert trace['source_sha256'] in source_hashes
++        assert row['group'] in detector['split_groups'][row['split']]
++        assert set(row['features']) == set(detector['features'])
++        assert row['malicious'] == (row['variant'] != 'legitimate_training')
++        assert not (row['split'] != 'test' and row['variant'] == 'causal_gradient_alignment')
++    # Independent scalar implementation; no repository scoring/metric helpers.
++    def score(row):
++        z = detector['intercept'] + sum((row['features'][k]-m)/s*w for k,m,s,w in
++            zip(detector['features'],detector['mean'],detector['scale'],detector['weights'],strict=True))
++        return 1/(1+math.exp(-max(-700,min(700,z))))
++    train = [r for r in rows if r['split'] == 'train']
++    for k, mean, scale in zip(detector['features'], detector['mean'], detector['scale'], strict=True):
++        values = [r['features'][k] for r in train]
++        calculated = sum(values)/len(values)
++        sd = math.sqrt(sum((x-calculated)**2 for x in values)/len(values))
++        assert math.isclose(calculated, mean, rel_tol=1e-12)
++        assert math.isclose(sd, scale, rel_tol=1e-12)
++    val_benign = [r for r in rows if r['split'] == 'validation' and not r['malicious']]
++    assert math.isclose(max(map(score,val_benign)),detector['threshold'],rel_tol=1e-12)
++    baseline = max(r['features']['relative_delta'] for r in val_benign)
++    test = [r for r in rows if r['split'] == 'test']
++    decisions = [score(r)>detector['threshold'] for r in test]
++    assert decisions == [r['features']['relative_delta']>baseline for r in test]
++    positive = [score(r) for r in test if r['malicious']]
++    negative = [score(r) for r in test if not r['malicious']]
++    auc = sum((p>n)+.5*(p==n) for p in positive for n in negative)/len(positive)/len(negative)
++    variants = {}
++    for variant in sorted({r['variant'] for r in test}):
++        subset = [r for r in test if r['variant'] == variant]
++        variants[variant] = {'requests':len(subset), 'rejected':sum(score(r)>detector['threshold'] for r in subset),
++            'score_range':[min(map(score,subset)),max(map(score,subset))],
++            'feature_ranges':{k:[min(r['features'][k] for r in subset),max(r['features'][k] for r in subset)] for k in detector['features']}}
++    available_hash = inputs[names[3]]
++    assert available_hash in source_hashes
++    matched = 0
++    for row, trace in zip(rows,provenance['provenance'],strict=True):
++        if trace['source_sha256'] != available_hash:
++            continue
++        event = source['guard_events'][trace['event_index']]
++        assert row['features'] == event['features']
++        assert row['malicious'] == event['scope'].startswith('observation:')
++        assert trace['client_id'] == event['client_id'] and trace['round'] == event['round_id']
++        matched += 1
++    utility = source['pipeline_evaluations']
++    base = 'e2b812ad8807d97543ee54bea2483ebe1019f08b'
++    historical = sha256()
++    historical_sources = {}
++    paths = subprocess.check_output(['git','ls-tree','-r','--name-only',base,'master_script/core'],text=True).splitlines()
++    for name in sorted(p for p in paths if p.endswith('.py')):
++        raw = subprocess.check_output(['git','show',base+':'+name])
++        historical.update(str(Path(name).relative_to('master_script/core')).encode());historical.update(raw)
++        historical_sources[name] = digest(raw)
++    assert historical.hexdigest()[:12] == provenance['implementation_fingerprint']
++    report = {'schema':'guard_v3_negative_review_v1','inputs_sha256':inputs,
++        'historical_code':{'commit':base,'implementation_fingerprint':historical.hexdigest()[:12],
++                           'source_sha256':historical_sources},
++        'counts':dict(Counter(r['split']+':'+r['variant'] for r in rows)),
++        'independent_groups':{k:len(v) for k,v in detector['split_groups'].items()},
++        'test':{'roc_auc':auc,'attack_recall':sum(decisions[i] for i,r in enumerate(test) if r['malicious'])/len(positive),
++            'per_variant':variants,'decisions_equal_relative_delta_baseline':True},
++        'threshold':detector['threshold'],'baseline_threshold':baseline,
++        'checks':{'artifact_hashes':True,'manifest_progress_provenance':True,'train_only_mean_scale':True,
++            'threshold_equals_validation_benign_maximum':True,'available_source_rows_reproduced':matched},
++        'limitations':['23 raw result sources and original launch/configs are absent locally; their contents and prospective timing cannot be independently re-audited.',
++            'Retired weights are unavailable; historical features cannot be recomputed from parameters.',
++            'Request-origin labels are not membership labels. Two test targets do not certify population false rejection.',
++            'Collection completion/retirement for other jobs is supported by progress metadata, not direct remote disk inspection.'],
++        'historical_worker_median_seconds':workers['median_wall_seconds'],
++        'historical_worker_hash_feature_equivalence':workers['features_and_hashes_identical'],
++        'first_job_mean_training_guard_seconds':sum(e['seconds'] for e in source['guard_events'] if e['accounting_scope']=='training')/12,
++        'first_job_utility_f1':{'no_retrieval':sum(e['no_retrieval_utility']['token_f1'] for e in utility)/len(utility),
++            **{k:sum(e['rag_conditions'][k]['utility']['token_f1'] for e in utility)/len(utility) for k in ['public_ordinary','private_ordinary']}},
++        'source_audit_sha256':{str(p):digest(p.read_bytes()) for p in sorted(Path('master_script/core').rglob('guard*.py'))}}
++    assert math.isclose(auc,old_report['test']['roc_auc'])
++    (output/'review.json').write_text(json.dumps(report,indent=2,allow_nan=False)+'\n')
++    return report
++
++
++def main():
++    p=argparse.ArgumentParser(description=__doc__);p.add_argument('downloads');p.add_argument('output')
++    args=p.parse_args();report=review(args.downloads,args.output)
++    print(json.dumps(report['test'],indent=2))
++
++
++if __name__ == '__main__':
++    main()
+diff --git a/tests/test_guard_structure.py b/tests/test_guard_structure.py
+new file mode 100644
+index 0000000..dfadef7
+--- /dev/null
++++ b/tests/test_guard_structure.py
+@@ -0,0 +1,220 @@
++"""Math, fail-closed versioning and prospective collection for public features."""
++from dataclasses import replace
++from hashlib import sha256
++import json
++import numpy as np
++import pytest
++from master_script.core.guard_features import (FEATURE_NAMES, FEATURE_SCHEMA, STRUCTURE_SCHEMA,
++    STRUCTURE_NAMES, parameter_features, feature_vector)
++from master_script.core.guard_detector import fit_detector, detector_score, load_detector
++from master_script.core.guard_runtime import prepare_guard, read_guard_events, parse_guard
++from master_script.tools import collect_guard_traces
++from tests.test_guard_integration import settings
++from tests.test_guard_detector import traces
++
++
++def geometry(v, p):
++    return parameter_features(v, p, STRUCTURE_SCHEMA)
++
++
++def test_dense_oracle_and_legacy_projection():
++    rng = np.random.default_rng(45)
++    prior = [rng.normal(size=n) for n in [7, 91, 65539]]
++    value = [p+rng.normal(size=p.size)*.03 for p in prior]
++    got = geometry(value, prior)
++    assert {k:got[k] for k in FEATURE_NAMES} == parameter_features(value, prior)
++    cos = [np.dot(v-p,p)/np.linalg.norm(v-p)/np.linalg.norm(p) for v,p in zip(value,prior)]
++    concentration = [np.max(np.abs(v-p))/np.linalg.norm(v-p) for v,p in zip(value,prior)]
++    deltas = [np.linalg.norm(v-p)/np.linalg.norm(p) for v,p in zip(value,prior)]
++    expected = [np.median(deltas),np.quantile(deltas,.9),np.mean(cos),min(cos),max(cos),np.mean(concentration),max(concentration)]
++    np.testing.assert_allclose([got[k] for k in STRUCTURE_NAMES[3:]], expected, rtol=1e-12, atol=1e-14)
++
++
++def test_equal_v1_features_can_hide_opposite_update_directions():
++    # Synthetic constructions prove information gain, not attack detection.
++    p = [np.array([1., 1.])]
++    positive = [np.array([2., 2.])]
++    negative = [np.array([0., 0.])]
++    a,b = geometry(positive,p),geometry(negative,p)
++    assert a['relative_delta'] == b['relative_delta'] == 1
++    assert a['mean_update_reference_cosine'] == pytest.approx(1)
++    assert b['mean_update_reference_cosine'] == pytest.approx(-1)
++    # Stronger exact v1 collision: reflect a fixed-length request on the circle
++    # around p with equal max/L2 ratio by choosing different radii along p.
++    positive = [np.array([3.,3.])]; negative = [np.array([-1.,-1.])]
++    a,b = geometry(positive,p),geometry(negative,p)
++    np.testing.assert_allclose([a[k] for k in FEATURE_NAMES],[b[k] for k in FEATURE_NAMES])
++    assert a['mean_update_reference_cosine'] == pytest.approx(1)
++    assert b['mean_update_reference_cosine'] == pytest.approx(-1)
++
++
++def test_sparse_perturbation_and_benign_rescaling():
++    p=[np.ones(64)]
++    benign=geometry([p[0]*1.01],p)
++    sparse=p[0].copy();sparse[5]+=.08
++    attack=geometry([sparse],p)
++    assert benign['relative_delta'] == pytest.approx(attack['relative_delta'])
++    assert benign['maximum_update_concentration'] == pytest.approx(1/8)
++    assert attack['maximum_update_concentration'] == 1
++    assert geometry(p,p)['mean_update_concentration'] == 0
++    assert geometry(p,p)['mean_update_reference_cosine'] == 0
++
++
++@pytest.mark.parametrize('dtype',[np.float32,np.float64,np.int64])
++def test_zero_and_extreme_finite_inputs(dtype):
++    cases = [(np.zeros(3,dtype=dtype), np.zeros(3,dtype=dtype))]
++    if dtype != np.int64:
++        high=np.finfo(dtype).max; tiny=np.nextafter(dtype(0),dtype(1))
++        cases += [(np.array([high,-high],dtype=dtype),np.array([-high,high],dtype=dtype)),
++                  (np.array([tiny,0],dtype=dtype),np.zeros(2,dtype=dtype))]
++    else:
++        cases += [(np.array([2**62,-2**62],dtype=dtype),np.array([-2**62,2**62],dtype=dtype))]
++    for v,p in cases:
++        f=geometry([v],[p]);assert np.isfinite(feature_vector(f,STRUCTURE_SCHEMA)).all()
++        assert -1 <= f['minimum_update_reference_cosine'] <= f['maximum_update_reference_cosine'] <= 1
++        assert 0 <= f['maximum_update_concentration'] <= 1
++    if dtype != np.int64:
++        assert geometry([cases[1][0]],[cases[1][1]])['mean_update_reference_cosine'] == pytest.approx(-1)
++        assert geometry([cases[2][0]],[cases[2][1]])['maximum_update_concentration'] == 1
++
++
++def test_strided_chunked_and_malformed_inputs():
++    p=np.arange(140000,dtype=float).reshape(400,350).T
++    v=(p+1)[:,::2];p=p[:,::2]
++    assert geometry([v],[p]) == geometry([v.copy()],[p.copy()])
++    for bad in [np.full(v.shape,np.nan),np.full(v.shape,np.inf),np.ones(5),np.array(['x'])]:
++        with pytest.raises(ValueError):geometry([bad],[p])
++    with pytest.raises(ValueError):geometry([v],[])
++    with pytest.raises(ValueError):feature_vector({**geometry([v],[p]),'target_id':0},STRUCTURE_SCHEMA)
++    with pytest.raises(ValueError):feature_vector(geometry([v],[p]))
++    with pytest.raises(ValueError):parameter_features([v],[p],'unknown')
++
++
++@pytest.mark.parametrize('workers',[1,2,4])
++def test_runtime_features_reference_binding_tampering_and_accounting(tmp_path,workers):
++    rng=np.random.default_rng(12);p=[rng.normal(size=65539).astype('float32') for _ in range(4)]
++    v=[x+np.float32(.001) for x in p]
++    guard=replace(settings(tmp_path,'shadow'),feature_schema=STRUCTURE_SCHEMA,validation_workers=workers)
++    runtime=prepare_guard(guard,'new',p,rounds=3)
++    snapshot=runtime.authorize(v,0,1)
++    event=read_guard_events(tmp_path/'local')[-1]
++    assert event['features']==geometry(v,p)
++    assert event['feature_schema']==STRUCTURE_SCHEMA
++    assert event['reference_sha256']==sha256(''.join(runtime.reference_digests).encode()).hexdigest()
++    v[0][:]=0
++    assert not np.array_equal(v[0],snapshot[0])
++    assert runtime.authorize(snapshot,0,1) is None
++    assert read_guard_events(tmp_path/'local')[-1]['reservation_count']==1
++    np.savez(runtime.reference_path,*[np.zeros_like(x) for x in p])
++    with pytest.raises(ValueError,match='integrity'):runtime.authorize(snapshot,0,2)
++    from master_script.core.release_ledger import ReleaseLedger
++    assert ReleaseLedger(tmp_path/'local/release-ledger.sqlite').count('new:0')==1
++
++
++def test_artifact_versions_are_explicit_and_final_data_cannot_tune(tmp_path):
++    rows=traces()
++    for row in rows:
++        row['features'].update(dict.fromkeys(STRUCTURE_NAMES[3:],float(row['malicious'])))
++    artifact=fit_detector(rows,schema=STRUCTURE_SCHEMA)
++    assert artifact['schema']==STRUCTURE_SCHEMA
++    for row in rows:
++        if row['split']=='test':row['features']=dict.fromkeys(STRUCTURE_NAMES,123.)
++    assert artifact==fit_detector(rows,schema=STRUCTURE_SCHEMA)
++    with pytest.raises(ValueError):fit_detector(rows)
++    path=tmp_path/'v2.json';raw=json.dumps(artifact).encode();path.write_bytes(raw)
++    assert load_detector(path,sha256(raw).hexdigest())==artifact
++    with pytest.raises(ValueError):detector_score(artifact,traces()[0]['features'])
++    opts=settings(tmp_path)
++    config={'mode':'classifier','policy_file':opts.policy_file,'release_budget':2,
++            'detector_file':str(path),'detector_sha256':sha256(raw).hexdigest()}
++    with pytest.raises(ValueError,match='schema mismatch'):parse_guard(config,'<config>')
++    assert parse_guard({**config,'feature_schema':STRUCTURE_SCHEMA},'<config>').feature_schema==STRUCTURE_SCHEMA
++    with pytest.raises(ValueError,match='schema'):parse_guard({**config,'feature_schema':'unknown'},'<config>')
++
++
++def exclusion(tmp_path):
++    path=tmp_path/'old.json'
++    path.write_text(json.dumps({'schema':'guard_splits_v2','groups':{'historical':'test'}}))
++    return path
++
++
++def test_pilot_requires_exclusions_reserves_final_and_resolves_without_gpu(tmp_path,monkeypatch):
++    from master_script.core import datasets
++    with pytest.raises(ValueError,match='exclusions'):
++        collect_guard_traces.prepare(tmp_path/'bad',feature_schema=STRUCTURE_SCHEMA)
++    out=tmp_path/'pilot';old=exclusion(tmp_path)
++    launch=collect_guard_traces.prepare(out,targets=3,seed=4000,feature_schema=STRUCTURE_SCHEMA,
++        exclude_manifests=[old],reserve_final_targets=2)
++    assert len(launch['jobs'])==9 and len(launch['reserved_final'])==2
++    assert 'historical' in launch['excluded_targets']
++    monkeypatch.setattr(datasets,'target_record_for',lambda config,fallback:f'target-{config.seed}')
++    monkeypatch.setattr(collect_guard_traces.subprocess,'run',lambda *a,**kw:pytest.fail('GPU launched'))
++    collect_guard_traces.execute(out/'launch.json',resolve_only=True)
++    state=json.loads((out/'progress.json').read_bytes())
++    assert len(state['targets'])==3 and len(state['reserved_final_targets'])==2
++    assert not set(state['targets'].values()) & set(state['reserved_final_targets'].values())
++    assert state['completed']==[] and state['active_job'] is None
++    collect_guard_traces.execute(out/'launch.json',resolve_only=True)
++    monkeypatch.setattr(datasets,'target_record_for',lambda config,fallback:'collision')
++    with pytest.raises(ValueError,match='same target'):
++        collect_guard_traces.execute(out/'launch.json',resolve_only=True)
++
++
++def test_final_reservation_collision_is_rejected(tmp_path,monkeypatch):
++    from master_script.core import datasets
++    out=tmp_path/'pilot'
++    collect_guard_traces.prepare(out,targets=3,seed=4000,feature_schema=STRUCTURE_SCHEMA,
++        exclude_manifests=[exclusion(tmp_path)],reserve_final_targets=2)
++    monkeypatch.setattr(datasets,'target_record_for',lambda c,f:f'target-{c.seed if c.seed<5000 else 4000}')
++    with pytest.raises(ValueError,match='Reserved final cohort overlaps'):
++        collect_guard_traces.execute(out/'launch.json',resolve_only=True)
++
++
++def test_dataset_schema_and_reserved_roles_are_fail_closed(tmp_path):
++    from master_script.tools.assemble_guard_dataset import assemble
++    from master_script.tools.build_guard_dataset import build_dataset
++    event={'scope':'training:4000:True','features':geometry([np.ones(4)],[np.ones(4)]),
++           'feature_schema':STRUCTURE_SCHEMA,'client_id':0,'round_id':1}
++    result={'implementation_fingerprint':'fixture','attack_trials':[{'seed':4000,'target_sha256':'new'}],
++            'guard_events':[event],'config':{}}
++    source=tmp_path/'source.json';raw=json.dumps(result).encode();source.write_bytes(raw)
++    manifest={'schema':'guard_splits_v2','sources':[{'path':'source.json','sha256':sha256(raw).hexdigest()}],
++              'groups':{'new':'train'},'held_out_variants':['causal_gradient_alignment']}
++    with pytest.raises(ValueError,match='schemas'):assemble(manifest,tmp_path)
++    rows,metadata=assemble(manifest,tmp_path,STRUCTURE_SCHEMA)
++    assert len(rows)==1 and metadata['feature_schema']==STRUCTURE_SCHEMA
++    manifest['groups']['new']='final'
++    rows,metadata=assemble(manifest,tmp_path,STRUCTURE_SCHEMA)
++    assert rows==[] and metadata['excluded']['final']==1
++    labels=[{'event_index':0,'group':'new','split':'train','malicious':False,'variant':'benign'}]
++    assert build_dataset([event],labels,STRUCTURE_SCHEMA)[0]['features']==event['features']
++    with pytest.raises(ValueError,match='schemas'):build_dataset([event],labels)
++
++
++@pytest.mark.parametrize('scale',[1.,1e-35,1e35])
++def test_float32_single_pass_matches_scaled_geometry(scale):
++    from master_script.core.guard_features import _update_geometry
++    rng=np.random.default_rng(88)
++    p=(rng.uniform(-1,1,size=65539)*scale).astype('float32')
++    v=(p.astype('float64')+rng.uniform(-.01,.01,size=p.size)*scale).astype('float32')
++    f=geometry([v],[p]);expected=_update_geometry(v,p)
++    np.testing.assert_allclose([f['mean_update_reference_cosine'],f['maximum_update_concentration']],expected,rtol=1e-10,atol=1e-12)
++
++
++def test_pilot_pins_orchestration_and_frozen_cohort(tmp_path,monkeypatch):
++    from master_script.core import datasets
++    out=tmp_path/'pilot'
++    collect_guard_traces.prepare(out,targets=3,seed=4000,feature_schema=STRUCTURE_SCHEMA,
++        exclude_manifests=[exclusion(tmp_path)],reserve_final_targets=2)
++    original=collect_guard_traces.collection_tool_digest
++    monkeypatch.setattr(collect_guard_traces,'collection_tool_digest',lambda:'changed')
++    with pytest.raises(ValueError,match='orchestration'):
++        collect_guard_traces.execute(out/'launch.json',resolve_only=True)
++    monkeypatch.setattr(collect_guard_traces,'collection_tool_digest',original)
++    monkeypatch.setattr(datasets,'target_record_for',lambda c,f:f'target-{c.seed}')
++    collect_guard_traces.execute(out/'launch.json',resolve_only=True)
++    cohort=out/'cohort.json';data=json.loads(cohort.read_bytes())
++    assert list(data['groups'].values()).count('final')==2
++    data['groups'][next(iter(data['groups']))]='final';cohort.write_text(json.dumps(data))
++    with pytest.raises(ValueError,match='Frozen cohort changed'):
++        collect_guard_traces.execute(out/'launch.json',resolve_only=True)

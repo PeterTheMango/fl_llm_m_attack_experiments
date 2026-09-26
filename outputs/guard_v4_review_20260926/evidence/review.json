@@ -1,0 +1,136 @@
+{
+  "schema": "guard_v3_negative_review_v1",
+  "inputs_sha256": {
+    "detector-review.tar.gz": "c91e940a8581388ecfd11b480ff6048737b3ba9d525633d46bd867a46f9922d2",
+    "dataset.json": "174bab0e00f45d247cc99e84d818da21014fcc0ddc9f752fce5655701cfe174e",
+    "dataset.json.provenance.json": "d5d08e007698b8a76b4722127139ef272f4228f7764f0310081dfebde3820e19",
+    "detector.json": "6336c89076e67aed223c95e258554898830d9200d64e5fd309a238bd3aefa752",
+    "detector.json.report.json": "651e61fec62736c7ccf625354ea3958e5efb3d01c7f0651924a24d1954007b5c",
+    "progress.json": "367559aeef39e88bd47f581a406027c0895cbb7deae81f25c957433facd0847b",
+    "splits.complete.json": "67b114788783ae4069bdf23306634da15ff029539aa1bd1e19be8507ed014407",
+    "guard-workers-20260926-060354.json": "e1d3446d2c0373b8a13dcb3e61ac1c856456b51301231106380db07168d21fa2",
+    "0000-theory_v2_7d9f9493f7c3_pipeline_v1_49612f2d54dbc42393c1344f.json": "34360757b09fb4b92bd616b54c86a60f28117c0c3e1e3f29f00ddbe530882a42"
+  },
+  "counts": {
+    "train:legitimate_training": 192,
+    "train:probe_head": 16,
+    "validation:legitimate_training": 96,
+    "validation:probe_head": 8,
+    "test:legitimate_training": 96,
+    "test:probe_head": 8,
+    "test:causal_gradient_alignment": 8
+  },
+  "independent_groups": {
+    "train": 4,
+    "validation": 2,
+    "test": 2
+  },
+  "test": {
+    "roc_auc": 0.6666666666666666,
+    "attack_recall": 0.5,
+    "per_variant": {
+      "causal_gradient_alignment": {
+        "requests": 8,
+        "rejected": 0,
+        "score_range": [
+          0.011187283311085549,
+          0.011237504895502723
+        ],
+        "feature_ranges": {
+          "relative_delta": [
+            3.544239831617464e-05,
+            9.266596453797218e-05
+          ],
+          "maximum_layer_delta": [
+            0.0023053984459303596,
+            0.008935187480714816
+          ],
+          "parameter_concentration": [
+            0.9909789109302336,
+            0.9909791423415736
+          ]
+        }
+      },
+      "legitimate_training": {
+        "requests": 96,
+        "rejected": 0,
+        "score_range": [
+          0.0111724220682444,
+          0.0112960798893735
+        ],
+        "feature_ranges": {
+          "relative_delta": [
+            0.0,
+            0.0023313296916111247
+          ],
+          "maximum_layer_delta": [
+            0.0,
+            0.012083854773897468
+          ],
+          "parameter_concentration": [
+            0.9909792370800423,
+            0.9909804895145299
+          ]
+        }
+      },
+      "probe_head": {
+        "requests": 8,
+        "rejected": 8,
+        "score_range": [
+          0.8632761799799088,
+          0.9917892619259847
+        ],
+        "feature_ranges": {
+          "relative_delta": [
+            1.6370301840460886,
+            2.4654720911768653
+          ],
+          "maximum_layer_delta": [
+            1.8355411161924247,
+            4.702631235468487
+          ],
+          "parameter_concentration": [
+            1.0,
+            1.0
+          ]
+        }
+      }
+    },
+    "decisions_equal_relative_delta_baseline": true
+  },
+  "threshold": 0.011303227541612549,
+  "baseline_threshold": 0.0023755022589852077,
+  "checks": {
+    "artifact_hashes": true,
+    "manifest_progress_provenance": true,
+    "train_only_mean_scale": true,
+    "threshold_equals_validation_benign_maximum": true,
+    "available_source_rows_reproduced": 16
+  },
+  "limitations": [
+    "23 raw result sources and original launch/configs are absent locally; their contents and prospective timing cannot be independently re-audited.",
+    "Retired weights are unavailable; historical features cannot be recomputed from parameters.",
+    "Request-origin labels are not membership labels. Two test targets do not certify population false rejection.",
+    "Collection completion/retirement for other jobs is supported by progress metadata, not direct remote disk inspection."
+  ],
+  "historical_worker_median_seconds": {
+    "1": 11.130006312392652,
+    "2": 7.026081759016961,
+    "4": 5.00879327300936
+  },
+  "historical_worker_hash_feature_equivalence": true,
+  "first_job_mean_training_guard_seconds": 5.066802935830007,
+  "first_job_utility_f1": {
+    "no_retrieval": 0.06081536388140161,
+    "public_ordinary": 0.24592218592218593,
+    "private_ordinary": 0.5085714285714286
+  },
+  "source_audit_sha256": {
+    "master_script/core/guard_detector.py": "7b91f79ac1d90066e4c34d0aff9f4b5bc5e8e7fdc429a98e22667e7c04efe4b6",
+    "master_script/core/guard_features.py": "d7388884f5d360da451d221649b2b5aa6008a4e6e94e096302c0c7446e7831dd",
+    "master_script/core/guard_protocol.py": "8e0e12d451724629ec2aa11550806735eb6064b5a592557f842b7b12b57431c7",
+    "master_script/core/guard_replay.py": "3cf43687e952f9d8454fa1f5f7e72ebc2929d910d19cba8ac053a0aa6692eaaf",
+    "master_script/core/guard_runtime.py": "13c4cc8616470ddf363896f6ff2e4b6382169d5d99aa6a39eaadc1bccc644c32",
+    "master_script/core/guard_statistics.py": "7571df754aa40d2df03561ec3e6ba37c993254521f96b1502e620dd805dfc35c"
+  }
+}

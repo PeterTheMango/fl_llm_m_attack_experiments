@@ -10,11 +10,13 @@ import tempfile
 import numpy as np
 from master_script.core.guard_runtime import GuardRuntime, GuardSettings, parameter_digest, read_guard_events
 from master_script.core.config import implementation_fingerprint
+from master_script.core.guard_features import FEATURE_SCHEMA, feature_names
 from master_script.core.storage import atomic_binary
 from master_script.tools.benchmark_guard_runtime import select_snapshot
 
 
-def benchmark(run_dir, workers=(1, 2, 4), repeats=2):
+def benchmark(run_dir, workers=(1, 2, 4), repeats=2, feature_schema=FEATURE_SCHEMA):
+    feature_names(feature_schema)
     if not workers or len(set(workers)) != len(workers) or any(type(w) is not int or w not in (1, 2, 4) for w in workers):
         raise ValueError("Use distinct worker counts from 1, 2, 4")
     if type(repeats) is not int or not 1 <= repeats <= 6:
@@ -30,7 +32,7 @@ def benchmark(run_dir, workers=(1, 2, 4), repeats=2):
     policy = json.dumps({"schema": "client_guard_v1", "observation_architecture": "causal_lm"})
     with tempfile.TemporaryDirectory(prefix="guard-workers-") as temporary:
         settings = GuardSettings("rules", "benchmark", sha256(policy.encode()).hexdigest(), policy, 1,
-                                 runtime_directory=temporary, diagnostic=True)
+                                 runtime_directory=temporary, diagnostic=True, feature_schema=feature_schema)
         for repeat in range(repeats):
             order = list(workers) if repeat % 2 == 0 else list(reversed(workers))
             for w in order:
@@ -48,7 +50,7 @@ def benchmark(run_dir, workers=(1, 2, 4), repeats=2):
                 raise ValueError("Worker settings changed request identity or features")
     medians = {w: statistics.median(e["seconds"] for e in events) for w, events in samples.items()}
     return {"schema": "guard_worker_benchmark_v1", "implementation_fingerprint": implementation_fingerprint(),
-            "snapshot_source_run": result["run_id"], "snapshot_request_sha256": request_hash,
+            "feature_schema": feature_schema, "snapshot_source_run": result["run_id"], "snapshot_request_sha256": request_hash,
             "request_bytes": historical["request_bytes"], "repeats": repeats,
             "environment": {"platform": platform.platform(), "python": platform.python_version(), "numpy": np.__version__},
             "median_wall_seconds": medians, "features_and_hashes_identical": True, "samples": samples,
@@ -61,6 +63,7 @@ def benchmark(run_dir, workers=(1, 2, 4), repeats=2):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--feature-schema", default=FEATURE_SCHEMA)
     p.add_argument("--run-dir", required=True)
     p.add_argument("--output", required=True)
     p.add_argument("--workers", nargs="+", type=int, default=[1, 2, 4])
@@ -69,7 +72,7 @@ def main():
     output = Path(args.output)
     if output.exists():
         raise FileExistsError("Choose a new benchmark output")
-    report = benchmark(args.run_dir, args.workers, args.repeats)
+    report = benchmark(args.run_dir, args.workers, args.repeats, args.feature_schema)
     with atomic_binary(output, exclusive=True) as stream:
         stream.write((json.dumps(report, indent=2, allow_nan=False) + "\n").encode())
     print(json.dumps({"output": str(output), "median_wall_seconds": report["median_wall_seconds"]}, indent=2))

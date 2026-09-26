@@ -18,6 +18,7 @@ import tempfile
 import time
 import yaml
 from master_script.core.config import implementation_fingerprint
+from master_script.core.guard_features import FEATURE_SCHEMA, STRUCTURE_SCHEMA, feature_names
 from master_script.core.queue import write_json, load_batch
 from master_script.core.checkpoint_retention import retire_checkpoints, file_digest
 from master_script.tools.build_guard_stage import build_stage, ROOT
@@ -26,7 +27,30 @@ from master_script.tools.build_guard_stage import build_stage, ROOT
 SMOKE_TARGET = "2e016354fa6fa91efc79d0ba65e673f5392708522aed8ad3dee8cf86f5f9b6ad"
 
 
-def prepare(output, *, workers=1, targets=8, seed=2000):
+def collection_tool_digest():
+    """The core implementation fingerprint does not include orchestration tools."""
+    digest = sha256()
+    for name in ("collect_guard_traces.py", "build_guard_stage.py"):
+        digest.update(name.encode())
+        digest.update(Path(__file__).with_name(name).read_bytes())
+    return digest.hexdigest()
+
+
+def prepare(output, *, workers=1, targets=8, seed=2000, feature_schema=FEATURE_SCHEMA,
+            exclude_manifests=(), reserve_final_targets=0):
+    feature_names(feature_schema)
+    if type(reserve_final_targets) is not int or not 0 <= reserve_final_targets <= 1000:
+        raise ValueError("Invalid final cohort size")
+    if feature_schema == STRUCTURE_SCHEMA and (not exclude_manifests or reserve_final_targets < 2):
+        raise ValueError("v2 collection requires prior cohort exclusions and at least two reserved final targets")
+    excluded, exclusion_sources = {SMOKE_TARGET}, []
+    for manifest_path in exclude_manifests:
+        raw = Path(manifest_path).read_bytes()
+        manifest = json.loads(raw)
+        if manifest.get("schema") != "guard_splits_v2" or not manifest.get("groups"):
+            raise ValueError("Exclusions require a nonempty guard_splits_v2 manifest")
+        excluded.update(manifest["groups"])
+        exclusion_sources.append({"path": str(manifest_path), "sha256": sha256(raw).hexdigest()})
     if workers not in (1, 2, 4) or not 3 <= targets <= 24 or seed < 2000:
         raise ValueError("Use 1/2/4 workers, 3–24 targets, and a fresh seed band >=2000")
     output = Path(output).resolve()
@@ -45,6 +69,8 @@ def prepare(output, *, workers=1, targets=8, seed=2000):
                 job["defaults"]["seed"] = seed + i
                 job["attacks"] = {attack: {**deepcopy(arms), "variants": [deepcopy(arm)]}}
                 job["attacks"][attack]["variants"][0]["pipeline"]["client_guard"]["validation_workers"] = workers
+                if feature_schema != FEATURE_SCHEMA:
+                    job["attacks"][attack]["variants"][0]["pipeline"]["client_guard"]["feature_schema"] = feature_schema
                 name = f"job-{len(jobs):03d}.yaml"
                 text = yaml.safe_dump(job, sort_keys=False)
                 from master_script.core.yaml_config import load_config_doc
@@ -55,11 +81,22 @@ def prepare(output, *, workers=1, targets=8, seed=2000):
                 jobs.append({"config": name, "sha256": sha256(text.encode()).hexdigest(), "seed": seed + i,
                              "role": role, "attack": attack, "variant": getattr(config, "attack_variant", None)})
                 documents.append((name, text))
+    reserved = []
+    for i in range(reserve_final_targets):
+        reserved_doc = yaml.safe_load(documents[0][1])
+        reserved_doc["defaults"]["seed"] = seed + 1000 + i
+        name = f"reserved-final-{i:03d}.yaml"
+        text = yaml.safe_dump(reserved_doc, sort_keys=False)
+        reserved.append({"config": name, "sha256": sha256(text.encode()).hexdigest(),
+                         "seed": seed + 1000 + i, "role": "final"})
+        documents.append((name, text))
     protocol_raw = (ROOT / "guard/study_protocol_v3.json").read_bytes()
-    launch = {"schema": "guard_collection_v3", "created_unix": time.time(),
+    launch = {"schema": "guard_collection_v4" if feature_schema != FEATURE_SCHEMA or reserved else "guard_collection_v3", "created_unix": time.time(),
               "implementation_fingerprint": implementation_fingerprint(), "validation_workers": workers,
+              "collection_tool_sha256": collection_tool_digest(),
               "planned_targets": targets, "jobs": jobs, "held_out_variants": ["causal_gradient_alignment"],
-              "excluded_targets": [SMOKE_TARGET], "protocol_file": "utility-protocol.json",
+              "excluded_targets": sorted(excluded), "exclusion_sources": exclusion_sources,
+              "feature_schema": feature_schema, "reserved_final": reserved, "protocol_file": "utility-protocol.json",
               "protocol_sha256": sha256(protocol_raw).hexdigest(),
               "retention": "retire completed new-job model/probe weights and guard NPZ after result/ledger verification; keep JSON/JSONL/SQLite",
               "purpose": "Diagnostic detector data only, not a claim that privacy/utility/overhead gates pass",
@@ -81,7 +118,7 @@ def require_headroom(path, gib):
         raise ValueError(f"Need {gib} GiB free on {path} before starting another job")
 
 
-def execute(launch_path, *, gpu, max_jobs=1, scratch_root=None):
+def execute(launch_path, *, gpu=None, max_jobs=1, scratch_root=None, resolve_only=False):
     lock = Path(launch_path).resolve().parent / ".collector.lock"
     try:
         fd = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -90,20 +127,22 @@ def execute(launch_path, *, gpu, max_jobs=1, scratch_root=None):
     try:
         with os.fdopen(fd, "w") as stream:
             json.dump({"pid": os.getpid(), "started_unix": time.time()}, stream)
-        return _execute(launch_path, gpu=gpu, max_jobs=max_jobs, scratch_root=scratch_root)
+        return _execute(launch_path, gpu=gpu, max_jobs=max_jobs, scratch_root=scratch_root, resolve_only=resolve_only)
     finally:
         lock.unlink()
 
 
-def _execute(launch_path, *, gpu, max_jobs=1, scratch_root=None):
+def _execute(launch_path, *, gpu, max_jobs=1, scratch_root=None, resolve_only=False):
     launch_path = Path(launch_path).resolve()
     root = launch_path.parent
     launch = json.loads(launch_path.read_bytes())
-    if launch["schema"] != "guard_collection_v3" or implementation_fingerprint() != launch["implementation_fingerprint"]:
+    if launch["schema"] not in ("guard_collection_v3", "guard_collection_v4") or implementation_fingerprint() != launch["implementation_fingerprint"]:
         raise ValueError("Collection code changed; prepare a new frozen launch")
+    if launch["schema"] == "guard_collection_v4" and launch.get("collection_tool_sha256") != collection_tool_digest():
+        raise ValueError("Collection orchestration changed; prepare a new frozen launch")
     if file_digest(root / launch["protocol_file"]) != launch["protocol_sha256"]:
         raise ValueError("Utility protocol changed after declaration")
-    if not str(gpu).isdigit() or type(max_jobs) is not int or max_jobs <= 0:
+    if (not resolve_only and not str(gpu).isdigit()) or type(max_jobs) is not int or max_jobs <= 0:
         raise ValueError("Select a numeric GPU and positive max_jobs")
     batches = []
     for job in launch["jobs"]:
@@ -143,8 +182,36 @@ def _execute(launch_path, *, gpu, max_jobs=1, scratch_root=None):
         groups[target] = job["role"]
     if state.get("targets", targets) != targets:
         raise ValueError("Target identities changed since the first collection job")
+    reserved_targets = {}
+    for reservation in launch.get("reserved_final", []):
+        p = root / reservation["config"]
+        if p.parent != root or file_digest(p) != reservation["sha256"]:
+            raise ValueError("Reserved final configuration changed")
+        reserved_batch = load_batch([p])
+        if len(reserved_batch.pairs) != 1:
+            raise ValueError("Final reservation needs one target configuration")
+        config, _ = reserved_batch.pairs[0]
+        target = sha256(target_record_for(config, "").encode()).hexdigest()
+        if target in groups or target in launch["excluded_targets"]:
+            raise ValueError("Reserved final cohort overlaps development or historical targets")
+        groups[target] = "final"
+        reserved_targets[str(reservation["seed"])] = target
+    if state.get("reserved_final_targets", reserved_targets) != reserved_targets:
+        raise ValueError("Reserved final target identities changed")
     state["targets"] = targets
+    state["reserved_final_targets"] = reserved_targets
+    cohort = {"schema": "guard_splits_v2", "sources": [], "groups": groups,
+              "held_out_variants": launch["held_out_variants"]}
+    cohort_path = root / "cohort.json"
+    if cohort_path.exists() and json.loads(cohort_path.read_bytes()) != cohort:
+        raise ValueError("Frozen cohort changed; preserve the original declaration")
+    if not cohort_path.exists():
+        write_json(cohort_path, cohort)
     write_json(state_path, state)
+    if resolve_only:
+        print("Resolved and froze development and reserved final targets. No GPU/private job started.")
+        return
+
     scratch_root = Path(scratch_root or tempfile.gettempdir()).resolve()
     if not scratch_root.is_dir():
         raise ValueError("Scratch root must be an existing writable directory")
@@ -206,13 +273,21 @@ def main():
     prep = sub.add_parser("prepare")
     prep.add_argument("output"); prep.add_argument("--workers", type=int, choices=[1, 2, 4], default=1)
     prep.add_argument("--targets", type=int, default=8); prep.add_argument("--seed", type=int, default=2000)
+    prep.add_argument("--feature-schema", default=FEATURE_SCHEMA, choices=[FEATURE_SCHEMA, STRUCTURE_SCHEMA])
+    prep.add_argument("--exclude-manifest", action="append", default=[])
+    prep.add_argument("--reserve-final-targets", type=int, default=0)
+    resolve = sub.add_parser("resolve"); resolve.add_argument("launch")
     run = sub.add_parser("run")
     run.add_argument("launch"); run.add_argument("--gpu", required=True)
     run.add_argument("--max-jobs", type=int, default=1); run.add_argument("--scratch-root")
     args = p.parse_args()
     if args.action == "prepare":
-        launch = prepare(args.output, workers=args.workers, targets=args.targets, seed=args.seed)
+        launch = prepare(args.output, workers=args.workers, targets=args.targets, seed=args.seed,
+                         feature_schema=args.feature_schema, exclude_manifests=args.exclude_manifest,
+                         reserve_final_targets=args.reserve_final_targets)
         print(f"Prepared {len(launch['jobs'])} one-target jobs. No training started. Default execution is one job.")
+    elif args.action == "resolve":
+        execute(args.launch, resolve_only=True)
     else:
         execute(args.launch, gpu=args.gpu, max_jobs=args.max_jobs, scratch_root=args.scratch_root)
 

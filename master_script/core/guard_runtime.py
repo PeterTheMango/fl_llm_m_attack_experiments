@@ -14,7 +14,7 @@ import sqlite3
 import time
 from zipfile import BadZipFile
 import numpy as np
-from .guard_features import FEATURE_SCHEMA, parameter_features
+from .guard_features import FEATURE_SCHEMA, parameter_features, feature_names, reduce_layer_features
 from .guard_detector import load_detector, detector_score
 from .release_ledger import ReleaseLedger
 
@@ -36,16 +36,19 @@ class GuardSettings:
     rejection_action: str = "refuse"
     runtime_directory: str | None = None
     validation_workers: int = 1
+    feature_schema: str = FEATURE_SCHEMA
 
     def metadata(self):
         data = {k: v for k, v in asdict(self).items() if k not in ("policy_json", "runtime_directory")}
         if self.validation_workers == 1:
             data.pop("validation_workers")  # Preserve the serial configuration identity.
+        if self.feature_schema == FEATURE_SCHEMA:
+            data.pop("feature_schema")  # Preserve historical v1 identities.
         return data
 
 
 def parse_guard(value, source):
-    allowed = {"mode", "policy_file", "release_budget", "detector_file", "detector_sha256", "diagnostic", "rejection_action", "validation_workers"}
+    allowed = {"mode", "policy_file", "release_budget", "detector_file", "detector_sha256", "diagnostic", "rejection_action", "validation_workers", "feature_schema"}
     if not isinstance(value, dict) or set(value) - allowed:
         raise ValueError("Invalid client_guard fields")
     if value.get("mode") not in ("rules", "classifier", "rules_classifier", "shadow"):
@@ -58,6 +61,8 @@ def parse_guard(value, source):
         raise ValueError("Invalid diagnostic or rejection_action")
     if not isinstance(value.get("policy_file"), str) or not value["policy_file"]:
         raise ValueError("client_guard.policy_file is required")
+    schema = value.get("feature_schema", FEATURE_SCHEMA)
+    feature_names(schema)
     base = Path(source).resolve().parent if source != "<config>" else Path.cwd()
     path = (base / value["policy_file"]).resolve()
     raw = path.read_bytes()
@@ -76,7 +81,8 @@ def parse_guard(value, source):
         if not isinstance(detector, str) or not detector or not isinstance(digest, str) or len(digest) != 64:
             raise ValueError("Invalid detector pin")
         detector = str((base / detector).resolve())
-        load_detector(detector, digest)
+        if load_detector(detector, digest)["schema"] != schema:
+            raise ValueError("Detector and runtime feature schema mismatch")
     return GuardSettings(**{**value, "policy_file": str(path), "policy_sha256": sha256(raw).hexdigest(),
                             "policy_json": raw.decode(), "detector_file": detector})
 
@@ -122,7 +128,7 @@ def parameter_digest(value):
     return digest.hexdigest()
 
 
-def _inspect_layer(stored, index, value, expected_digest):
+def _inspect_layer(stored, index, value, expected_digest, schema=FEATURE_SCHEMA):
     """Each task owns one freshly read reference array; never cache its contents."""
     timings = {}
     tick = time.perf_counter()
@@ -142,7 +148,10 @@ def _inspect_layer(stored, index, value, expected_digest):
         reason = "invalid_parameters"
     timings["validation"] = time.perf_counter() - tick
     tick = time.perf_counter()
-    features = parameter_features([value], [prior]) if reason is None else None
+    features = None
+    if reason is None:
+        features = (parameter_features([value], [prior]) if schema == FEATURE_SCHEMA else
+                    parameter_features([value], [prior], schema))
     timings["feature_extraction"] = time.perf_counter() - tick
     return reason, features, timings
 
@@ -171,6 +180,7 @@ class GuardRuntime:
         workers = self.settings.validation_workers
         if type(workers) is not int or workers not in (1, 2, 4):
             raise ValueError("validation_workers must be 1, 2 or 4")
+        feature_names(self.settings.feature_schema)
         rss_before = rss_gib()
         stages = dict.fromkeys(("request_copy", "request_hash", "reference_load", "reference_hash", "validation",
                                "feature_extraction", "detector_load", "detector_inference",
@@ -206,7 +216,7 @@ class GuardRuntime:
                 reason = "parameter_shapes_mismatch"
             elif reason in (None, "architecture_mismatch"):
                 def inspect(i):
-                    return _inspect_layer(stored, i, snapshot[i], self.reference_digests[i])
+                    return _inspect_layer(stored, i, snapshot[i], self.reference_digests[i], self.settings.feature_schema)
                 # ZipFile serializes seeks/reads through its shared-file lock.
                 # Hashing and feature reductions can overlap on owned arrays.
                 # Results are reduced in tensor order, preserving feature math.
@@ -229,9 +239,7 @@ class GuardRuntime:
                             if layer_values is not None:
                                 layer_features.append(layer_values)
                 if len(layer_features) == len(snapshot) and snapshot:
-                    features = {"relative_delta": float(np.mean([f["relative_delta"] for f in layer_features])),
-                                "maximum_layer_delta": max(f["maximum_layer_delta"] for f in layer_features),
-                                "parameter_concentration": max(f["parameter_concentration"] for f in layer_features)}
+                    features = reduce_layer_features(layer_features, self.settings.feature_schema)
         reference_wall_seconds = time.perf_counter() - reference_start
         # Classifier-only is diagnostic: structural/numerical safety still applies.
         if features is not None and self.settings.detector_file is not None and reason in (None, "architecture_mismatch"):
@@ -239,6 +247,8 @@ class GuardRuntime:
             detector = load_detector(self.settings.detector_file, self.settings.detector_sha256)
             stages["detector_load"] = time.perf_counter() - tick
             tick = time.perf_counter()
+            if detector["schema"] != self.settings.feature_schema:
+                raise ValueError("Detector and runtime feature schema mismatch")
             score = detector_score(detector, features)
             stages["detector_inference"] = time.perf_counter() - tick
             if reason is None and score > detector["threshold"]:
@@ -255,7 +265,8 @@ class GuardRuntime:
         event = {"scope": self.scope, "client_id": client_id, "round_id": round_id,
                  "decision": "accepted" if accepted else "rejected", "would_accept": proposed,
                  "reason": reason or "accepted", "mode": self.settings.mode,
-                 "features": features, "detector_score": score, "feature_schema": FEATURE_SCHEMA,
+                 "features": features, "detector_score": score, "feature_schema": self.settings.feature_schema,
+                 "reference_sha256": sha256("".join(self.reference_digests).encode()).hexdigest(),
                  "policy_sha256": self.settings.policy_sha256, "detector_sha256": self.settings.detector_sha256,
                  "reservation_count": count, "seconds": time.perf_counter() - start,
                  "stages_seconds": stages,
