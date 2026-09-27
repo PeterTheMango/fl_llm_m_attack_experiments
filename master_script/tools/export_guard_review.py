@@ -5,6 +5,7 @@ Copies SQLite through its read-only backup API; never copies retired weights.
 import io,json,sqlite3,sys,tarfile,hashlib
 from contextlib import closing
 from pathlib import Path
+from tempfile import TemporaryDirectory
 root=Path(sys.argv[1]).resolve();output=Path(sys.argv[2]).resolve()
 state=json.loads((root/'progress.json').read_text())
 assert state['active_job'] is None and len(state['completed'])==9
@@ -27,8 +28,12 @@ with tarfile.open(output,'x:gz') as tar:
   for p in audits:add(p)
   ledger=artifact/'client-guard/release-ledger.sqlite'
   if ledger.exists():
-   with closing(sqlite3.connect(ledger.as_uri()+'?mode=ro',uri=True)) as source, closing(sqlite3.connect(':memory:')) as snapshot:
-    source.backup(snapshot);put(str(ledger.relative_to(root)),snapshot.serialize())
+   # File-backed backup works on Python 3.10 and includes committed WAL data.
+   with TemporaryDirectory(prefix='guard-review-sqlite-') as temporary:
+    snapshot_path=Path(temporary)/'snapshot.sqlite'
+    with closing(sqlite3.connect(ledger.as_uri()+'?mode=ro',uri=True)) as source, closing(sqlite3.connect(snapshot_path)) as snapshot:
+     source.backup(snapshot)
+    put(str(ledger.relative_to(root)),snapshot_path.read_bytes())
   else:manifest['missing'].append(str(ledger))
  # These inputs are named in the frozen configurations. Export their bytes too.
  for rel in ['master_script/configs/guard/approved_training_policy.json','master_script/configs/research_data/squad_rag_study.json']:
