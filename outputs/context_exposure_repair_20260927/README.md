@@ -87,7 +87,7 @@ The deterministic tests need no model weights, GPU or tokenizer library. The new
 - unchanged generation IDs;
 - keeping private data out of public output.
 
-Python 3.10 was not installed. Syntax was checked with `ast.parse(..., feature_version=(3, 10))`, the tests ran on 3.11 and 3.13, and no 3.11+ APIs are used.
+Python 3.10 was not installed locally. Syntax was checked with `ast.parse(..., feature_version=(3, 10))` and the tests ran on 3.11 and 3.13. The tests then passed on the server's Python 3.10.12 (below).
 
 ```bash
 /opt/anaconda3/envs/peter_experiments_fl/bin/python -m pytest tests/test_rag_context_exposure.py -q
@@ -96,6 +96,18 @@ PYTHONPATH=/private/tmp/guard-review-tokenizers /opt/anaconda3/bin/python output
 ```
 
 On another machine, set `RAG_EXPOSURE_TOKENIZER=/path/to/federated_model/tokenizer.json`. Optionally set `RAG_EXPOSURE_RESULTS=/dir` with `*/*/artifacts/*/result.json` for the historical tabulation, which is skipped when none are found. The output records the host and its `tokenizers`/`transformers` versions.
+
+## Remote server run (LCALC08, 2026-09-28)
+
+The branch was checked out into a separate git worktree (`../fl_exposure_check`), leaving the experiment checkout untouched, and run CPU-only (`CUDA_VISIBLE_DEVICES=""`, `HF_HUB_OFFLINE=1`).
+
+- **Environment:** Python 3.10.12, `tokenizers` 0.22.2, `transformers` 5.14.1, torch 2.13.0+cu126.
+- **Tests:** the new tests and the full suite all passed, as reported by the user; exact counts were not transcribed.
+- **Tokenizer:** the server's original pilot `tokenizer.json` has SHA-256 `3fd16973…85d8`, byte-identical to the export.
+- **Boundary controls and generation:** identical to the local runs. 199/200 false invisibility before, 200/200 complete after, all negative controls correct; 0 mismatches over 7,200 prompts, with the same all-prompt hash `ce3298da…23b4`.
+- **Historical tabulation:** run against the original server results (`outputs/guard-v4-pilot/results`), not the exported copies. Same totals: 2,376 / 24 / 2,400 / 12 / 12.
+
+These values are transcribed from pasted stdout into `remote_verification_LCALC08.json`; the full JSON with per-control rows stays on the server. The library versions are those installed now. The versions used by the original pilot runs remain unrecorded, although the pilot's model export was written by `transformers` 5.14.1, which is consistent.
 
 ## Research impact
 
