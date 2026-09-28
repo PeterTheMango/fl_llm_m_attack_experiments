@@ -1,0 +1,21 @@
+# 2026-09-28T02:16:33Z git HEAD 02a568f949e9adb3dfe8d5738eb9c6df165a5684 (+ uncommitted repair)
+
+$ peter_experiments_fl (py3.11, torch, transformers 5.14.1, tokenizers 0.22.2): pytest tests/test_rag_context_exposure.py
+........................................................................ [ 85%]
+............                                                             [100%]
+84 passed in 3.26s
+
+$ anaconda base (py3.13, no torch/transformers) + tokenizers 0.23.2: pytest tests/test_rag_context_exposure.py
+.......s....                                                             [100%]
+=========================== short test summary info ============================
+SKIPPED [1] tests/test_rag_context_exposure.py:357: could not import 'torch': No module named 'torch'
+83 passed, 1 skipped in 1.27s
+
+$ vv311 (py3.11, numpy/pytest only): pytest tests/test_rag_context_exposure.py
+=========================== short test summary info ============================
+SKIPPED [1] tests/test_rag_context_exposure.py:357: could not import 'torch': No module named 'torch'
+SKIPPED [2] tests/test_rag_context_exposure.py:430: could not import 'tokenizers': No module named 'tokenizers'
+81 passed, 3 skipped in 0.12s
+
+$ peter_experiments_fl: pytest tests (full suite)
+666 passed, 1 warning in 33.15s

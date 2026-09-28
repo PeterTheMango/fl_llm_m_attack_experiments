@@ -145,6 +145,60 @@ score accompanied by unusable answers is not evidence of a useful defense.
 Neither these settings nor the earlier small runs establish which attack is
 reliable: that is the empirical question for this sweep.
 
+### Context-exposure audit (`context_exposure_v2`)
+
+`context_audit` on membership trials and overlap cells states whether the
+candidate passage was in the context tokens the model actually received.
+Generation and audit share `_prepare_prompt`, so both use one context-token
+selection. The audit re-tokenizes the joined context (`"\n\n".join(contexts)`)
+with offsets and requires the resulting IDs to equal the generation IDs.
+It then locates exact occurrences of the candidate string in that joined text.
+Offsets are Python `str` indices (Unicode code points). A code point counts as
+retained only if no dropped token overlaps it. This handles a character split
+across byte-level tokens. Only retrieved context is searched: candidate text in
+the question, instructions or answer never counts.
+
+| `exposure` | Meaning |
+|---|---|
+| `complete` | At least one exact occurrence lies wholly inside the retained context |
+| `partial` | No complete occurrence; truncation cuts through an occurrence |
+| `absent` | Verified: `absence_cause` is `not_in_context`, `empty_context` or `removed_by_truncation` |
+| `unavailable` | Not verifiable; see `unavailable_reason` (no tokenizer, no offsets, offset/prompt encoding mismatch, uncovered characters, or normalization that crosses an occurrence edge or yields an equivalent text with no exact occurrence) |
+
+`status` is `checked` unless the exposure is `unavailable`. `context_tokens_before`,
+`context_tokens_used` and `context_truncated` keep their earlier meaning.
+`diagnostics.member_context_exposure` counts member queries by class. The
+exposure refers to the exact candidate string after the tokenizer's own
+normalization; it does not measure paraphrases or partial textual overlap.
+
+Details stay in the mode-0600 `private-audit/rag-answers.jsonl` under
+`context_exposure`. They are the minimum needed to recheck the audit with the
+tokenizer and pinned study, without model weights:
+
+- schema;
+- tokenizer backend SHA-256, class, and `tokenizers`/`transformers` versions;
+- ordered context document SHA-256 values and their character spans;
+- the prompt budget;
+- SHA-256 hashes of the context, retained and whole-prompt token IDs;
+- the retained character boundary and first dropped offset;
+- every occurrence span with its class.
+
+Rows are linked by `kind`, corpus, defense, `trial_id`, `candidate_index`, and
+candidate and query hashes. No context text or token IDs enter result JSON or
+detector inputs. The result `context_audit` holds classes and counts only.
+
+**Historical records.** Results from core fingerprint `489525a1da38` and earlier
+carry `candidate_tokens_visible` from an exact-token-span test. That test
+searched for the standalone tokenization of the candidate. It falsely reported
+invisibility at passage boundaries (for example, a final `.` merges into
+`.ĊĊ`). `true` implies that the candidate's tokens were in the retained context.
+`false` does not establish absence. v2 records omit this field. The private
+detail keeps the old test only as `legacy_exact_token_span_visible`, for
+comparison. Historical flags are not rewritten. Their contexts and prompt tokens
+were not saved, so corrected visibility for those queries cannot be reconstructed.
+The verification is recorded in
+`outputs/context_exposure_repair_20260927/`.
+
 ## Workload and a smaller validation run
 
 The full file expands to 42 runs, with 135 AMIA FL models plus 3,000 Reference

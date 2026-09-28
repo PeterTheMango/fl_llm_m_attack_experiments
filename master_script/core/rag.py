@@ -107,9 +107,15 @@ def retrieve(documents, embeddings, query_embedding, top_k, significance, defend
     return [documents[i]["text"] for i in selected], bool(defended and detection["detected"])
 
 
-def _prompt_tokens(bundle, question, contexts, settings, answer_tokens=0):
-    import torch
+CONTEXT_SEPARATOR = "\n\n"
 
+
+def _prepare_prompt(bundle, question, contexts, settings, answer_tokens=0):
+    """Single source of the prompt token selection used by generation and audits.
+
+    Returns the prefix/suffix IDs, the joined context text, its full token IDs
+    and how many leading context tokens survive truncation. Needs no torch.
+    """
     tokenizer, model = bundle["tokenizer"], bundle["model"]
     capacity = getattr(model.config, "max_position_embeddings", getattr(model.config, "n_positions", 1024))
     capacity = int(capacity or 1024)
@@ -135,9 +141,25 @@ def _prompt_tokens(bundle, question, contexts, settings, answer_tokens=0):
     available = capacity - len(prefix) - len(suffix) - reserve
     if available < 0:
         raise ValueError("RAG question exceeds model context; use shorter study candidates or a larger model")
-    context = tokenizer.encode("\n\n".join(contexts), add_special_tokens=False)
-    context = context[:min(available, settings.max_context_tokens)]
-    return torch.tensor([prefix + context + suffix], dtype=torch.long, device=bundle["device"])
+    text = CONTEXT_SEPARATOR.join(contexts)
+    context = tokenizer.encode(text, add_special_tokens=False)
+    limit = min(available, settings.max_context_tokens)
+    return {"prefix": prefix, "suffix": suffix, "context_text": text, "context_ids": context,
+            "retained": min(len(context), limit),
+            "budget": {"capacity": capacity, "prefix_tokens": len(prefix), "suffix_tokens": len(suffix),
+                       "reserve": reserve, "available": available,
+                       "max_context_tokens": settings.max_context_tokens, "limit": limit}}
+
+
+def _prompt_ids(prompt):
+    return prompt["prefix"] + prompt["context_ids"][:prompt["retained"]] + prompt["suffix"]
+
+
+def _prompt_tokens(bundle, question, contexts, settings, answer_tokens=0):
+    import torch
+
+    ids = _prompt_ids(_prepare_prompt(bundle, question, contexts, settings, answer_tokens))
+    return torch.tensor([ids], dtype=torch.long, device=bundle["device"])
 
 
 def generate_answer(bundle, question, contexts, settings):
@@ -240,18 +262,21 @@ def evaluate_pipeline(bundle, config, pipeline, trial_id=None):
                         score = None if is_refusal(generated) else answer_utility(generated, expected)["token_f1"]
                         prediction = None  # Frozen independent validation required.
                     from hashlib import sha256
+                    exposure, exposure_detail = context_exposure_record(bundle, query, contexts, condition_settings,
+                                                                        candidate["text"])
                     membership.append({"candidate_index": i, "candidate_sha256": sha256(candidate["text"].encode()).hexdigest(),
                                        "truth_member": candidate["id"] in ids,
                                        "training_member": candidate["text"] in training_records,
                                        "score": score, "pred_member": prediction,
                                        **{k: v for k, v in parsed.items() if k != "pred_member"},
                                        "retrieved": candidate["text"] in contexts,
-                                       "context_audit": context_exposure(bundle, query, contexts, condition_settings, candidate["text"]),
+                                       "context_audit": exposure,
                                        "queries_used": 1,
                                        "calibration_status": "required" if continuation else "fixed_binary_parser"})
                     audit_answer(settings, {"kind": "membership", "corpus": corpus_name,
                                            "defense": defense_name, "candidate_sha256": membership[-1]["candidate_sha256"],
-                                           "trial_id": trial_id, "answer": generated})
+                                           "candidate_index": i, "query_sha256": sha256(query.encode()).hexdigest(),
+                                           "trial_id": trial_id, "answer": generated, "context_exposure": exposure_detail})
                 else:
                     q = study["utility_queries"][i - len(study["membership_candidates"])]
                     audit_answer(settings, {"kind": "utility", "corpus": corpus_name, "defense": defense_name,
@@ -278,6 +303,9 @@ def evaluate_pipeline(bundle, config, pipeline, trial_id=None):
                                 "attack_status": "no_recognized_answers" if recognized == 0 else "evaluated",
                                 "member_retrieval_rate": sum(t["retrieved"] for t in member_queries) / len(member_queries),
                                 "retrieval_scope": "before_context_token_truncation",
+                                "member_context_exposure": {kind: sum(t["context_audit"].get("exposure") == kind for t in member_queries)
+                                                            for kind in ("complete", "partial", "absent", "unavailable")},
+                                "context_exposure_schema": CONTEXT_EXPOSURE_SCHEMA,
                                 "utility_status": "no_correct_answers" if not any(t["token_f1"] > 0 for t in utility) else "evaluated",
                                 "scoring_convention": "unrecognized_or_refused_response_is_unavailable; continuation_requires_calibration"},
                 "utility": {key: sum(r[key] for r in utility) / len(utility) if utility else None
@@ -349,14 +377,15 @@ def evaluate_overlap(bundle, study, settings):
             answer = generate_answer(bundle, question, contexts, opts)
             parsed = parse_membership_answer(answer)
             prediction = parsed["pred_member"]
+            exposure, exposure_detail = context_exposure_record(bundle, question, contexts, opts, candidate)
             audit_answer(settings, {"kind": "overlap", "target_sha256": sha256(candidate.encode()).hexdigest(),
                                    "training_member": training_member, "datastore_member": present,
-                                   "defense": defense, "answer": answer})
+                                   "defense": defense, "answer": answer, "context_exposure": exposure_detail})
             rows.append({"target_sha256": sha256(candidate.encode()).hexdigest(),
                          "training_member": training_member, "datastore_member": present,
                          "defense": defense, "pred_member": prediction, "no_context_prediction": no_context["pred_member"],
                          "answer_recognized": parsed["answer_recognized"], "refused": parsed["refused"],
-                         "context_audit": context_exposure(bundle, question, contexts, opts, candidate),
+                         "context_audit": exposure,
                          "training_exposure": training_exposure(bundle),
                          "retrieved": candidate in contexts, "seconds": time.perf_counter() - start,
                          "document_count": len(world), "design": "fixed_checkpoint_paired_replacement"})
@@ -399,21 +428,169 @@ def continuation_question(text):
             " ".join(words[split:]))
 
 
-def context_exposure(bundle, question, contexts, settings, candidate):
-    """Check candidate token span in the actual truncated prompt context only."""
+CONTEXT_EXPOSURE_SCHEMA = "context_exposure_v2"
+_TOKENIZER_DIGESTS = {}
+
+
+def _sha256_json(value):
+    from hashlib import sha256
+    return sha256(json.dumps(value, separators=(",", ":")).encode()).hexdigest()
+
+
+def _tokenizer_identity(tokenizer):
+    """Hash of the loaded backend serialization, cached per live tokenizer."""
+    import sys
+    import weakref
+    from hashlib import sha256
+    backend = tokenizer.backend_tokenizer
+    cached = _TOKENIZER_DIGESTS.get(id(tokenizer))
+    if cached is None or cached[0]() is not tokenizer:
+        if len(_TOKENIZER_DIGESTS) > 8:
+            _TOKENIZER_DIGESTS.clear()
+        cached = (weakref.ref(tokenizer), sha256(backend.to_str().encode()).hexdigest())
+        _TOKENIZER_DIGESTS[id(tokenizer)] = cached
+    normalizer = getattr(backend, "normalizer", None)
+    return {"backend_sha256": cached[1], "class": type(tokenizer).__name__,
+            "name_or_path": str(getattr(tokenizer, "name_or_path", "")) or None,
+            "normalizer": None if normalizer is None else type(normalizer).__name__,
+            **{f"{m}_version": getattr(sys.modules.get(m), "__version__", None) for m in ("tokenizers", "transformers")}}
+
+
+def _occurrences(text, candidate):
+    """Every exact code-point occurrence of candidate in text, overlapping ones included."""
+    found, start = [], text.find(candidate)
+    while candidate and start >= 0:
+        found.append((start, start + len(candidate)))
+        start = text.find(candidate, start + 1)
+    return found
+
+
+def retained_char_end(offsets, retained, text_length):
+    """First code point of the joined context not wholly inside the retained tokens.
+
+    A character is retained only if no dropped token overlaps it. This stays
+    correct when one character spans several byte-level tokens (they share its
+    offsets) and when trimmed offsets leave a gap before the first dropped token.
+    """
+    if retained >= len(offsets):
+        return text_length
+    kept_end = max((end for _, end in offsets[:retained]), default=0)
+    return min(kept_end, min(start for start, _ in offsets[retained:]))
+
+
+def classify_exposure(text, offsets, retained, candidate, document_spans=(), normalize=None):
+    """Exposure of candidate within the retained context tokens, from offsets alone.
+
+    ``offsets`` are per-token (start, end) Python ``str`` indices (Unicode code
+    points) into ``text``, the exact string that was tokenized. ``normalize`` is
+    the tokenizer's normalizer (or None when it has none). Only ``text`` is
+    searched, so question, instruction or answer text can never count.
+    """
+    if not isinstance(candidate, str) or not candidate:
+        return {"exposure": "unavailable", "unavailable_reason": "empty_candidate", "occurrences": []}
+    length = len(text)
+    if any(not (0 <= s <= e <= length) for s, e in offsets):
+        return {"exposure": "unavailable", "unavailable_reason": "offsets_out_of_range", "occurrences": []}
+    boundary = retained_char_end(offsets, retained, length)
+    covered = [False] * length
+    for s, e in offsets:
+        covered[s:e] = [True] * (e - s)
+    normalized = normalize(text) if normalize is not None else None
+    rows = []
+    for s, e in _occurrences(text, candidate):
+        row = {"start": s, "end": e, "documents": [i for i, (a, b) in enumerate(document_spans) if a < e and s < b],
+               "retained_code_points": max(0, min(boundary, e) - s)}
+        if not all(covered[i] or text[i].isspace() for i in range(s, e)):
+            row.update(exposure="unavailable", unavailable_reason="characters_without_token_offsets")
+        elif normalize is not None and normalize(text[:s]) + normalize(text[s:e]) + normalize(text[e:]) != normalized:
+            # The normalizer rewrites across the occurrence edge, so the model
+            # does not receive this candidate's own normalized form.
+            row.update(exposure="unavailable", unavailable_reason="normalization_crosses_occurrence_boundary")
+        else:
+            row["exposure"] = "complete" if e <= boundary else "partial" if s < boundary else "removed_by_truncation"
+        rows.append(row)
+    kinds = {r["exposure"] for r in rows}
+    result = {"retained_char_end": boundary, "occurrences": rows}
+    if "complete" in kinds:
+        return {"exposure": "complete", **result}
+    if "unavailable" in kinds:
+        return {"exposure": "unavailable", "unavailable_reason": "occurrence_not_verifiable", **result}
+    if normalize is not None and len(_occurrences(normalized, normalize(candidate))) > len(rows):
+        # Text equivalent after normalization, without an exact occurrence to align.
+        return {"exposure": "unavailable", "unavailable_reason": "normalization_equivalent_without_exact_occurrence", **result}
+    if "partial" in kinds:
+        return {"exposure": "partial", **result}
+    if rows:
+        return {"exposure": "absent", "absence_cause": "removed_by_truncation", **result}
+    return {"exposure": "absent", "absence_cause": "empty_context" if not text else "not_in_context", **result}
+
+
+def context_exposure_record(bundle, question, contexts, settings, candidate):
+    """Public summary plus private metadata sufficient to recheck without model weights.
+
+    Uses the same prompt preparation as generation. The summary holds counts and
+    classifications only; spans, hashes and tokenizer identity are private audit data.
+    """
+    def unavailable(reason, **fields):
+        summary = {"schema": CONTEXT_EXPOSURE_SCHEMA, "status": "unavailable", "exposure": "unavailable",
+                   "unavailable_reason": reason, **fields}
+        return summary, {"schema": CONTEXT_EXPOSURE_SCHEMA, "summary": summary}
+
     if "tokenizer" not in bundle or "model" not in bundle:
-        return {"status": "unavailable"}
+        return unavailable("no_tokenizer_or_model")
     tokenizer = bundle["tokenizer"]
-    full = tokenizer.encode("\n\n".join(contexts), add_special_tokens=False)
-    # Compare full/empty prompt lengths, isolating context from the question
-    # which itself contains the candidate in the yes/no diagnostic.
-    used = int(_prompt_tokens(bundle, question, contexts, settings).shape[1] -
-               _prompt_tokens(bundle, question, [], settings).shape[1])
+    prompt = _prepare_prompt(bundle, question, contexts, settings)
+    ids, retained, text = prompt["context_ids"], prompt["retained"], prompt["context_text"]
+    counts = {"context_tokens_before": len(ids), "context_tokens_used": retained, "context_truncated": retained < len(ids)}
+    backend = getattr(tokenizer, "backend_tokenizer", None)
+    if backend is None:
+        return unavailable("fast_tokenizer_required", **counts)
+    try:
+        encoded = tokenizer(text, add_special_tokens=False, return_offsets_mapping=True)
+    except (NotImplementedError, TypeError, ValueError) as error:
+        return unavailable("offsets_unavailable", **counts, error_type=type(error).__name__)
+    if list(encoded["input_ids"]) != list(ids):
+        return unavailable("offset_encoding_differs_from_prompt_encoding", **counts)
+    offsets = [tuple(int(v) for v in pair) for pair in encoded["offset_mapping"]]
+    normalizer = getattr(backend, "normalizer", None)
+    spans, cursor = [], 0
+    for document in contexts:
+        spans.append((cursor, cursor + len(document)))
+        cursor += len(document) + len(CONTEXT_SEPARATOR)
+    found = classify_exposure(text, offsets, retained, candidate, spans,
+                              None if normalizer is None else normalizer.normalize_str)
+    status = "unavailable" if found["exposure"] == "unavailable" else "checked"
+    summary = {"schema": CONTEXT_EXPOSURE_SCHEMA, "status": status, "exposure": found["exposure"], **counts,
+               **{k: found[k] for k in ("absence_cause", "unavailable_reason") if k in found},
+               "occurrences": len(found["occurrences"]),
+               "complete_occurrences": sum(r["exposure"] == "complete" for r in found["occurrences"])}
+    from hashlib import sha256
     target = tokenizer.encode(candidate, add_special_tokens=False)
-    visible = full[:used]
-    present = bool(target) and any(visible[i:i+len(target)] == target for i in range(len(visible)-len(target)+1))
-    return {"status": "checked", "context_tokens_before": len(full), "context_tokens_used": used,
-            "context_truncated": used < len(full), "candidate_tokens_visible": present}
+    kept = ids[:retained]
+    detail = {
+        "schema": CONTEXT_EXPOSURE_SCHEMA, "summary": summary, "tokenizer": _tokenizer_identity(tokenizer),
+        "offset_unit": "python_str_code_point", "match": "exact_code_point_substring_of_joined_context",
+        "context": {"separator": CONTEXT_SEPARATOR, "text_sha256": sha256(text.encode()).hexdigest(),
+                    "text_code_points": len(text), "document_sha256": [sha256(d.encode()).hexdigest() for d in contexts],
+                    "document_char_spans": [list(s) for s in spans]},
+        "budget": prompt["budget"],
+        "tokens": {"context_ids_sha256": _sha256_json(ids), "retained_ids_sha256": _sha256_json(kept),
+                   "prompt_ids_sha256": _sha256_json(_prompt_ids(prompt)),
+                   "retained_char_end": found.get("retained_char_end"),
+                   "last_retained_offset": list(offsets[retained - 1]) if retained else None,
+                   "first_dropped_offset": list(offsets[retained]) if retained < len(offsets) else None},
+        "occurrences": found["occurrences"],
+        # The retired exact-token-span test, under a new name so it is never
+        # mistaken for the historical candidate_tokens_visible field.
+        "legacy_exact_token_span_visible": bool(target) and any(
+            kept[i:i + len(target)] == target for i in range(len(kept) - len(target) + 1)),
+    }
+    return summary, detail
+
+
+def context_exposure(bundle, question, contexts, settings, candidate):
+    """Public exposure summary of candidate in the actual retained prompt context."""
+    return context_exposure_record(bundle, question, contexts, settings, candidate)[0]
 
 
 def audit_answer(settings, row):
