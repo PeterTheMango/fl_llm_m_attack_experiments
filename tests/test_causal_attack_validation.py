@@ -126,6 +126,19 @@ def test_prepare_stage_a_writes_frozen_pipeline_free_causal_jobs(tmp_path, pilot
     assert launch["protocol_sha256"] == cav.digest(cav.PROTOCOL)
 
 
+def test_prior_collection_launch_contributes_its_exclusions(tmp_path, pilot_cohort):
+    v3_target = "cd" * 32
+    prior = tmp_path / "v4-launch.json"
+    prior.write_text(json.dumps({"schema": "guard_collection_v4", "excluded_targets": [v3_target, cav.SMOKE_TARGET]}))
+    launch = cav.prepare(tmp_path / "a", "a", [pilot_cohort, prior])
+    assert v3_target in launch["excluded_targets"]
+    assert [s["schema"] for s in launch["exclusion_sources"]] == ["guard_splits_v2", "guard_collection_v4"]
+    unknown = tmp_path / "other.json"
+    unknown.write_text(json.dumps({"schema": "something_else", "groups": {v3_target: "x"}}))
+    with pytest.raises(ValueError, match="exclusions need"):
+        cav.prepare(tmp_path / "b", "a", [pilot_cohort, unknown])
+
+
 def test_prepare_refuses_unsafe_cohorts(tmp_path, pilot_cohort):
     no_final = splits_manifest(tmp_path / "dev.json", {"ab" * 32: "train"})
     with pytest.raises(ValueError, match="reserved-final"):

@@ -59,12 +59,19 @@ def _exclusions(manifests):
     for path in manifests:
         raw = Path(path).read_bytes()
         manifest = json.loads(raw)
-        if manifest.get("schema") != "guard_splits_v2" or not manifest.get("groups"):
-            raise ValueError(f"{path}: exclusions require a nonempty guard_splits_v2 manifest")
-        excluded.update(manifest["groups"])
-        finals += sum(role == "final" for role in manifest["groups"].values())
+        if manifest.get("schema") in ("guard_collection_v3", "guard_collection_v4"):
+            # A collector launch carries every target it excluded (earlier cohorts).
+            groups = {target: "excluded_by_launch" for target in manifest.get("excluded_targets", [])}
+        elif manifest.get("schema") == "guard_splits_v2":
+            groups = manifest.get("groups") or {}
+        else:
+            raise ValueError(f"{path}: exclusions need a guard_splits_v2 manifest or a guard collection launch")
+        if not groups:
+            raise ValueError(f"{path}: exclusion source lists no targets")
+        excluded.update(groups)
+        finals += sum(role == "final" for role in groups.values())
         sources.append({"path": str(Path(path).resolve()), "sha256": sha256(raw).hexdigest(),
-                        "groups": len(manifest["groups"])})
+                        "schema": manifest["schema"], "groups": len(groups)})
     return excluded, sources, finals
 
 

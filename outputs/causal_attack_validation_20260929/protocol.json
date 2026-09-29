@@ -3,18 +3,30 @@
  "status": "final; approved by the researcher on 2026-09-29 (all proposed thresholds, budget, seed band, calibration count and telemetry accepted)",
  "question": "Is causal_gradient_alignment an effective membership attack by itself, with no guard in the loop?",
  "cohort": {
-  "seed_band": [6000, 6099],
+  "seed_band": [
+   6000,
+   6099
+  ],
   "role": "attacker validation only; never used to fit or threshold a detector",
-  "exclusions": "smoke target; every group of each supplied guard_splits_v2 manifest (guard-v3 and guard-v4 pilot splits, the v4 pilot cohort.json including its role 'final' reserved targets); Stage A targets for Stage B",
+  "exclusions": "smoke target; every group of each supplied guard_splits_v2 manifest (guard-v4 pilot splits and cohort.json, whose role 'final' groups are the reserved targets; guard-v3 splits if available) and every excluded_targets entry of each supplied collector launch (the guard-v4 pilot launch.json carries the v3 and smoke exclusions); Stage A targets for Stage B",
   "require_final_groups_at_least": 4,
   "resolution": "CPU target resolution and exclusion by collect_guard_traces resolve before any GPU job; a collision means preparing a new directory with fresh seeds in the band, never editing a launch"
  },
  "job": {
-  "attack": "amia", "attack_variant": "causal_gradient_alignment", "attack_targets": 1,
-  "attack_trials": 40, "counterbalance_trials": true,
-  "attack_batch_size": 4, "probe_lr": 0.005, "adversary_negative_count": 16,
-  "observation_defense": "none", "client_guard": null, "rag": null,
-  "threshold_mode": "calibrated", "calibration_fpr": 0.05, "calibration_nonmember_count": 100,
+  "attack": "amia",
+  "attack_variant": "causal_gradient_alignment",
+  "attack_targets": 1,
+  "attack_trials": 40,
+  "counterbalance_trials": true,
+  "attack_batch_size": 4,
+  "probe_lr": 0.005,
+  "adversary_negative_count": 16,
+  "observation_defense": "none",
+  "client_guard": null,
+  "rag": null,
+  "threshold_mode": "calibrated",
+  "calibration_fpr": 0.05,
+  "calibration_nonmember_count": 100,
   "training": "Qwen/Qwen2.5-0.5B-Instruct @ 7ae557604adf67be50417f59c2c2f167def9a775; squad_research @ 7b6d24c440a36b6815f21b70d25016731768db1f; 4 clients, 4 per round, 3 rounds, 1 local epoch, batch 2, lr 2e-5, max_length 128"
  },
  "telemetry": "Each observed trial and each calibration batch records dot(released, direction), ||released|| and ||direction|| (server-observable). No gradients or private text are stored.",
@@ -23,13 +35,28 @@
   "cosine": "dot / (||released|| * ||direction||)"
  },
  "stage_a": {
-  "targets": 4, "seeds": [6000, 6003], "role": "attacker_tuning",
-  "arms": {"probe_epochs": [12, 80]},
+  "targets": 4,
+  "seeds": [
+   6000,
+   6003
+  ],
+  "role": "attacker_tuning",
+  "arms": {
+   "probe_epochs": [
+    12,
+    80
+   ]
+  },
   "selection": "arm x score with the highest mean per-target ROC AUC; ties go to fewer probe_epochs, then projection",
   "after": "Stage A targets are consumed and excluded from Stage B"
  },
  "stage_b": {
-  "targets": 10, "seeds": [6004, 6013], "role": "attacker_evaluation",
+  "targets": 10,
+  "seeds": [
+   6004,
+   6013
+  ],
+  "role": "attacker_evaluation",
   "frozen": "Stage A selection (probe_epochs and score)"
  },
  "endpoints": {

@@ -90,7 +90,7 @@ Resolution and exclusion run on CPU on the server before any GPU job, as `collec
 
 ## Run sequence (on the server)
 
-1. **Prepare Stage A.** Pass `--exclude-manifest` for every earlier cohort: the v4 pilot `cohort.json`, which holds the reserved-final targets, the v4 `splits.complete.json`, and the v3 splits if still available. `prepare` refuses to continue unless at least 4 reserved-final (`final`) targets are excluded.
+1. **Prepare Stage A.** Pass `--exclude-manifest` for every earlier cohort: the v4 pilot `cohort.json`, which holds the reserved-final targets, the v4 `splits.complete.json`, and the v4 pilot `launch.json`, whose `excluded_targets` carry the v3 and smoke targets. Add the v3 splits file too if it still exists. `prepare` refuses to continue unless at least 4 reserved-final (`final`) targets are excluded.
 2. `collect_guard_traces resolve` the launch, which runs on CPU and freezes the targets. On a collision, prepare a new directory with `--first-seed` still inside the band. Never edit a launch.
 3. `collect_guard_traces run --gpu N --max-jobs 1`, repeated until all 8 jobs are complete. Inspect each job before starting the next.
 4. `select` on the Stage A directory writes `selection.json`. It is frozen and never overwritten.
