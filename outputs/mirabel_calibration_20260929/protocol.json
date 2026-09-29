@@ -1,0 +1,37 @@
+{
+ "name": "Mirabel significance calibration on benign development questions",
+ "fixed_before_results": "2026-09-29; committed with calibrate.py before any calibration output was computed",
+ "question": "Is there a Mirabel significance level that rarely removes the gold document from benign questions but still removes member passages from membership queries?",
+ "scope": {
+  "compute": "CPU only. Frozen MiniLM retrieval embeddings (sentence-transformers/all-MiniLM-L6-v2, local cache). No LLM, generation, GPU, FL training or new private experiment.",
+  "data": "Pinned study master_script/configs/research_data/squad_rag_study.json and its tracked source squad-dev-95aa6a52d5d6a735.json (SQuAD v1.1 dev). FL training uses the SQuAD train split, so no training record is involved. No guard target or reserved-final cohort is involved.",
+  "mechanism": "rag.mirabel and rag.retrieve exactly as in core fingerprint 4b82f0dd4eb4: full-corpus cosine scores, statistics excluding one maximum, Gumbel cutoff, top-1 removed when detected, top_k = 4."
+ },
+ "benign_queries": {
+  "definition": "Every SQuAD dev question attached to a study document whose first answer occurs in that document (the study builder's own filter), excluding the 20 study utility questions, which stay held out.",
+  "datastore": "Each question is run against the corpus containing its gold document.",
+  "split": "Documents of each corpus sorted by id, shuffled with random.Random(20260929); the first half is calibration, the rest validation. Questions follow their document."
+ },
+ "attack_queries": {
+  "primary": "yes_no: the study's Anderson et al. membership question with the full candidate text (the configured attack). 100 members and 100 nonmembers per corpus.",
+  "secondary": "continuation: the first half of the candidate's words (rag.continuation_question). Reported, never used for selection."
+ },
+ "per_query_statistic": "alpha_star, the significance above which Mirabel detects the query: detected(alpha) iff alpha > alpha_star. Computed in closed form and checked against rag.mirabel on a grid.",
+ "metrics": {
+  "benign_gold_loss": "detected and the removed top-1 document is the gold document (the gold leaves the retrieved context).",
+  "benign_detection": "any document removed.",
+  "benign_gold_in_top4_ordinary": "retrieval quality without the defense, for context.",
+  "member_passage_removed": "yes_no or continuation query on a member candidate: detected and the removed document is the candidate.",
+  "nonmember_detection": "a document removed on a nonmember candidate query."
+ },
+ "alpha_grid": "10**(-k/4) for k = 1..48 (0.562 down to 1e-12).",
+ "selection_rule": "alpha_selected = the largest grid alpha whose calibration benign_gold_loss, pooled over both corpora, is at most 0.05.",
+ "validation_report": "At alpha_selected, on the validation half and on the attack queries: benign gold loss and detection with Wilson 95% intervals; member-passage removal for both attack formats; nonmember detection. Also the full curves for every grid alpha, and the detection AUC of alpha_star between member attack queries and benign questions.",
+ "viability_criterion": "Default proposed by the analyst, fixed here before results: Mirabel is viable for this study if, at alpha_selected, the validation benign gold loss has a Wilson 95% upper bound of at most 0.10 and yes_no member-passage removal is at least 0.90. Continuation results decide nothing but are reported.",
+ "reproduction_check": "At alpha = 0.05, count detections over each corpus's 200 yes_no membership queries plus its 10 study utility questions. They must equal the server smoke run: public 181, private 172 (member candidates removed 100/100 in each). A mismatch is reported, not tuned away.",
+ "limitations_declared": [
+  "The yes_no query contains the full passage verbatim, so near-perfect separation from ordinary questions is expected and says nothing about adaptive attackers who paraphrase or quote part of a passage.",
+  "SQuAD dev questions were written about these paragraphs, so they are easier retrieval queries than real user traffic.",
+  "One embedding model and one study; no generation, so utility is proxied by gold-document loss, not answer quality."
+ ]
+}
