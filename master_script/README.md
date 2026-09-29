@@ -182,7 +182,9 @@ remain separate from the black-box datastore-membership attack. Results include
 answer exact match, token F1, answer-only NLL, membership metrics and privacy
 accounting. Raw corpus text and generated answers are not saved in result JSON.
 Audit metrics, AMIA probes and private retrieval responses are outside the
-training DP guarantee; Mirabel is an empirical defense, not differential privacy.
+training DP guarantee; Mirabel is an empirical filter, not differential privacy. At the
+configured significance it acts as a retrieval-removal control, not a calibrated defense
+(see `outputs/mirabel_calibration_20260929/`).
 
 Pipeline runs require actual Hugging Face models; there is no synthetic toy DP
 substitute. The new `pipeline_*` configs use a tiny pretrained GPT-2 and very few

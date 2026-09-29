@@ -40,7 +40,7 @@ pipeline:
     prompt_format: chat
     significance: 0.05
     evaluation_trials: 2  # Reference: first paired FL worlds; AMIA: once per target.
-    defenses: [ordinary, mirabel, instruction, mirabel_instruction]
+    defenses: [ordinary, mirabel, instruction, mirabel_instruction]  # mirabel*: retrieval-removal control at 0.05, not a calibrated defense (outputs/mirabel_calibration_20260929)
 
 attacks:
   amia:

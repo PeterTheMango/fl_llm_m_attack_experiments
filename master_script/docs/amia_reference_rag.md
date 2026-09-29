@@ -112,7 +112,20 @@ ordinary retrieval, Mirabel retrieval filtering, a refusal instruction, and
 Mirabel plus that instruction. A no-retrieval utility baseline is also measured.
 The refusal instruction is an experimental prompt defense, not a formal
 privacy mechanism. Mirabel follows the existing statistical retrieval-filter
-adaptation. The datastore test uses the
+adaptation.
+
+**Mirabel is a retrieval-removal control, not a calibrated defense.** At the
+configured `significance: 0.05`, the pre-registered calibration in
+`outputs/mirabel_calibration_20260929/` found that it flags about 90% of benign
+SQuAD dev questions. It also removes the gold document for 81% of them. Its
+attack reduction therefore mostly reflects retrieval being switched off.
+No significance level met the fixed criterion: ≤5% benign gold loss together
+with ≥90% removal of yes/no member passages. At 4.8% gold loss it removes only
+57.5%. The `mirabel` and `mirabel_instruction` conditions keep their names and
+settings so that experiment identities stay stable. Report them as "retrieval
+largely removed" bounds, never as a defense with preserved utility.
+
+The datastore test uses the
 [Anderson et al. black-box membership question](https://arxiv.org/html/2405.20446v2).
 It is distinct from membership in an FL training partition or an AMIA batch.
 
