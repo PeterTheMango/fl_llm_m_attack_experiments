@@ -7,24 +7,206 @@
  "result": "outputs/rag-exposure-smoke-20260928/20260928-180737-6ae4fe55febe/artifacts/0000-theory_v2_4b82f0dd4eb4_pipeline_v1_a57b3b05c5973092840d04ac/result.json",
  "earlier_attempt": "20260928-180514-10f3be32d787 failed before training: HF_HUB_OFFLINE=1 carried over from the verification shell (dataset unreachable). No result.",
  "checker": "All checks passed.",
- "tokenizer": {"backend_sha256": "e360e6f6266884e6667874f3a7d158ca20c4639e2e1dc80427e1edc2c69a38c7", "tokenizers_version": "0.22.2",
-               "transformers_version": "5.14.1",
-               "note": "Serialization hash; equals the locally computed backend hash of the exported guard-v4 tokenizer (file SHA-256 3fd16973...85d8)."},
+ "tokenizer": {
+  "backend_sha256": "e360e6f6266884e6667874f3a7d158ca20c4639e2e1dc80427e1edc2c69a38c7",
+  "tokenizers_version": "0.22.2",
+  "transformers_version": "5.14.1",
+  "note": "Serialization hash; equals the locally computed backend hash of the exported guard-v4 tokenizer (file SHA-256 3fd16973...85d8)."
+ },
  "conditions": {
-  "public_ordinary":             {"member_retrieved": "100/100", "hidden": 0,   "member": {"complete": 100}, "nonmember": {"absent": 100}, "truncated": 3},
-  "public_mirabel":              {"member_retrieved": "0/100",   "hidden": 181, "member": {"absent": 100},   "nonmember": {"absent": 100}, "truncated": 7},
-  "public_instruction":          {"member_retrieved": "100/100", "hidden": 0,   "member": {"complete": 100}, "nonmember": {"absent": 100}, "truncated": 3},
-  "public_mirabel_instruction":  {"member_retrieved": "0/100",   "hidden": 181, "member": {"absent": 100},   "nonmember": {"absent": 100}, "truncated": 7},
-  "private_ordinary":            {"member_retrieved": "100/100", "hidden": 0,   "member": {"complete": 100}, "nonmember": {"absent": 100}, "truncated": 0},
-  "private_mirabel":             {"member_retrieved": "0/100",   "hidden": 172, "member": {"absent": 100},   "nonmember": {"absent": 100}, "truncated": 1},
-  "private_instruction":         {"member_retrieved": "100/100", "hidden": 0,   "member": {"complete": 100}, "nonmember": {"absent": 100}, "truncated": 0},
-  "private_mirabel_instruction": {"member_retrieved": "0/100",   "hidden": 172, "member": {"absent": 100},   "nonmember": {"absent": 100}, "truncated": 1}
+  "public_ordinary": {
+   "member_retrieved": "100/100",
+   "hidden": 0,
+   "member": {
+    "complete": 100
+   },
+   "nonmember": {
+    "absent": 100
+   },
+   "truncated": 3,
+   "utility": {
+    "token_f1": 0.316,
+    "exact_match": 0.2,
+    "answer_nll": 3.532
+   },
+   "membership": {
+    "roc_auc": 0.595,
+    "recognition_rate": 1.0,
+    "membership_refusal_rate": 0.0
+   }
+  },
+  "public_mirabel": {
+   "member_retrieved": "0/100",
+   "hidden": 181,
+   "member": {
+    "absent": 100
+   },
+   "nonmember": {
+    "absent": 100
+   },
+   "truncated": 7,
+   "utility": {
+    "token_f1": 0.04,
+    "exact_match": 0.0,
+    "answer_nll": 5.244
+   },
+   "membership": {
+    "roc_auc": 0.51,
+    "recognition_rate": 1.0,
+    "membership_refusal_rate": 0.0
+   }
+  },
+  "public_instruction": {
+   "member_retrieved": "100/100",
+   "hidden": 0,
+   "member": {
+    "complete": 100
+   },
+   "nonmember": {
+    "absent": 100
+   },
+   "truncated": 3,
+   "utility": {
+    "token_f1": 0.154,
+    "exact_match": 0.1,
+    "answer_nll": 3.573
+   },
+   "membership": {
+    "roc_auc": 0.675,
+    "recognition_rate": 1.0,
+    "membership_refusal_rate": 0.0
+   }
+  },
+  "public_mirabel_instruction": {
+   "member_retrieved": "0/100",
+   "hidden": 181,
+   "member": {
+    "absent": 100
+   },
+   "nonmember": {
+    "absent": 100
+   },
+   "truncated": 7,
+   "utility": {
+    "token_f1": 0.014,
+    "exact_match": 0.0,
+    "answer_nll": 5.179
+   },
+   "membership": {
+    "roc_auc": 0.49,
+    "recognition_rate": 1.0,
+    "membership_refusal_rate": 0.0
+   }
+  },
+  "private_ordinary": {
+   "member_retrieved": "100/100",
+   "hidden": 0,
+   "member": {
+    "complete": 100
+   },
+   "nonmember": {
+    "absent": 100
+   },
+   "truncated": 0,
+   "utility": {
+    "token_f1": 0.475,
+    "exact_match": 0.3,
+    "answer_nll": 3.018
+   },
+   "membership": {
+    "roc_auc": 0.575,
+    "recognition_rate": 1.0,
+    "membership_refusal_rate": 0.0
+   }
+  },
+  "private_mirabel": {
+   "member_retrieved": "0/100",
+   "hidden": 172,
+   "member": {
+    "absent": 100
+   },
+   "nonmember": {
+    "absent": 100
+   },
+   "truncated": 1,
+   "utility": {
+    "token_f1": 0.185,
+    "exact_match": 0.1,
+    "answer_nll": 5.801
+   },
+   "membership": {
+    "roc_auc": 0.555,
+    "recognition_rate": 1.0,
+    "membership_refusal_rate": 0.0
+   }
+  },
+  "private_instruction": {
+   "member_retrieved": "100/100",
+   "hidden": 0,
+   "member": {
+    "complete": 100
+   },
+   "nonmember": {
+    "absent": 100
+   },
+   "truncated": 0,
+   "utility": {
+    "token_f1": 0.48,
+    "exact_match": 0.3,
+    "answer_nll": 2.961
+   },
+   "membership": {
+    "roc_auc": 0.695,
+    "recognition_rate": 1.0,
+    "membership_refusal_rate": 0.0
+   }
+  },
+  "private_mirabel_instruction": {
+   "member_retrieved": "0/100",
+   "hidden": 172,
+   "member": {
+    "absent": 100
+   },
+   "nonmember": {
+    "absent": 100
+   },
+   "truncated": 1,
+   "utility": {
+    "token_f1": 0.2,
+    "exact_match": 0.1,
+    "answer_nll": 5.874
+   },
+   "membership": {
+    "roc_auc": 0.54,
+    "recognition_rate": 1.0,
+    "membership_refusal_rate": 0.0
+   }
+  }
  },
  "hidden_scope": "hidden_document_queries counts all 210 queries per corpus (200 membership + 10 utility), so Mirabel removed a top document from 81 (public) and 72 (private) queries beyond the 100 member queries.",
- "overlap_cells": {"training_world": "member only (evaluation_trials 1)",
-                   "datastore_nonmember": "all four defenses: not retrieved, absent",
-                   "datastore_member": {"ordinary": "complete", "instruction": "complete", "mirabel": "absent", "mirabel_instruction": "absent"}},
- "not_interpreted": ["adv=1.000 comes from 2 Reference trials and is not evidence about the attack.",
-                     "One checkpoint and one seed: these are mechanics results, not defense-effectiveness or privacy evidence.",
-                     "Utility and membership metrics per condition were not transcribed."]
+ "overlap_cells": {
+  "training_world": "member only (evaluation_trials 1)",
+  "datastore_nonmember": "all four defenses: not retrieved, absent",
+  "datastore_member": {
+   "ordinary": "complete",
+   "instruction": "complete",
+   "mirabel": "absent",
+   "mirabel_instruction": "absent"
+  }
+ },
+ "not_interpreted": [
+  "adv=1.000 comes from 2 Reference trials and is not evidence about the attack.",
+  "One checkpoint and one seed: these are mechanics results, not defense-effectiveness or privacy evidence."
+ ],
+ "no_retrieval_utility": {
+  "exact_match": 0.0,
+  "token_f1": 0.0643,
+  "answer_nll": 6.016
+ },
+ "metrics_provenance": "Printed on 2026-09-29 by a read-only one-liner over result.json on the server and pasted by the user (F1/EM/NLL to 3 decimals as printed).",
+ "metrics_scope": [
+  "Utility: 10 questions per corpus, one checkpoint; far too few to test preservation gates.",
+  "AUC: 100 members vs 100 nonmembers per condition, one checkpoint (standard error roughly 0.04).",
+  "One seed and one FL round; not comparable in training budget to the 3-round pilot."
+ ]
 }

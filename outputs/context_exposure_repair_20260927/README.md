@@ -124,7 +124,25 @@ This was the first real run on the repaired code, using `master_script/configs/s
 - **Mirabel removed a top document from 181/210 (public) and 172/210 (private) queries.** That is 81 and 72 beyond the 100 member queries, so its utility cost needs checking.
 - **One checkpoint.** These are mechanics results from one checkpoint. The `adv=1.000` comes from 2 trials and is not interpreted.
 
-Details are in `smoke_run_LCALC08.json`, transcribed from the pasted checker output.
+Utility and membership metrics from the same run (read-only print from `result.json`):
+
+| Condition | Public F1 / EM | Public AUC | Private F1 / EM | Private AUC |
+|---|---|---:|---|---:|
+| ordinary | 0.316 / 0.20 | 0.595 | 0.475 / 0.30 | 0.575 |
+| instruction | 0.154 / 0.10 | 0.675 | 0.480 / 0.30 | 0.695 |
+| mirabel | 0.040 / 0.00 | 0.51 | 0.185 / 0.10 | 0.555 |
+| mirabel + instruction | 0.014 / 0.00 | 0.49 | 0.200 / 0.10 | 0.54 |
+| no retrieval | F1 0.064, EM 0.00 | | | |
+
+What these single-checkpoint numbers suggest:
+
+- **Mirabel** brings AUC near chance mostly by removing retrieval. Public F1 falls below the no-retrieval baseline, and answer NLL approaches the no-retrieval value.
+- **The instruction defense** produced no refusals and a higher AUC than ordinary retrieval.
+- **The attack itself is weak.** With every member passage completely in context, ordinary-retrieval AUC is only 0.58–0.60.
+
+Limits: utility rests on 10 questions per corpus, AUC standard errors are roughly 0.04, and there is one seed and one round. These are leads for development, not defense evaluations.
+
+Details are in `smoke_run_LCALC08.json`, transcribed from the pasted checker output and metrics print.
 
 ## Research impact
 
