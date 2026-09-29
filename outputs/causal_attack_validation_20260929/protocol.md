@@ -1,6 +1,6 @@
-# Causal gradient-alignment attack — validation protocol (DRAFT)
+# Causal gradient-alignment attack — validation protocol
 
-Status: **draft for review; not fixed.** Nothing here has run. The thresholds marked *proposed* need the researcher's decision before the protocol is committed as final and before any GPU job.
+Status: **final.** The researcher approved every proposed decision on 2026-09-29: success thresholds, the 4 + 10 target budget, seed band 6000–6099, 100 calibration batches, and the telemetry change. The machine-readable version is [`protocol.json`](protocol.json); each launch copies it and pins its hash. Nothing has run yet.
 
 ## Question
 
@@ -30,7 +30,7 @@ Recomputed from the three guard-v4 pilot causal jobs (`attack_trials` in the exp
 
 ## Design
 
-**Cohort.** Fresh development targets from a new seed band. *Proposed:* 6000–6099. Exclude:
+**Cohort.** Fresh development targets from the seed band 6000–6099. Exclude:
 
 - the smoke target;
 - every group in the guard-v3 and guard-v4 pilot `splits.complete.json` manifests;
@@ -44,7 +44,7 @@ Resolution and exclusion run on CPU on the server before any GPU job, as `collec
 - AMIA, `attack_variant: causal_gradient_alignment`, `attack_targets: 1`;
 - `observation_defense: none`, no `client_guard`, no RAG pipeline (RAG costs more GPU time than the attack and is irrelevant here);
 - `counterbalance_trials: true`, `threshold_mode: calibrated`, `calibration_fpr: 0.05`;
-- *proposed* `calibration_nonmember_count: 100` (up from 20, to test calibration);
+- `calibration_nonmember_count: 100` (up from 20, to test calibration);
 - **40 trials (20 pairs)** per target. Observations are cheap next to FL training.
 
 **Telemetry (small code change, before any run).** Record in each trial row the three numbers the server already sees: `dot(released, direction)`, `‖released‖` and `‖direction‖`. Record the same for calibration batches. This lets the projection score and the cosine score be compared afterwards without rerunning. It changes the core fingerprint, which is acceptable because these are new results. No gradients or private text are stored.
@@ -57,7 +57,7 @@ Resolution and exclusion run on CPU on the server before any GPU job, as `collec
 
 **Stage B — evaluation.**
 
-- *Proposed* 10 fresh targets, with the Stage A choice frozen (10 jobs).
+- 10 fresh targets, with the Stage A choice frozen (10 jobs).
 - The calibrated threshold uses the selected score.
 
 **Rough cost.** Pilot jobs took about 10–25 minutes each, including RAG and shadow-guard checks. Removing both should shorten them. 18 jobs is therefore very roughly 3–6 GPU-hours. This is untimed and should be recorded on the first job.
@@ -69,7 +69,7 @@ Resolution and exclusion run on CPU on the server before any GPU job, as `collec
 - **Paired effect.** Fraction of pairs with member > nonmember. Report the exact sign-flip permutation p-value within pairs, plus a target-cluster bootstrap interval.
 - **Negative control.** Permuting labels within pairs gives each target's exact null AUC distribution; report where the observed AUC falls.
 
-## Decision rule (*proposed thresholds*)
+## Decision rule
 
 - **Effective:** the pooled-AUC 95% lower bound is at least 0.60. Detector work on causal requests is justified. Proceed to matched-reference benign controls.
 - **Not effective enough:** the pooled-AUC 95% upper bound is below 0.60. Stop escalating the causal-request detector. Record a negative result, and do not present concentration as blocking a validated attack.
@@ -82,9 +82,17 @@ Resolution and exclusion run on CPU on the server before any GPU job, as `collec
 - It says nothing about the detector, enforced guard runs, adaptive evasion, or utility.
 - Results on this cohort must not be used to tune the detector or its threshold.
 
-## Work needed before any GPU run
+## Implementation (done before any GPU run)
 
-1. **Telemetry change** in `master_script/core/attacks/amia.py`, with tests.
-2. **A job preparer** for this design (no guard, no RAG, new seed band, exclusion manifests, reserved-final checks). It reuses the exclusion logic in `collect_guard_traces.py`. Tests are needed.
-3. **Analysis script** implementing the endpoints above, committed with the final protocol before Stage B runs. The Stage A selection script is committed before Stage A runs.
-4. **On the server:** paths to the v3 and v4 `splits.complete.json` and the v4 `progress.json`, for exclusion.
+- **Telemetry:** `alignment_terms` in `master_script/core/attacks/causal_probe.py`, recorded per trial and per calibration batch in `amia.py`. Existing projection scores are bit-identical. Core fingerprint `4b82f0dd4eb4` → `521a82164f09`.
+- **Tool:** `master_script/tools/causal_attack_validation.py` provides `prepare`, `select` and `analyze`. The unchanged `collect_guard_traces` resolves and runs the launches: it freezes and excludes targets before any GPU job, runs one job at a time, checks each result against its declared target, and retires weights.
+- **Tests:** `tests/test_causal_attack_validation.py`.
+
+## Run sequence (on the server)
+
+1. **Prepare Stage A.** Pass `--exclude-manifest` for every earlier cohort: the v4 pilot `cohort.json`, which holds the reserved-final targets, the v4 `splits.complete.json`, and the v3 splits if still available. `prepare` refuses to continue unless at least 4 reserved-final (`final`) targets are excluded.
+2. `collect_guard_traces resolve` the launch, which runs on CPU and freezes the targets. On a collision, prepare a new directory with `--first-seed` still inside the band. Never edit a launch.
+3. `collect_guard_traces run --gpu N --max-jobs 1`, repeated until all 8 jobs are complete. Inspect each job before starting the next.
+4. `select` on the Stage A directory writes `selection.json`. It is frozen and never overwritten.
+5. **Prepare Stage B** with `--selection` and Stage A's `splits.complete.json` added to the exclusions, then resolve and run its 10 jobs the same way.
+6. `analyze` on the Stage B directory with the selection gives the endpoints and the decision.

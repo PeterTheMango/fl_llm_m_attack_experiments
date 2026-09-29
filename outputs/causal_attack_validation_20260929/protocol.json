@@ -1,0 +1,52 @@
+{
+ "schema": "causal_attack_validation_protocol_v1",
+ "status": "final; approved by the researcher on 2026-09-29 (all proposed thresholds, budget, seed band, calibration count and telemetry accepted)",
+ "question": "Is causal_gradient_alignment an effective membership attack by itself, with no guard in the loop?",
+ "cohort": {
+  "seed_band": [6000, 6099],
+  "role": "attacker validation only; never used to fit or threshold a detector",
+  "exclusions": "smoke target; every group of each supplied guard_splits_v2 manifest (guard-v3 and guard-v4 pilot splits, the v4 pilot cohort.json including its role 'final' reserved targets); Stage A targets for Stage B",
+  "require_final_groups_at_least": 4,
+  "resolution": "CPU target resolution and exclusion by collect_guard_traces resolve before any GPU job; a collision means preparing a new directory with fresh seeds in the band, never editing a launch"
+ },
+ "job": {
+  "attack": "amia", "attack_variant": "causal_gradient_alignment", "attack_targets": 1,
+  "attack_trials": 40, "counterbalance_trials": true,
+  "attack_batch_size": 4, "probe_lr": 0.005, "adversary_negative_count": 16,
+  "observation_defense": "none", "client_guard": null, "rag": null,
+  "threshold_mode": "calibrated", "calibration_fpr": 0.05, "calibration_nonmember_count": 100,
+  "training": "Qwen/Qwen2.5-0.5B-Instruct @ 7ae557604adf67be50417f59c2c2f167def9a775; squad_research @ 7b6d24c440a36b6815f21b70d25016731768db1f; 4 clients, 4 per round, 3 rounds, 1 local epoch, batch 2, lr 2e-5, max_length 128"
+ },
+ "telemetry": "Each observed trial and each calibration batch records dot(released, direction), ||released|| and ||direction|| (server-observable). No gradients or private text are stored.",
+ "scores": {
+  "projection": "dot / ||direction|| (the implemented score)",
+  "cosine": "dot / (||released|| * ||direction||)"
+ },
+ "stage_a": {
+  "targets": 4, "seeds": [6000, 6003], "role": "attacker_tuning",
+  "arms": {"probe_epochs": [12, 80]},
+  "selection": "arm x score with the highest mean per-target ROC AUC; ties go to fewer probe_epochs, then projection",
+  "after": "Stage A targets are consumed and excluded from Stage B"
+ },
+ "stage_b": {
+  "targets": 10, "seeds": [6004, 6013], "role": "attacker_evaluation",
+  "frozen": "Stage A selection (probe_epochs and score)"
+ },
+ "endpoints": {
+  "primary": "mean of per-target ROC AUC (members vs nonmembers, ties count 1/2) with a 95% percentile interval from 10,000 bootstrap resamples of targets (numpy default_rng seed 20260929)",
+  "operating_point": "per target, threshold = calibration.nonmember_threshold(selected score on that target's public calibration batches, 0.05); TPR and FPR on its private trials; pooled as ratios of sums with the same target bootstrap",
+  "paired": "fraction of batch pairs with member score > nonmember score (ties 1/2); exact one-sided sign test over non-tied pairs; target bootstrap interval",
+  "negative_control": "within-pair label swaps: 10,000 Monte Carlo permutations (seed 20260929) of each target's AUC and of the pooled mean AUC; report the observed values' null percentiles"
+ },
+ "decision": {
+  "effective": "pooled mean AUC 95% lower bound >= 0.60: detector work on causal requests is justified; proceed to matched-reference benign controls",
+  "not_effective": "pooled mean AUC 95% upper bound < 0.60: stop escalating the causal-request detector and record a negative result",
+  "inconclusive": "otherwise; any extension needs a new pre-registration, never added targets after seeing results",
+  "calibration_failure": "pooled private FPR 95% lower bound > 0.10: public calibration does not transfer; operational claims only at FPR measured on private data"
+ },
+ "not_shown": [
+  "One attack family, one model (Qwen2.5-0.5B), batch size 4, no observation noise.",
+  "Nothing about the detector, enforced guard runs, adaptive evasion or utility.",
+  "Results on this cohort must not tune the detector or its threshold."
+ ]
+}

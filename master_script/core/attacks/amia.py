@@ -470,17 +470,22 @@ def calibrate_probe(model, tokenizer, probe, config):
     forbidden = {prefix(x) for x in fit_records + [target]}
     if any(prefix(x) in forbidden for x in records):
         raise ValueError("AMIA calibration overlaps a probe-fitting record or target prefix")
-    scores = []
+    scores, terms = [], []
     for index in range(config.calibration_nonmember_count):
         batch = random.Random(config.seed + 500009 + index).sample(
             records, min(config.attack_batch_size, len(records)))
         if config.attack_variant == "causal_gradient_alignment":
-            from .causal_probe import protected_gradients, alignment_score
-            scores.append(alignment_score(protected_gradients(probe, tokenizer, batch, config), probe._public_direction))
+            from .causal_probe import protected_gradients, alignment_terms, score_from_terms
+            terms.append(alignment_terms(protected_gradients(probe, tokenizer, batch, config), probe._public_direction))
+            scores.append(score_from_terms(terms[-1]))
         else:
             scores.append(gradient_score(client_loss_gradients(model, tokenizer, probe, batch, config)))
     result = nonmember_threshold(scores, config.calibration_fpr)
     result["scope"] = "public_negative_batches_disjoint_from_probe_fit_and_victim"
+    if terms:
+        # Server-observable terms, so alternative score normalizations can be
+        # calibrated afterwards on exactly these public batches.
+        result["alignment_terms"] = terms
     return result
 
 
@@ -623,7 +628,7 @@ def run_attack_trials(model_path, probe, clients, config, calibration=None, guar
     initial = ndarrays_to_parameters(get_parameters(probe))
     preserving = getattr(config, "attack_variant", "probe_head") == "causal_gradient_alignment"
     if preserving:
-        from .causal_probe import alignment_score
+        from .causal_probe import alignment_terms, score_from_terms
         public_direction = probe._public_direction
     else:
         hidden_size = probe.fc1.in_features
@@ -697,8 +702,10 @@ def run_attack_trials(model_path, probe, clients, config, calibration=None, guar
             rejected = update.metrics.get("guard_decision") == "rejected"
             if rejected and parameters_to_ndarrays(update.parameters):
                 raise RuntimeError("A rejected observation must not carry gradient arrays")
-            score = None if rejected else (alignment_score(parameters_to_ndarrays(update.parameters), public_direction)
-                                           if preserving else gradient_score(parameters_to_ndarrays(update.parameters)))
+            terms = (alignment_terms(parameters_to_ndarrays(update.parameters), public_direction)
+                     if preserving and not rejected else None)
+            score = None if rejected else (score_from_terms(terms) if preserving
+                                           else gradient_score(parameters_to_ndarrays(update.parameters)))
             trial_id = server_round - 1
             threshold = calibration["threshold"] if calibration is not None else config.gradient_threshold
             predicted = None if rejected else (bool(score >= threshold) if calibration is not None else predict_member(score, config))
@@ -712,7 +719,8 @@ def run_attack_trials(model_path, probe, clients, config, calibration=None, guar
                            "target_client_id": config.target_client_id,
                            "attack_variant": getattr(config, "attack_variant", "probe_head"),
                            "calibration_scope": "fixed_higher_score_direction; independent_direction_validation_required",
-                           "batch_pair_seed": config.seed + 1009 + trial_id // 2})
+                           "batch_pair_seed": config.seed + 1009 + trial_id // 2,
+                           **({"alignment_terms": terms} if terms is not None else {})})
             if guard_runtime is not None:
                 trials[-1].update(decision="rejected" if rejected else "accepted", gradient_available=not rejected,
                                   evaluation_validity="prevented" if rejected else "gradient_observed",

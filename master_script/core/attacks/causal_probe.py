@@ -31,18 +31,28 @@ def protected_gradients(model, tokenizer, texts, config):
     return protect_observation(raw_gradients(model, tokenizer, texts, config), config)
 
 
-def alignment_score(released, public_direction):
+def alignment_terms(released, public_direction):
+    """Server-observable dot product and norms behind the alignment score."""
     if len(released) != len(public_direction) or not released:
         raise ValueError("Gradient alignment requires matching arrays")
-    dot = norm = 0.
+    dot = norm = released_norm = 0.
     for value, direction in zip(released, public_direction):
         if value.shape != direction.shape or not np.isfinite(value).all() or not np.isfinite(direction).all():
             raise ValueError("Invalid alignment arrays")
         a, b = value.ravel(), direction.ravel()
         for start in range(0, a.size, 65536):
             x, y = a[start:start+65536].astype(float), b[start:start+65536].astype(float)
-            dot += float(np.sum(x * y)); norm += float(np.sum(y * y))
-    return dot / max(np.sqrt(norm), 1e-12)
+            dot += float(np.sum(x * y)); norm += float(np.sum(y * y)); released_norm += float(np.sum(x * x))
+    return {"dot": dot, "direction_norm": float(np.sqrt(norm)), "released_norm": float(np.sqrt(released_norm))}
+
+
+def score_from_terms(terms):
+    """Projection of the released gradient onto the public direction."""
+    return terms["dot"] / max(terms["direction_norm"], 1e-12)
+
+
+def alignment_score(released, public_direction):
+    return score_from_terms(alignment_terms(released, public_direction))
 
 
 def optimize_request(model, tokenizer, candidate, config):
