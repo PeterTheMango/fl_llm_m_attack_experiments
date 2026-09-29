@@ -109,6 +109,23 @@ The branch was checked out into a separate git worktree (`../fl_exposure_check`)
 
 These values are transcribed from pasted stdout into `remote_verification_LCALC08.json`; the full JSON with per-control rows stays on the server. The library versions are those installed now. The versions used by the original pilot runs remain unrecorded, although the pilot's model export was written by `transformers` 5.14.1, which is consistent.
 
+## Smoke run on real outputs (LCALC08, 2026-09-28)
+
+This was the first real run on the repaired code, using `master_script/configs/smoke/rag_exposure_smoke.yaml` with all four RAG defenses and the overlap cells. `check_smoke.py` reported **All checks passed**. The tokenizer backend hash `e360e6f6…` equals the exported tokenizer's hash.
+
+| Conditions (both corpora) | Members retrieved | Member exposure | Nonmember exposure |
+|---|---:|---|---|
+| ordinary, instruction | 100/100 | 100 `complete` | 100 `absent` |
+| mirabel, mirabel_instruction | 0/100 | 100 `absent` | 100 `absent` |
+
+- **No unavailable results.** No record in any condition came back `unavailable`.
+- **Truncation.** It hit 3 public and 0 private ordinary queries without removing any member passage.
+- **Overlap cells.** The target is `complete` only when it is in the datastore without Mirabel, and `absent` in every other cell.
+- **Mirabel removed a top document from 181/210 (public) and 172/210 (private) queries.** That is 81 and 72 beyond the 100 member queries, so its utility cost needs checking.
+- **One checkpoint.** These are mechanics results from one checkpoint. The `adv=1.000` comes from 2 trials and is not interpreted.
+
+Details are in `smoke_run_LCALC08.json`, transcribed from the pasted checker output.
+
 ## Research impact
 
 **Unaffected, and still valid.** The following do not depend on the visibility flag:
