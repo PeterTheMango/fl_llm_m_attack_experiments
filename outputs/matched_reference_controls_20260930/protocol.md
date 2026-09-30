@@ -1,6 +1,6 @@
 # Matched-reference benign controls for the causal-request detector — protocol
 
-Status: **final.** The researcher approved decisions 1–8 as drafted on 2026-09-30. Nothing has run yet, and no result exists. The machine-readable version is [`protocol.json`](protocol.json). Once approved, each launch copies it and pins its hash, as in the causal-attack validation.
+Status: **final; study complete.** The researcher approved decisions 1–8 as drafted on 2026-09-30, before any run. Result (2026-09-30): **fails: matched benign flagged**; see [`results.md`](results.md). The machine-readable version is [`protocol.json`](protocol.json). Once approved, each launch copies it and pins its hash, as in the causal-attack validation.
 
 ## Question
 

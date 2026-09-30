@@ -3,7 +3,7 @@
 **Decisions (researcher, 2026-09-30): all three as recommended.**
 
 1. **Utility:** a prospective utility protocol v4 with a matched no-retrieval NLL non-inferiority endpoint. The v3 no-context failure stays recorded. It will be implemented with the next study that evaluates utility, which is the enforced comparison, and never applied retroactively.
-2. **Enforced comparison:** deferred. It gets pre-registered only if the matched-reference controls return "separates at this resolution".
+2. **Enforced comparison:** deferred. It gets pre-registered only if the matched-reference controls return "separates at this resolution". **Update, 2026-09-30:** the controls returned "fails: matched benign flagged" ([result](../matched_reference_controls_20260930/results.md)), so there is no enforced comparison with this detector. The proposal's fallback is a release-protection comparison (noise and accounting only), which is still for the researcher to decide.
 3. **Refusal-instruction RAG defense:** dropped from the privacy study, recorded as failed at smoke (no refusals, a utility cost).
 
 Nothing here has been implemented or run. Mirabel stays labelled a **retrieval-removal control**, not a defense ([calibration](../mirabel_calibration_20260929/README.md)).

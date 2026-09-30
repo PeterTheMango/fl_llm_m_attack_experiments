@@ -2,7 +2,7 @@
 
 Protocol: [`protocol.md`](protocol.md) / [`protocol.json`](protocol.json), approved 2026-09-30. Code: branch `analysis/matched-reference-controls`, core fingerprint **`5c53eaa5b4a3`**. The collector digest is unchanged at `5a33b51ec411`.
 
-## Where things are (2026-09-30)
+## Where things are (2026-09-30, study finished)
 
 | Step | State |
 |---|---|
@@ -11,10 +11,8 @@ Protocol: [`protocol.md`](protocol.md) / [`protocol.json`](protocol.json), appro
 | Implementation | **Done**, with 23 new tests. Full suite: 703 passed, 2 skipped (local, conda env `peter_experiments_fl`) |
 | Server CPU checks | **Passed** on LCALC08: worktree `fl_matched_controls` detached at `9992a9e`, 705 passed, fingerprint `5c53eaa5b4a3` confirmed |
 | Prepare / resolve | **Done**, no collision: seeds 7000–7019 resolved and job 1 ran. The prepare and resolve output was not pasted |
-| Jobs (20) | **1/20 complete** (seed 7000), verified and weights retired |
-| Analysis | None |
-
-No endpoint has been computed, and no detector decision has been shown. Stage A, Stage B and the reserved-final cohort have not been touched.
+| Jobs (20) | **20/20 complete**, all valid, weights retired. Job 1 ran alone (14 m 18 s); jobs 2–20 ran as one invocation (267 m 39 s) |
+| Analysis | **Done** on 2026-09-30, once. Decision: **fails: matched benign flagged** (E1 20/20, E2 200/200, E3 3/20). See [`results.md`](results.md). `analysis.json` sha256 `929d7669…`, `launch.json` `eb9e494f…` | Stage A, Stage B and the reserved-final cohort have not been touched.
 
 ## Changes after approval (recorded, not hidden)
 
@@ -35,11 +33,14 @@ Two further implementation notes:
 | Job | Seed | Target (12 hex) | Wall time | `computation_seconds` | Valid | M2 ‖Δ‖ ratio | M1 ‖Δ‖ ratio range | Candidate loss rose (C) | M1 public loss fell | Training events / distinct |
 |---|---:|---|---:|---:|---|---:|---|---|---:|---|
 | 000 | 7000 | `c27dd1fe0324` | 14 m 18 s | 835 | yes | 1.00000004 | 0.83–1.19 | yes | 10/10 | 12 / 3 |
+| 001–019 | 7001–7019 | see `analysis.json` | 267 m 39 s for all 19 | 821–842 | yes (19/19) | 1.00000003–1.00000075 | 0.76–1.79 | yes (19/19) | 190/190 | 12 / 3 each |
 
 - **Result sha256 for job 000:** `b2b12788…2747`.
 - **Timing.** The first job took 14.3 min, under the 25-min pause rule. The estimate is now about 20 × 14.3 min ≈ 4.8 GPU-hours, inside the 3–6 h budget.
 - **Matching checks.** M1 turned out size-matched as well as step-matched in this job: its net ‖Δ‖₂ is 0.83–1.19× the causal request's.
 - **Collector printout.** `adv=0.750` is the run's own attack balanced accuracy from 4 trials. It is not an endpoint and is not analysed.
+
+- **Run cadence (deviation).** Jobs 2–20 ran as one invocation, with `check` at the end instead of after each job. The researcher chose this after job 1 passed. The collector stops on any failure, and all 20 jobs were valid.
 
 ## Run sequence (on LCALC08)
 
