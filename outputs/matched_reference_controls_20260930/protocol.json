@@ -5,21 +5,55 @@
  "scope": "Detector discrimination only, in shadow mode. Not a privacy claim; detection or blocking is not protection; attack effectiveness is a separate result (outputs/causal_attack_validation_20260929).",
  "detector": {
   "under_test": "guard-v4 pilot detector D (parameter_structure_v2 logistic; fitted on pilot train/validation targets, seeds 4000-4001; probe_head malicious class; causal held out; threshold = max validation benign score)",
-  "file": "pinned at prepare from the server copy (expected outputs/guard-v4-pilot-detector.json)",
-  "sha256": "TO BE PINNED at prepare",
+  "file": "outputs/guard-v4-pilot-detector.json on LCALC08 (1,552 B)",
+  "sha256": "2588f09e544574e81685b00edd6bf6b9381fef930594f8f42884c66de8af1611",
   "refit": false,
   "threshold_change": false,
-  "baseline_D0": "relative_delta > relative_delta_baseline.threshold from D's pilot report (secondary only)",
-  "unchanged_code_since_pilot": ["master_script/core/guard_features.py", "master_script/core/guard_detector.py", "master_script/core/guard_runtime.py", "master_script/core/guard_replay.py", "optimize_request in master_script/core/attacks/causal_probe.py"]
+  "baseline_D0": "relative_delta > 0.0023743033104398573 (relative_delta_baseline.threshold from D's pilot report; secondary only)",
+  "unchanged_code_since_pilot": [
+   "master_script/core/guard_features.py",
+   "master_script/core/guard_detector.py",
+   "master_script/core/guard_runtime.py",
+   "master_script/core/guard_replay.py",
+   "optimize_request in master_script/core/attacks/causal_probe.py"
+  ],
+  "dataset_sha256": "38a58a44de185e949fdc4148cb8ab3554111543b1fafb345dbcc3841cbfcd81e",
+  "pilot_report_transcribed": {
+   "source": "researcher paste of outputs/guard-v4-pilot-detector.json.report.json, 2026-09-30; not committed, file hash not taken",
+   "validation": {
+    "benign_rejected": "0/48",
+    "probe_head_flagged": "4/4",
+    "independent_groups": 1
+   },
+   "test": {
+    "benign_rejected": "4/48",
+    "probe_head_flagged": "4/4",
+    "causal_flagged": "4/4",
+    "independent_groups": 1
+   },
+   "relative_delta_baseline_test": {
+    "benign_rejected": "0/48",
+    "malicious_flagged": "4/8"
+   }
+  }
  },
  "cohort": {
   "targets": 20,
-  "seed_band": [7000, 7099],
-  "first_block": [7000, 7019],
+  "seed_band": [
+   7000,
+   7099
+  ],
+  "first_block": [
+   7000,
+   7019
+  ],
   "role": "matched_control_evaluation",
-  "exclusions": "smoke target; guard-v3 splits.complete.json; guard-v4 pilot splits.complete.json, cohort.json (4 reserved 'final' targets) and launch.json (carries v3 and smoke exclusions); causal-validation stage-a-2 and stage-b splits.complete.json",
+  "exclusions": "smoke target; guard-v3 splits.complete.json (committed copy outputs/guard_v4_review_20260926/evidence/splits.complete.json; also carried by the pilot launch.json); guard-v4 pilot splits.complete.json, cohort.json (4 reserved 'final' targets) and launch.json (carries v3 and smoke exclusions); causal-validation stage-a-2 and stage-b splits.complete.json",
   "require_final_groups_at_least": 4,
-  "require_causal_validation_splits": ["stage-a-2/splits.complete.json", "stage-b/splits.complete.json"],
+  "require_causal_validation_splits": [
+   "stage-a-2/splits.complete.json",
+   "stage-b/splits.complete.json"
+  ],
   "reserved_final": "read only for exclusion; never evaluated",
   "resolution": "CPU target resolution and exclusion by collect_guard_traces resolve before any GPU job; a collision means a new directory with the next unallocated block in the band, never editing a launch; recorded as a deviation",
   "after_analysis": "consumed; usable as detector development data only under a new pre-registration, never as test or final; later cohorts exclude its splits.complete.json",
@@ -41,24 +75,76 @@
   "observation_defense": "none",
   "rag": null,
   "training_defense": "none",
-  "client_guard": {"mode": "shadow", "policy_file": "master_script/configs/guard/approved_training_policy.json", "release_budget": 3, "diagnostic": true, "validation_workers": 4, "feature_schema": "parameter_structure_v2", "detector_file": "D", "detector_sha256": "D"},
-  "matched_controls": {"public_descent_batches": 10, "honest_round": true},
+  "client_guard": {
+   "mode": "shadow",
+   "policy_file": "master_script/configs/guard/approved_training_policy.json",
+   "release_budget": 3,
+   "diagnostic": true,
+   "validation_workers": 4,
+   "feature_schema": "parameter_structure_v2",
+   "detector_file": "D",
+   "detector_sha256": "D"
+  },
+  "matched_controls": {
+   "public_descent_batches": 10,
+   "honest_round": true
+  },
   "training": "Qwen/Qwen2.5-0.5B-Instruct @ 7ae557604adf67be50417f59c2c2f167def9a775; squad_research @ 7b6d24c440a36b6815f21b70d25016731768db1f; 4 clients, 4 per round, 3 rounds, 1 local epoch, batch 2, lr 2e-5, max_length 128"
  },
  "arms": {
-  "C": {"role": "causal", "construction": "optimize_request from post-FL model W_R (12 normalized ascent steps of size 0.005 on the candidate loss)", "reference": "W_R", "distinct_per_target": 1},
-  "M1": {"role": "step-matched benign", "construction": "same optimizer and code path as C from W_R, descending the mean loss of a public batch of 4 records; 10 seeded batches, token-prefix disjoint from the target, client records and adversary records", "reference": "W_R", "distinct_per_target": 10},
-  "M2": {"role": "norm-matched benign", "construction": "one honest FL round R+1 from W_R (same clients and recipe, FedAvg by record count) giving delta_H; request = W_R + s*delta_H with s = ||delta_C||_2 / ||delta_H||_2 (model-wide, float64, cast to dtype)", "reference": "W_R", "distinct_per_target": 1},
-  "M2raw": {"role": "secondary benign", "construction": "W_R + delta_H unscaled", "reference": "W_R", "distinct_per_target": 1},
-  "T": {"role": "secondary benign (ordinary training)", "construction": "FedAvg broadcasts of rounds 1-3 to each of 4 clients (12 events, 3 distinct; round 1 equals the reference)", "reference": "initial pretrained LM", "distinct_per_target": 3},
+  "C": {
+   "role": "causal",
+   "construction": "optimize_request from post-FL model W_R (12 normalized ascent steps of size 0.005 on the candidate loss)",
+   "reference": "W_R",
+   "distinct_per_target": 1
+  },
+  "M1": {
+   "role": "step-matched benign",
+   "construction": "same optimizer and code path as C from W_R, descending the mean loss of a public batch of 4 records; 10 seeded batches, token-prefix disjoint from the target, client records and adversary records",
+   "reference": "W_R",
+   "distinct_per_target": 10
+  },
+  "M2": {
+   "role": "norm-matched benign",
+   "construction": "one honest FL round R+1 from W_R (same clients and recipe, FedAvg by record count) giving delta_H; request = W_R + s*delta_H with s = ||delta_C||_2 / ||delta_H||_2 (model-wide, float64, cast to dtype)",
+   "reference": "W_R",
+   "distinct_per_target": 1
+  },
+  "M2raw": {
+   "role": "secondary benign",
+   "construction": "W_R + delta_H unscaled",
+   "reference": "W_R",
+   "distinct_per_target": 1
+  },
+  "T": {
+   "role": "secondary benign (ordinary training)",
+   "construction": "FedAvg broadcasts of rounds 1-3 to each of 4 clients (12 events, 3 distinct; round 1 equals the reference)",
+   "reference": "initial pretrained LM",
+   "distinct_per_target": 3
+  },
   "benign_checks": "guard check with reserve=False, scope benign_control:<seed>:<arm>:<i>; no ledger debit; no private gradient computed or released"
  },
  "rejection": "guard event would_accept == false for any reason; reasons reported; structural reasons are deviations but still count",
  "unit": "target; duplicated events never counted as independent",
  "endpoints": {
-  "E1": {"name": "causal-request detection TPR", "per_target": "c_t in {0,1}", "pooled": "mean over targets", "interval": "exact Clopper-Pearson 95% on targets (decision); target bootstrap also reported"},
-  "E2": {"name": "legitimate rejection on step-matched benign (M1)", "per_target": "m1_t = rejected M1 / 10", "pooled": "mean over targets", "interval": "lower: target bootstrap 2.5th percentile; upper: max(target bootstrap 97.5th percentile, Clopper-Pearson 97.5% upper bound on the count of targets with m1_t > 0)"},
-  "E3": {"name": "legitimate rejection on norm-matched benign (M2)", "per_target": "m2_t in {0,1}", "pooled": "mean over targets", "interval": "exact Clopper-Pearson 95% on targets (decision); target bootstrap also reported"},
+  "E1": {
+   "name": "causal-request detection TPR",
+   "per_target": "c_t in {0,1}",
+   "pooled": "mean over targets",
+   "interval": "exact Clopper-Pearson 95% on targets (decision); target bootstrap also reported"
+  },
+  "E2": {
+   "name": "legitimate rejection on step-matched benign (M1)",
+   "per_target": "m1_t = rejected M1 / 10",
+   "pooled": "mean over targets",
+   "interval": "lower: target bootstrap 2.5th percentile; upper: max(target bootstrap 97.5th percentile, Clopper-Pearson 97.5% upper bound on the count of targets with m1_t > 0)"
+  },
+  "E3": {
+   "name": "legitimate rejection on norm-matched benign (M2)",
+   "per_target": "m2_t in {0,1}",
+   "pooled": "mean over targets",
+   "interval": "exact Clopper-Pearson 95% on targets (decision); target bootstrap also reported"
+  },
   "bootstrap": "10,000 resamples of targets, 95% percentile, numpy default_rng(20260930)"
  },
  "secondary": {
@@ -77,8 +163,14 @@
  },
  "budget": {
   "jobs": 20,
-  "gpu_hours_estimate": [3, 6],
-  "per_job_minutes_estimate": [10, 15],
+  "gpu_hours_estimate": [
+   3,
+   6
+  ],
+  "per_job_minutes_estimate": [
+   10,
+   15
+  ],
   "timing_rule": "record the first job's wall time; if > 25 min pause and re-estimate; timing never changes the design",
   "disk": "~8-10 GB transient per job; collector preflight 20 GiB output / 4 GiB scratch; weights retired after verification"
  },

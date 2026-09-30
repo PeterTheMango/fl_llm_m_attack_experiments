@@ -33,18 +33,29 @@ Consequences for any detector fitted on these rows:
 - **Benign requests are heavily duplicated.** All clients in a round receive the same global model, so they produce identical requests and identical features. I checked this on the retained v3 evidence (`outputs/guard_v4_review_20260926/evidence/dataset.json`). The 384 benign rows fall into 72 (source, round) groups. Each AMIA group is 4 identical events. Each Reference group is 8 events with 2 distinct vectors, one per world. So there are 88 distinct benign requests, not 384.
 - **Round 1 is trivial.** In round 1 the incoming model *is* the reference, so the delta is exactly zero. All 128 zero-delta benign rows in the v3 evidence are round-1 rows.
 - **The causal request is one request per target.** It is deterministic, and every attack trial of a target checks the same parameters against the same reference. The pilot's "4/4 detected" is therefore **one** decision, on one test target (seed 4002).
-- **The 8.33% has no committed source.** The research record gives the pilot detector's legitimate rejection as 8.33% against a gate of ≤1%, but the pilot detector report is on the server, not in git. 8.33% is 4/48, which is what one distinct request copied to 4 clients would give on a target with 48 benign events. That reading is unverified, and the report is requested below.
+- **The 8.33% is 4 of 48 events on one test target.** The researcher pasted the pilot detector report (`outputs/guard-v4-pilot-detector.json.report.json`) on 2026-09-30. It is transcribed here, not committed, and its file hash was not taken.
+
+  | Split | Benign rejected | Probe head flagged | Causal flagged | Independent groups |
+  |---|---:|---:|---:|---:|
+  | Validation | 0/48 | 4/4 | — | 1 |
+  | Test | **4/48 (0.0833)** | 4/4 | 4/4 | 1 |
+
+  - **Unit.** Every count is events on one target, so neither 8.33% nor 4/4 is a population rate. The 4 flagged benign events look like a single round's request copied to 4 clients, but the report does not say so.
+  - **Magnitude-only baseline.** At threshold t0 = 0.0023743033104398573, relative change alone rejected 0/48 benign events on test and flagged 4/8 malicious ones. That is the probe head only: the causal request's tiny change stays under t0.
+  - **D beyond magnitude.** D flagged the causal request, which t0 did not, but it also rejected 4 benign events that t0 accepted.
 
 ## Detector under test (frozen)
 
 - **D** is the guard-v4 pilot detector: `parameter_structure_v2` logistic regression from `train_guard_detector`.
   - It was fitted on the pilot's train and validation targets (seeds 4000 and 4001), with `probe_head` as the malicious class and causal held out.
   - Its threshold is the maximum validation benign score (`--max-fpr 0.01` allows floor(0.01·n) = 0 exceedances).
-  - Its file and sha256 are pinned at `prepare`, from the server copy (expected at `outputs/guard-v4-pilot-detector.json`).
+  - **Pinned file:** `outputs/guard-v4-pilot-detector.json` on LCALC08 (1,552 B), sha256 `2588f09e544574e81685b00edd6bf6b9381fef930594f8f42884c66de8af1611`, pasted `sha256sum`. The report's `detector_sha256` field agrees.
+  - **Fitted from** `outputs/guard-v4-pilot-dataset.json`, with the report's `dataset_sha256` `38a58a44de185e949fdc4148cb8ab3554111543b1fafb345dbcc3841cbfcd81e`.
+  - `prepare` refuses any other detector hash.
 - **No refit and no threshold change**, on this cohort or any other.
   - `guard_features.py`, `guard_detector.py`, `guard_runtime.py` and `guard_replay.py` are unchanged since the pilot (`git diff 25cca4d..f551ccf` is empty for all four), so D's features and decisions mean the same thing.
   - `optimize_request` is also unchanged. `causal_probe.py` changed only in its scoring telemetry.
-- **Magnitude-only baseline D0**, for a secondary comparison only: `relative_delta > t0`, where t0 is the `relative_delta_baseline.threshold` recorded in D's pilot report.
+- **Magnitude-only baseline D0**, for a secondary comparison only: `relative_delta > t0`, with t0 = 0.0023743033104398573, the `relative_delta_baseline.threshold` in D's pilot report.
 - The causal-validation Stage A and Stage B cohorts are never used by this study, for tuning or for anything else.
 
 ## Requests per target
@@ -72,7 +83,7 @@ What "matched" means concretely:
 - **20 fresh targets** from the new seed band **7000–7099**, first block 7000–7019, one job per target.
 - **Excluded**, all resolved on CPU before any GPU job by `collect_guard_traces resolve`:
   - the smoke target;
-  - every group in the guard-v3 `splits.complete.json`;
+  - every group in the guard-v3 `splits.complete.json`. The committed copy is `outputs/guard_v4_review_20260926/evidence/splits.complete.json`; the pilot `launch.json` also carries these targets;
   - the guard-v4 pilot `splits.complete.json`, `cohort.json` and `launch.json`. `cohort.json` holds the 4 reserved-final targets, and `launch.json` carries the v3 and smoke exclusions;
   - the causal-validation `stage-a-2` and `stage-b` `splits.complete.json`. The unrun `stage-a` directory froze no targets, and its seeds lie in the 6000–6099 band, which this study avoids.
 - **Reserved-final cohort.** It is read only for exclusion and never evaluated. `prepare` refuses unless at least 4 `final` groups are excluded and both causal-validation splits are supplied.
@@ -197,7 +208,7 @@ The outcomes are mutually exclusive: "separates" requires zero matched rejection
 
 ## Decisions to approve
 
-1. **Detector:** evaluate the frozen v4 pilot detector D, with no refit, D0 as a secondary baseline, and its sha256 pinned from the server.
+1. **Detector:** evaluate the frozen v4 pilot detector D (sha256 `2588f09e…1611`), with no refit and D0 (t0 = 0.00237) as a secondary baseline.
 2. **Benign controls:**
    - M1: 10 step-matched public-descent twins, batch 4.
    - M2: 1 honest next round, rescaled to ‖Δ_C‖₂.
