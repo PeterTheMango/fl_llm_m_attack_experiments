@@ -168,8 +168,27 @@ def test_unchanged_collector_resolves_and_guards_the_launch(tmp_path, pilot_coho
     consumed = sha256(fake_target(SimpleNamespace(seed=6002)).encode()).hexdigest()
     reused = splits_manifest(tmp_path / "old.json", {**json.loads(pilot_cohort.read_text())["groups"], consumed: "test"})
     cav.prepare(tmp_path / "b", "a", [reused])
-    with pytest.raises(ValueError, match="overlaps"):
+    with pytest.raises(ValueError, match="excluded from an earlier cohort") as refused:
         collect_guard_traces.execute(tmp_path / "b" / "launch.json", resolve_only=True)
+    message = str(refused.value)
+    assert f"seed 6002 selected target {consumed[:12]}," in message
+    assert consumed not in message and "smoke" not in message and "private target" not in message
+    assert not (tmp_path / "b" / "cohort.json").exists() and not (tmp_path / "b" / "progress.json").exists()
+
+
+def test_collector_names_the_smoke_target_only_when_it_is_selected(tmp_path, pilot_cohort, monkeypatch):
+    from master_script.core import datasets
+    from master_script.tools import collect_guard_traces
+    monkeypatch.setattr(datasets, "target_record_for", fake_target)
+    monkeypatch.setattr(collect_guard_traces.subprocess, "run", lambda *a, **kw: pytest.fail("GPU job launched"))
+    smoke = sha256(fake_target(SimpleNamespace(seed=6001)).encode()).hexdigest()
+    monkeypatch.setattr(collect_guard_traces, "SMOKE_TARGET", smoke)
+    monkeypatch.setattr(cav, "SMOKE_TARGET", smoke)
+    cav.prepare(tmp_path / "a", "a", [pilot_cohort])
+    for resolve_only in (True, False):
+        with pytest.raises(ValueError, match="^Job seed 6001 selected the diagnostic smoke target$"):
+            collect_guard_traces.execute(tmp_path / "a" / "launch.json", gpu="0", resolve_only=resolve_only)
+    assert not (tmp_path / "a" / "cohort.json").exists() and not (tmp_path / "a" / "results").exists()
 
 
 def fabricate(root, strength, *, private_shift=0.0, seed=0):

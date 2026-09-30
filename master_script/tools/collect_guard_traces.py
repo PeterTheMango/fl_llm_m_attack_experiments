@@ -171,7 +171,11 @@ def _execute(launch_path, *, gpu, max_jobs=1, scratch_root=None, resolve_only=Fa
         target = sha256(target_record_for(config, "").encode()).hexdigest()
         seed = str(job["seed"])
         if target in launch["excluded_targets"]:
-            raise ValueError("Collection overlaps the diagnostic smoke target")
+            if target == SMOKE_TARGET:
+                raise ValueError(f"Job seed {seed} selected the diagnostic smoke target")
+            # Exclusions also hold earlier cohorts and stages; name only a hash prefix, never record text.
+            raise ValueError(f"Job seed {seed} selected target {target[:12]}, excluded from an earlier cohort; "
+                             "prepare a new launch with unallocated seeds")
         if seed in targets and targets[seed] != target:
             raise ValueError("Related attack variants selected different targets")
         if seed not in targets and target in targets.values():
