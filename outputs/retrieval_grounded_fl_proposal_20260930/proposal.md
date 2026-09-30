@@ -2,7 +2,7 @@
 
 *Short title: Read, Don't Memorize — Privacy-Preserving Federated RAG*
 
-Status: **draft proposal, awaiting the researcher's approval.** Nothing is implemented or run. Every numbered item in [Decisions to approve](#decisions-to-approve) is a proposal. Once approved, the confirmation stage's endpoints are frozen in a `protocol.json` before any of its results exist, as in the earlier studies.
+Status: **draft proposal.** On 2026-09-30 the researcher decided three items: decision 3 (include the overlap set), decision 4 (keep two trained models per target) and decision 8 (20 final targets). Decisions 1, 2, 5, 6 and 7 are still open; the researcher wants to change something in them. Nothing is implemented or run. Once approved, the confirmation stage's endpoints are frozen in a `protocol.json` before any of its results exist, as in the earlier studies.
 
 ---
 
@@ -73,7 +73,10 @@ SQuAD asks several questions about each paragraph, and many paragraphs share an 
 - **Sizes (proposed).** The private and public libraries stay at 256 passages each, like today's study. The final test grows from 20 to **at least 300 questions**, because 20 gives far too wide an F1 interval. Each client keeps 32 records; there are 4 clients.
 - **Checks before any GPU job.** No shared article, passage or question across groups. The existing token-level disjointness check (`validate_partition_tokens`) must pass.
 - **Earlier targets.** Every earlier target is excluded by SQuAD question: guard v3/v4, causal Stage A/B, matched controls and the reserved final targets. They are matched by recomputing the old record hashes. **The reserved-final cohort stays closed.**
-- **Overlap (optional, decision 3).** A small, deliberate set of records placed in **both** T and L, using the four-cell overlap design already in the code. This measures how training and library leakage interact. The main comparisons use the disjoint records.
+- **Overlap (decision 3: included).** Each target's passage is placed in the private library in one condition and left out in the other. Crossed with the two trained models per target (decision 4), this gives the four cells already in the code (`membership_overlap`): in training only, in the library only, in both, in neither.
+  - The library switch needs no retraining.
+  - The cells measure how training and library leakage interact, as a secondary analysis.
+  - The main comparisons use the disjoint records.
 
 ## 5. Where noise and protection go
 
@@ -96,7 +99,11 @@ DP-FedAvg is not an arm. It trusts the server to add the noise, which does not f
 | **RAG membership** (yes/no on the private library) | Verbatim yes/no probe | — (paraphrase attacks are a known limit; see §11) |
 
 - **Choosing the attacker's score.** For each arm, the stronger of the standard and adaptive score is fixed on the **tuning** cohort, by a pre-set rule: highest mean AUC, ties to the standard score. It is never chosen on final data.
-- **Reference design (decision 4).** Each trained world scores **all** its client records (members) against held-out records (non-members). The trained world is the unit. This needs one FL world per target, instead of the current paired worlds, which halves training cost.
+- **Reference design (decision 4: two models per target, as now).**
+  - For each target, one FL world is trained with the target record (member world) and one with a held-out record in its place (non-member world).
+  - The Reference attack compares the target's score across the two worlds; the target is the unit.
+  - The causal attack runs on the member world.
+  - Scoring all client records against held-out records in each world is reported as secondary only; it is free once the worlds exist.
 - **Release noise.** The causal attack runs twice on the same world: once on raw releases and once on releases with σ_obs noise. This costs attack trials only.
 
 ## 7. Arms (paired: every target runs under every arm)
@@ -155,16 +162,14 @@ Anything between the "supported" and "refuted" bounds is **inconclusive**. Exten
 
 ## 10. Budget and rough cost
 
-These are estimates, to be replaced by Stage 0 timings. RG examples need a sequence length of about 384 tokens instead of 128 (passages have a median of 105 words and a 90th percentile of 145). That makes training several times more expensive per step. DP-SGD adds roughly 1.5–2× at batch size 2, which is unmeasured.
+These are estimates, to be replaced by Stage 0 timings. Each job trains **two** FL worlds (decision 4). RG examples need a sequence length of about 384 tokens instead of 128 (passages have a median of 105 words and a 90th percentile of 145). That makes training several times more expensive per step. DP-SGD adds roughly 1.5–2× at batch size 2, which is unmeasured.
 
 | Stage | Jobs | Est. per job | Est. GPU-hours |
 |---|---|---|---|
-| 0: smoke and timing | 2–3 | 20–40 min | 1–2 |
-| 1: pilot (4 arms × 4 targets, plus a σ grid of 3 × 3 CB+DP) | about 25 | 20–40 min | 8–17 |
-| 2: confirmation (4 arms × 20 targets) | 80 | 20–40 min | 27–53 |
-| **Total** | | | **about 35–70** |
-
-Cheaper option: 12 targets in Stage 2 cuts Stage 2 to about 16–32 GPU-hours (about 25–50 in total), with wider intervals. Disk and retention follow the existing collector: one job at a time, weights retired after verification.
+| 0: smoke and timing | 2–3 | 30–55 min | 1–3 |
+| 1: pilot (4 arms × 4 targets, plus a σ grid of 3 × 3 CB+DP) | about 25 | 30–55 min | 13–23 |
+| 2: confirmation (4 arms × 20 targets; decision 8) | 80 | 30–55 min | 40–73 |
+| **Total** | | | **about 55–100** | Disk and retention follow the existing collector: one job at a time, weights retired after verification.
 
 ## 11. What this study cannot show
 
@@ -191,8 +196,8 @@ Cheaper option: 12 targets in Stage 2 cuts Stage 2 to about 16–32 GPU-hours (a
 
 1. **Title and research question**, as written in §1.
 2. **The defense (§3):** RG with answer-only loss and the inference prompt layout; CB as the comparison arm; P0 as the reference point.
-3. **Data design (§4):** four article-disjoint groups; library sizes 256/256; at least 300 final questions; exclusions by SQuAD question. **Include the optional overlap set?**
-4. **Reference evaluation (§6):** one world per target, scoring all members against held-out non-members, instead of paired worlds.
+3. **Data design (§4):** four article-disjoint groups; library sizes 256/256; at least 300 final questions; exclusions by SQuAD question. **Decided: include the overlap set.**
+4. **Reference evaluation (§6):** **Decided: keep two trained models per target** (member and non-member worlds).
 5. **Noise and protection (§5):**
    - DP-SGD with σ* chosen by the Stage 1 rule from {0.5, 1, 2};
    - release noise σ_obs = 1.0;
@@ -200,4 +205,4 @@ Cheaper option: 12 targets in Stage 2 cuts Stage 2 to about 16–32 GPU-hours (a
    - no DP-FedAvg arm.
 6. **Stages (§8),** including the Stage 0 go/no-go rule and the seed bands 8000–8099 (tuning) and 9000–9099 (final).
 7. **Endpoints and decision rules (§9),** including the margins (0.05 on F1, 0.02 on AUC, ±0.05 for "no reduction").
-8. **Budget (§10):** 20 targets in Stage 2 (about 35–70 GPU-hours in total), or 12 targets (about 25–50 in total).
+8. **Budget (§10):** **Decided: 20 targets in Stage 2**, about 55–100 GPU-hours in total with two worlds per target.
