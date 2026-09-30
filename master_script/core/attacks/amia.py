@@ -170,6 +170,16 @@ def make_loader(texts: list, tokenizer, config, shuffle: bool):
     from torch.utils.data import DataLoader
     from ..scoring import causal_collator
 
+    from ..scoring import EncodedExample, encoded_batch
+    if texts and all(isinstance(t, EncodedExample) for t in texts):
+        # Grounded records carry their answer-only labels; never truncate them.
+        if any(len(t.input_ids) > config.max_length for t in texts):
+            raise ValueError("Encoded example exceeds max_length; grounded records are never truncated")
+        return DataLoader(list(texts), batch_size=config.local_batch_size, shuffle=shuffle,
+                          collate_fn=lambda rows: encoded_batch(rows, tokenizer.pad_token_id))
+    if any(isinstance(t, EncodedExample) for t in texts):
+        raise ValueError("A client partition cannot mix encoded and plain-text records")
+
     global TextDataset
     if TextDataset is None:
         TextDataset = _text_dataset_cls()
@@ -277,7 +287,9 @@ def _ami_flower_client_cls():
 AMIFlowerClient = None  # populated lazily; see federated_fine_tune
 
 
-def federated_fine_tune(config, artifact_dir=None, pipeline=None):
+def federated_fine_tune(config, artifact_dir=None, pipeline=None, world=None):
+    """world, when given, supplies the partitions (grounded study): a mapping with
+    partitions, target, held_out and member. Otherwise the config's dataset builds them."""
     import numpy as np
     import torch
     from flwr.client import ClientApp
@@ -296,16 +308,21 @@ def federated_fine_tune(config, artifact_dir=None, pipeline=None):
     artifact_dir.mkdir(parents=True, exist_ok=True)
     set_seed(config.seed)
 
-    clients = build_client_texts(config, include_target=True)
+    clients = build_client_texts(config, include_target=True) if world is None else [list(p) for p in world["partitions"]]
     defense = pipeline.defense if pipeline is not None else None
     init_model, init_tokenizer = build_model_and_tokenizer(config)
     from ..scoring import validate_partition_tokens
-    provenance = validate_partition_tokens(
-        clients, init_tokenizer, config.max_length,
-        target=dataset_sources.target_record_for(config, TARGET_TEXT),
-        calibration=adversary_records(config) + (calibration_records(config) if config.threshold_mode == "calibrated" else [])
-        + matched_public_records(config),
-        expected_membership=True)
+    if world is None:
+        provenance = validate_partition_tokens(
+            clients, init_tokenizer, config.max_length,
+            target=dataset_sources.target_record_for(config, TARGET_TEXT),
+            calibration=adversary_records(config) + (calibration_records(config) if config.threshold_mode == "calibrated" else [])
+            + matched_public_records(config),
+            expected_membership=True)
+    else:
+        provenance = validate_partition_tokens(
+            clients, init_tokenizer, config.max_length, target=world.get("target"),
+            held_out=world.get("held_out"), expected_membership=world.get("member"))
     from ..guard_runtime import prepare_guard
     initial_arrays = get_parameters(init_model)
     guard_runtime = prepare_guard(pipeline.client_guard if pipeline else None,
@@ -601,8 +618,9 @@ def gradient_score(gradients):
     return float(np.sqrt(sum(np.sum(np.asarray(g, dtype=float) ** 2) for g in gradients[-2:])))
 
 
-def sample_attack_batch(client_texts, config, include_target, rng):
-    target = dataset_sources.target_record_for(config, TARGET_TEXT)
+def sample_attack_batch(client_texts, config, include_target, rng, target=None):
+    if target is None:
+        target = dataset_sources.target_record_for(config, TARGET_TEXT)
     pool = [text for text in client_texts if text != target]
     if not pool:
         raise ValueError("AMIA victim partition has no negative records")
@@ -623,7 +641,8 @@ def trial_member(config, trial_id):
     return bool((trial_id % 2) == flip)
 
 
-def run_attack_trials(model_path, probe, clients, config, calibration=None, guard_runtime=None, checkpoint_dir=None, checkpoint_metadata=None):
+def run_attack_trials(model_path, probe, clients, config, calibration=None, guard_runtime=None, checkpoint_dir=None, checkpoint_metadata=None,
+                      target=None):
     """Send the same malicious parameters to the victim in each observed round.
 
     The harness owns private partitions and ground truth. Only the client_fn
@@ -693,7 +712,7 @@ def run_attack_trials(model_path, probe, clients, config, calibration=None, guar
                 malicious = _ami_probe_cls()(hidden_size, width).to(device)
                 set_parameters(malicious, parameters)
             batch = sample_attack_batch(self.private_texts, config, trial_member(config, trial_id),
-                                        random.Random(config.seed + 1009 + trial_id // 2))
+                                        random.Random(config.seed + 1009 + trial_id // 2), target=target)
             if preserving:
                 from .causal_probe import protected_gradients
                 gradients = protected_gradients(model, tokenizer, batch, config)

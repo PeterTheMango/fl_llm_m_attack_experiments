@@ -47,6 +47,7 @@ def private_train(model, tokenizer, texts, config, defense):
     uses the conventional dp_sgd name for the private-gradient mechanism.
     """
     import torch
+    from .scoring import EncodedExample, encoded_batch
 
     device = next(model.parameters()).device
     parameters = [p for p in model.parameters() if p.requires_grad]
@@ -63,14 +64,21 @@ def private_train(model, tokenizer, texts, config, defense):
             indices = order[start:start + config.local_batch_size]
             accumulated = [torch.zeros_like(p) for p in parameters]
             for i in indices:
-                encoded = tokenizer(texts[i], truncation=True, max_length=config.max_length,
-                                    return_tensors="pt")
-                encoded = {k: v.to(device) for k, v in encoded.items()}
-                labels = encoded["input_ids"].clone()
-                if labels.shape[-1] < 2:
-                    raise ValueError("DP training needs at least two tokens per record")
-                labels[encoded["attention_mask"] == 0] = -100
-                loss = model(**encoded, labels=labels).loss
+                if isinstance(texts[i], EncodedExample):
+                    # Grounded records: the answer-only mask travels with the example.
+                    if len(texts[i].input_ids) > config.max_length:
+                        raise ValueError("Encoded example exceeds max_length; grounded records are never truncated")
+                    encoded = encoded_batch([texts[i]], tokenizer.pad_token_id, device)
+                    loss = model(**encoded).loss
+                else:
+                    encoded = tokenizer(texts[i], truncation=True, max_length=config.max_length,
+                                        return_tensors="pt")
+                    encoded = {k: v.to(device) for k, v in encoded.items()}
+                    labels = encoded["input_ids"].clone()
+                    if labels.shape[-1] < 2:
+                        raise ValueError("DP training needs at least two tokens per record")
+                    labels[encoded["attention_mask"] == 0] = -100
+                    loss = model(**encoded, labels=labels).loss
                 gradients = torch.autograd.grad(loss, parameters, allow_unused=True)
                 norm = torch.linalg.vector_norm(torch.stack([
                     torch.linalg.vector_norm(g.detach().float()) for g in gradients if g is not None

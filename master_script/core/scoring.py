@@ -23,7 +23,47 @@ def effective_record(tokenizer, text, max_length):
     return result
 
 
+@dataclass(frozen=True)
+class EncodedExample:
+    """A pre-tokenized training example with its own loss mask (grounded study).
+
+    labels are -100 wherever no loss is taken (prompt and passage), so the
+    answer-only objective travels with the record through every training path.
+    Records are never truncated: an example longer than max_length is refused.
+    """
+    input_ids: tuple
+    labels: tuple
+    record_id: str
+
+    def __post_init__(self):
+        if len(self.input_ids) != len(self.labels) or len(self.input_ids) < 2:
+            raise ValueError("An encoded example needs matching input and label lengths of at least two")
+        if all(label == -100 for label in self.labels[1:]):
+            raise ValueError("An encoded example must take loss on at least one token")
+
+
+def encoded_identity(example, max_length):
+    if len(example.input_ids) > max_length:
+        raise ValueError("Encoded example exceeds max_length; grounded records are never truncated")
+    payload = {"input_ids": list(example.input_ids), "labels": list(example.labels)}
+    return sha256(json.dumps(payload, separators=(",", ":")).encode()).hexdigest()
+
+
+def encoded_batch(examples, pad_token_id, device=None):
+    """Right-pad encoded examples; padding takes no loss and no attention."""
+    import torch
+    width = max(len(e.input_ids) for e in examples)
+    ids = [list(e.input_ids) + [pad_token_id] * (width - len(e.input_ids)) for e in examples]
+    labels = [list(e.labels) + [-100] * (width - len(e.labels)) for e in examples]
+    mask = [[1] * len(e.input_ids) + [0] * (width - len(e.input_ids)) for e in examples]
+    batch = {"input_ids": torch.tensor(ids, dtype=torch.long), "attention_mask": torch.tensor(mask, dtype=torch.long),
+             "labels": torch.tensor(labels, dtype=torch.long)}
+    return {k: v.to(device) for k, v in batch.items()} if device is not None else batch
+
+
 def token_identity(tokenizer, text, max_length):
+    if isinstance(text, EncodedExample):
+        return encoded_identity(text, max_length)
     ids = tokenizer(text, truncation=True, max_length=max_length)["input_ids"]
     if len(ids) < 2:
         raise ValueError("Training/scoring requires at least two tokens per record")

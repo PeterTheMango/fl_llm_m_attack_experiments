@@ -8,18 +8,32 @@ are supplied to the attacker. There is no inherited chosen-neuron guarantee.
 import numpy as np
 
 
+def _loss_inputs(model, tokenizer, texts, config):
+    """Plain records take the full LM loss; encoded grounded records their own mask."""
+    from ..scoring import EncodedExample, encoded_batch
+    device = next(model.parameters()).device
+    if all(isinstance(t, EncodedExample) for t in texts):
+        if any(len(t.input_ids) > config.max_length for t in texts):
+            raise ValueError("Encoded example exceeds max_length; grounded records are never truncated")
+        return encoded_batch(list(texts), tokenizer.pad_token_id, device)
+    if any(isinstance(t, EncodedExample) for t in texts):
+        raise ValueError("A gradient batch cannot mix encoded and plain-text records")
+    encoded = tokenizer(texts, padding=True, truncation=True, max_length=config.max_length,
+                        return_tensors="pt")
+    encoded = {k: v.to(device) for k, v in encoded.items()}
+    labels = encoded["input_ids"].clone()
+    labels[encoded["attention_mask"] == 0] = -100
+    return {**encoded, "labels": labels}
+
+
 def raw_gradients(model, tokenizer, texts, config):
     import torch
     from ..model_io import tensor_array
-    encoded = tokenizer(texts, padding=True, truncation=True, max_length=config.max_length,
-                        return_tensors="pt")
-    encoded = {k: v.to(next(model.parameters()).device) for k, v in encoded.items()}
-    labels = encoded["input_ids"].clone()
-    labels[encoded["attention_mask"] == 0] = -100
+    encoded = _loss_inputs(model, tokenizer, texts, config)
     model.eval()
     named = dict(model.named_parameters(remove_duplicate=False))
     parameters = tuple(model.parameters())
-    gradients = torch.autograd.grad(model(**encoded, labels=labels).loss, parameters)
+    gradients = torch.autograd.grad(model(**encoded).loss, parameters)
     by_id = {id(p): g for p, g in zip(parameters, gradients)}
     # Preserve state_dict order, including tied weights and non-parameter buffers.
     return [tensor_array(by_id[id(named[k])]) if k in named else np.zeros_like(tensor_array(v))
@@ -72,10 +86,16 @@ def optimize_request(model, tokenizer, candidate, config):
     import torch
     history = []
     model.eval()
-    tokens = tokenizer(candidate, truncation=True, max_length=config.max_length, return_tensors="pt")
-    tokens = {k: v.to(next(model.parameters()).device) for k, v in tokens.items()}
+    from ..scoring import EncodedExample, encoded_batch
+    if isinstance(candidate, EncodedExample):
+        # Grounded direction: ascend the candidate's answer-only loss.
+        tokens = encoded_batch([candidate], tokenizer.pad_token_id, next(model.parameters()).device)
+    else:
+        tokens = tokenizer(candidate, truncation=True, max_length=config.max_length, return_tensors="pt")
+        tokens = {k: v.to(next(model.parameters()).device) for k, v in tokens.items()}
+        tokens["labels"] = tokens["input_ids"]
     for _ in range(config.probe_epochs):
-        loss = model(**tokens, labels=tokens["input_ids"]).loss
+        loss = model(**tokens).loss
         gradients = torch.autograd.grad(loss, tuple(model.parameters()))
         norm = torch.sqrt(sum((g.detach().float() ** 2).sum() for g in gradients)).clamp(min=1e-12)
         with torch.no_grad():
