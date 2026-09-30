@@ -8,7 +8,7 @@ Protocol: [`protocol.md`](protocol.md) / [`protocol.json`](protocol.json), appro
 |---|---|
 | Protocol | Approved (decisions 1–8 as drafted) |
 | Detector D | Pinned: sha256 `2588f09e…1611` (server `outputs/guard-v4-pilot-detector.json`) |
-| Implementation | **Done**, with 23 new tests. Full suite: 702 passed, 2 skipped (local, conda env `peter_experiments_fl`) |
+| Implementation | **Done**, with 23 new tests. Full suite: 703 passed, 2 skipped (local, conda env `peter_experiments_fl`) |
 | Server CPU checks | Not run |
 | Prepare / resolve | Not run |
 | Jobs (20) | None run |

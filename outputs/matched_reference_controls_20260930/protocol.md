@@ -193,7 +193,7 @@ The outcomes are mutually exclusive: "separates" requires zero matched rejection
   - endpoint arithmetic and every decision branch, including the degenerate-interval rule;
   - a decision withheld on a matching failure;
   - `check` hiding decisions.
-- **Full suite:** 702 passed, 2 skipped.
+- **Full suite:** 703 passed, 2 skipped.
 - The collector resolves and runs the launches unchanged. It freezes and excludes targets before any GPU work, runs one job at a time, verifies each result against its target, and retires weights.
 
 ## Budget and rough cost
