@@ -29,7 +29,7 @@ STUDY_SEED = 20260930
 SOURCE = {"hub_path": "rajpurkar/squad", "split": "train",
           "revision": "7b6d24c440a36b6815f21b70d25016731768db1f"}
 WORD_RANGE = (24, 160)
-MAX_LENGTH = 384
+MAX_LENGTH = 512  # 384 in the protocol's timing plan; raised 2026-09-30 (status.md)
 ARMS = ("RG", "CB-AO", "RG-public", "CB-LM")
 CONTEXT_ARMS = ("RG", "RG-public")
 PROBES, MIN_QUESTIONS = 3, 4
@@ -305,13 +305,23 @@ def build_study(rows, excluded=frozenset(), *, allowed_unmatched=(), exclusion_s
              "audit": audit, "cohorts": cohorts}
     audit_study(study)
     if fits is not None:
+        failures = []
         for cohort in cohorts.values():
             for group in ("T", "T_hold", "U"):
                 for record in cohort["records"][group]:
                     passage = cohort["passages"][record["passage"]]["text"]
                     for arm in ("RG", "CB-AO", "CB-LM"):
-                        if not fits({**record, "passage_text": passage}, arm):
-                            raise ValueError(f"A {group} record does not fit {MAX_LENGTH} tokens untruncated ({arm})")
+                        try:
+                            ok = fits({**record, "passage_text": passage}, arm)
+                        except ValueError as exc:
+                            ok, reason = False, str(exc)
+                        else:
+                            reason = "refused"
+                        if not ok:
+                            failures.append(f"{group} {record['id']} ({arm}): {reason}")
+        if failures:
+            raise ValueError(f"{len(failures)} training records do not fit {MAX_LENGTH} tokens untruncated; "
+                             f"first: {failures[0]}")
     return study
 
 

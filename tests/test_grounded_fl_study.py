@@ -17,7 +17,7 @@ from tests.test_grounded_data import ChatTokenizer, old_pool_hash
 
 
 class WordTokenizer(ChatTokenizer):
-    """Word-level ids, so synthetic passages fit the 384-token budget."""
+    """Word-level ids, so synthetic passages fit the token budget."""
     def encode(self, text, add_special_tokens=False):
         return [3 + sum(map(ord, w)) % 45 for w in re.findall(r"\S+|\n", text)]
 
@@ -102,7 +102,7 @@ def test_jobs_set_the_validated_causal_configuration_explicitly(built):
     assert {(j["arm"], j["epsilon"]) for j in paired} == {(a, e) for a in ("RG", "CB-AO") for e in ("inf", 64, 16)} | {("CB-LM", "inf")}
     sigma = {str(j["epsilon"]): j["defense"].get("noise_multiplier") for j in paired}
     assert sigma == {"inf": None, "64": 1.91, "16": 5.45}
-    assert all(j["config"]["max_length"] == 384 and j["config"]["threshold_mode"] == "fixed" for j in jobs)
+    assert all(j["config"]["max_length"] == grounded.MAX_LENGTH == 512 and j["config"]["threshold_mode"] == "fixed" for j in jobs)
     assert sorted(j["config"]["seed"] for j in jobs if j["kind"] == "public") == list(gs.PUBLIC_SEEDS)
     assert all(gs.V_SEED_BAND[0] <= j["config"]["seed"] <= gs.V_SEED_BAND[1] for j in jobs)
     bad = dict(paired[0], config={**paired[0]["config"], "causal_score": "projection"})

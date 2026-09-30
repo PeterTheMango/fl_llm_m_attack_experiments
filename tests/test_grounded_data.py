@@ -140,7 +140,7 @@ def test_structural_skips_are_counted():
 
 
 def test_builder_refuses_records_that_do_not_fit():
-    with pytest.raises(ValueError, match="does not fit"):
+    with pytest.raises(ValueError, match="do not fit"):
         small_study(fits=lambda record, arm: arm != "RG")
 
 

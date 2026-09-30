@@ -2,7 +2,7 @@
 
 **2026-09-30.** Stage 0 tooling is built and tested on the Mac (branch `feat/grounded-fl-stage0`, stacked on `proposal/retrieval-grounded-fl` at ce4b286). **No GPU job has run and no result exists.** The GPU code paths are covered by CPU tests with tiny models and fakes, but they have never run against Qwen on the server. The first Stage 0 jobs therefore double as their smoke test.
 
-- **Core fingerprint:** `86eacb02a66f` (it was `5c53eaa5b4a3`). Earlier results keep theirs.
+- **Core fingerprint:** `714ec988b38b` (it was `5c53eaa5b4a3`; `86eacb02a66f` at 62ebf0f, before the 512 change). Earlier results keep theirs.
 - **Tests:** 777 passed, 2 skipped (previously 703 passed). The frozen guard files and `causal_attack_validation.py` are byte-identical, and a test pins each.
 
 ## What was built
@@ -36,7 +36,7 @@ The executor keeps the collector's guarantees without changing `collect_guard_tr
 2. **Library slot.** L = 255 fixed passages plus 1 slot. The slot holds a never-queried filler in L− and the target passage in L+, so the size is always 256. F comes only from the fixed passages.
 3. **NLI.** `cross-encoder/nli-deberta-v3-base` at revision `6c749ce3425cd33b46d187e45b92bbf96ee12ec7` (label 1 is entailment; the label is read from the config). The premise is the passage. The hypothesis is `Question: <probe>\nAnswer: <response>`.
 4. **Positive control.** The base arm is RG at ε = ∞. After FL, W1 gets a central AdamW fine-tune on the plain passage text: full LM loss, 1 step per epoch, lr 1e-4, 3 epochs, or 6 in the one rerun. W0 is not extra-tuned.
-5. **Passage length.** 24–160 words in every group. Every T, T_hold and U record must fit 384 tokens untruncated for RG, CB-AO and CB-LM, or `build` refuses. Inference uses top-4 retrieval, `max_context_tokens` 768 and `max_new_tokens` 64, as in the earlier configs.
+5. **Passage length.** 24–160 words in every group. Every T, T_hold and U record must fit `max_length` tokens untruncated for RG, CB-AO and CB-LM, or `build` refuses. `max_length` is **512** (see deviations). Inference uses top-4 retrieval, `max_context_tokens` 768 and `max_new_tokens` 64, as in the earlier configs.
 6. **F and libraries.** L takes 4 passages from each of 64 articles (64 clusters). F is exactly 300 questions in seeded order, at most 2 per fixed L passage. P takes 8 passages from each of 32 articles. V has the same library layout.
 7. **Base records.** For each target seed, 128 T records (one question per passage) are sampled from articles other than the target's. W1 and W0 share them exactly.
 8. **Exclusion.** Question-level with a strict audit. Every manifest hash must match a SQuAD train row under the old closed-book formatting, or `build` refuses. The only allowed exception is the synthetic smoke target.
@@ -86,6 +86,7 @@ The executor keeps the collector's guarantees without changing `collect_guard_tr
 
 ## Deviations and gaps
 
+- **Sequence length 512, not 384 (2026-09-30).** The first server `build` refused because an RG training record (SQuAD question `57063fcb52bb8914006899b6`) needs 405 tokens. The researcher chose to raise `max_length` to 512 rather than skip long passages or tighten the word cap. The word range and the no-truncation rule are unchanged. The protocol's timing item "sequence length 384" is now measured at 512.
 - **Related-work search.** The structured related-work search (Stage 0 item 1 in §8) is not part of this change.
 - **Pilot projections.** Precision projections exist (`projection`) but are not yet wired into the pilot `analyze`. This is Stage 1 work.
 - **Stage 2.** No Stage 2 `prepare` exists, because its protocol is finalized after the pilot. `hypotheses()` is implemented and tested on synthetic data.
