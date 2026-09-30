@@ -1,6 +1,12 @@
 # Parked items — scoping proposals (2026-09-30)
 
-These are proposals for the researcher to choose among. Nothing here has been implemented or run. Mirabel stays labelled a **retrieval-removal control**, not a defense ([calibration](../mirabel_calibration_20260929/README.md)).
+**Decisions (researcher, 2026-09-30): all three as recommended.**
+
+1. **Utility:** a prospective utility protocol v4 with a matched no-retrieval NLL non-inferiority endpoint. The v3 no-context failure stays recorded. It will be implemented with the next study that evaluates utility, which is the enforced comparison, and never applied retroactively.
+2. **Enforced comparison:** deferred. It gets pre-registered only if the matched-reference controls return "separates at this resolution".
+3. **Refusal-instruction RAG defense:** dropped from the privacy study, recorded as failed at smoke (no refusals, a utility cost).
+
+Nothing here has been implemented or run. Mirabel stays labelled a **retrieval-removal control**, not a defense ([calibration](../mirabel_calibration_20260929/README.md)).
 
 ## 1. No-context utility floor fails (F1 ≈ 0.01–0.06)
 

@@ -1,6 +1,6 @@
 {
  "schema": "matched_reference_controls_protocol_v1",
- "status": "draft; awaiting researcher approval of decisions 1-8 in protocol.md; nothing implemented or run",
+ "status": "final; the researcher approved decisions 1-8 as drafted on 2026-09-30; nothing run yet",
  "question": "Can the frozen guard detector flag causal_gradient_alignment requests without flagging benign requests matched to them on reference model, architecture/code path and perturbation size or step count?",
  "scope": "Detector discrimination only, in shadow mode. Not a privacy claim; detection or blocking is not protection; attack effectiveness is a separate result (outputs/causal_attack_validation_20260929).",
  "detector": {
@@ -34,7 +34,8 @@
    "relative_delta_baseline_test": {
     "benign_rejected": "0/48",
     "malicious_flagged": "4/8"
-   }
+   },
+   "test_rejected_benign_events": "one distinct request: the round-2 broadcast of source 72c321e2... to clients 0-3 (score 0.012846, relative_delta 0.0016690170825834844); read-only listing by the researcher, 2026-09-30"
   }
  },
  "cohort": {

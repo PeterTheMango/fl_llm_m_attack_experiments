@@ -1,6 +1,6 @@
 # Matched-reference benign controls for the causal-request detector — protocol
 
-Status: **draft, awaiting the researcher's approval.** Every numbered decision in [Decisions to approve](#decisions-to-approve) is a proposal. Nothing has been implemented or run, and no result exists. The machine-readable version is [`protocol.json`](protocol.json). Once approved, each launch copies it and pins its hash, as in the causal-attack validation.
+Status: **final.** The researcher approved decisions 1–8 as drafted on 2026-09-30. Nothing has run yet, and no result exists. The machine-readable version is [`protocol.json`](protocol.json). Once approved, each launch copies it and pins its hash, as in the causal-attack validation.
 
 ## Question
 
@@ -40,7 +40,7 @@ Consequences for any detector fitted on these rows:
   | Validation | 0/48 | 4/4 | — | 1 |
   | Test | **4/48 (0.0833)** | 4/4 | 4/4 | 1 |
 
-  - **Unit.** Every count is events on one target, so neither 8.33% nor 4/4 is a population rate. The 4 flagged benign events look like a single round's request copied to 4 clients, but the report does not say so.
+  - **Unit.** Every count is events on one target, so neither 8.33% nor 4/4 is a population rate. The 4 rejected benign events are **one request**: the round-2 broadcast of one source (`72c321e2…`) to clients 0–3, with detector score 0.012846 and relative change 0.00167. The researcher ran a read-only listing of the rejected test events on the server on 2026-09-30. The pilot test target was already consumed, so this tunes nothing.
   - **Magnitude-only baseline.** At threshold t0 = 0.0023743033104398573, relative change alone rejected 0/48 benign events on test and flagged 4/8 malicious ones. That is the probe head only: the causal request's tiny change stays under t0.
   - **D beyond magnitude.** D flagged the causal request, which t0 did not, but it also rejected 4 benign events that t0 accepted.
 
@@ -206,7 +206,7 @@ The outcomes are mutually exclusive: "separates" requires zero matched rejection
 - **Disk:** transiently about 8–10 GB per job (federated model, causal request, and two guard NPZ references of about 2.5 GB each). The collector's 20 GiB output and 4 GiB scratch preflight checks apply, and weights are retired after verification.
 - **CPU only:** `resolve` takes minutes, and `analyze` takes seconds.
 
-## Decisions to approve
+## Approved decisions (2026-09-30)
 
 1. **Detector:** evaluate the frozen v4 pilot detector D (sha256 `2588f09e…1611`), with no refit and D0 (t0 = 0.00237) as a secondary baseline.
 2. **Benign controls:**
