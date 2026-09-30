@@ -191,6 +191,17 @@ def validate_attack_config(config, spec=None):
             raise ValueError("causal_score must be projection or cosine")
         if config.attack_variant == "probe_head" and config.causal_score != "projection":
             raise ValueError("causal_score only applies to the causal gradient variant")
+        descent, honest = config.matched_descent_requests, config.matched_honest_round
+        if type(descent) is not int or not 0 <= descent <= 100 or type(honest) is not bool:
+            raise ValueError("matched_descent_requests must be an integer in [0,100] and matched_honest_round a boolean")
+        if descent or honest:
+            from .datasets import uses_real_dataset
+            if config.attack_variant != "causal_gradient_alignment" or config.attack_targets != 1:
+                raise ValueError("Matched controls need the causal variant with one target per run")
+            if config.adaptive_public_steps:
+                raise ValueError("Matched controls are defined against the unadapted causal request")
+            if descent and (not getattr(config, "use_hf_models", True) or not uses_real_dataset(config)):
+                raise ValueError("Matched public-descent controls need real models and a real dataset profile")
     if hasattr(config, "attack_targets"):
         if config.attack_trials % (2 * config.attack_targets):
             raise ValueError("AMIA attack_trials must be divisible by 2 * attack_targets for paired batches")

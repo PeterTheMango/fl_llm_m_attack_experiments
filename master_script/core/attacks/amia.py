@@ -66,6 +66,9 @@ class AmiaConfig(AttackConfig):
     adaptive_public_steps: int = 0
     counterbalance_trials: bool = False
     causal_score: str = "projection"
+    # Matched-reference benign controls (outputs/matched_reference_controls_20260930).
+    matched_descent_requests: int = 0
+    matched_honest_round: bool = False
 
 
 METHODOLOGY = {
@@ -300,7 +303,8 @@ def federated_fine_tune(config, artifact_dir=None, pipeline=None):
     provenance = validate_partition_tokens(
         clients, init_tokenizer, config.max_length,
         target=dataset_sources.target_record_for(config, TARGET_TEXT),
-        calibration=adversary_records(config) + (calibration_records(config) if config.threshold_mode == "calibrated" else []),
+        calibration=adversary_records(config) + (calibration_records(config) if config.threshold_mode == "calibrated" else [])
+        + matched_public_records(config),
         expected_membership=True)
     from ..guard_runtime import prepare_guard
     initial_arrays = get_parameters(init_model)
@@ -458,6 +462,13 @@ def calibration_records(config):
     """Public calibration negatives disjoint from probe fitting and victim data."""
     total = config.adversary_negative_count + config.calibration_nonmember_count
     return dataset_sources.calibration_records(config, total)[config.adversary_negative_count:]
+
+
+def matched_public_records(config):
+    if not getattr(config, "matched_descent_requests", 0):
+        return []
+    from .matched_controls import public_records
+    return public_records(config)
 
 
 def calibrate_probe(model, tokenizer, probe, config):
@@ -795,6 +806,10 @@ def build_result_payload(
 
 def _run_target(config, artifact_dir, pipeline=None):
     from .amia_ldp import finite_set_bounds
+    if (getattr(config, "matched_descent_requests", 0) or getattr(config, "matched_honest_round", False)) and (
+            pipeline is None or pipeline.client_guard is None or not pipeline.client_guard.detector_file):
+        # Refuse before any training: controls exist only to be checked by a pinned detector.
+        raise ValueError("Matched controls require a client guard with a pinned detector")
     model, tokenizer, clients, fed_history, model_path = federated_fine_tune(
         config, artifact_dir, **({"pipeline": pipeline} if pipeline is not None else {}))
     provenance = getattr(model, "_training_provenance", {})
@@ -817,6 +832,7 @@ def _run_target(config, artifact_dir, pipeline=None):
             probe, sentence_embedding(model, tokenizer, [target], config),
             sentence_embedding(model, tokenizer, adversary_records(config), config), config)
     guard_runtime = None
+    matched_controls = None
     if pipeline is not None and pipeline.client_guard is not None:
         from ..guard_runtime import prepare_guard
         import torch
@@ -829,6 +845,18 @@ def _run_target(config, artifact_dir, pipeline=None):
             del approved_probe
         guard_runtime = prepare_guard(pipeline.client_guard, f"observation:{config.seed}",
                                       approved_parameters, rounds=config.attack_trials // 2)
+        if preserving and (config.matched_descent_requests or config.matched_honest_round):
+            from .matched_controls import run_matched_controls
+            # Park both LMs on the CPU while the controls and the honest round use the GPU.
+            device = next(model.parameters()).device
+            causal_request = get_parameters(probe)
+            model.to("cpu"); probe.to("cpu")
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            matched_controls = run_matched_controls(config, model_path, tokenizer, clients, approved_parameters,
+                                                    causal_request, target, guard_runtime)
+            del causal_request
+            model.to(device); probe.to(device)
         del approved_parameters
     adaptive_trace = []
     if config.adaptive_public_steps:
@@ -892,7 +920,8 @@ def _run_target(config, artifact_dir, pipeline=None):
     return {"trials": trials, "context": {"fed_history": fed_history, "probe_history": probe_history,
             "model_path": model_path, "probe_path": probe_path, "certificate": certificate,
             "calibration": calibration, "training_provenance": provenance, "attack_variant": config.attack_variant,
-            "adaptive_public_trace": adaptive_trace}}
+            "adaptive_public_trace": adaptive_trace,
+            **({"matched_controls": matched_controls} if matched_controls is not None else {})}}
 
 
 def custom_trials_adapter(config, artifact_dir, pipeline=None):
@@ -962,6 +991,8 @@ def build_payload_adapter(config, trials, artifact_dir, context):
     result["calibration"] = context.get("calibration")
     result["attack_variant"] = config.attack_variant
     result["adaptive_public_trace"] = context.get("adaptive_public_trace", [])
+    if context.get("matched_controls") is not None:
+        result["matched_controls"] = context["matched_controls"]
     if config.attack_variant != "probe_head":
         result["methodology"] = {"attack": "causal_gradient_alignment",
                                  "observation": "full protected LM gradients only",

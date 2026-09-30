@@ -36,7 +36,8 @@
     "malicious_flagged": "4/8"
    },
    "test_rejected_benign_events": "one distinct request: the round-2 broadcast of source 72c321e2... to clients 0-3 (score 0.012846, relative_delta 0.0016690170825834844); read-only listing by the researcher, 2026-09-30"
-  }
+  },
+  "baseline_D0_threshold": 0.0023743033104398573
  },
  "cohort": {
   "targets": 20,
@@ -86,11 +87,9 @@
    "detector_file": "D",
    "detector_sha256": "D"
   },
-  "matched_controls": {
-   "public_descent_batches": 10,
-   "honest_round": true
-  },
-  "training": "Qwen/Qwen2.5-0.5B-Instruct @ 7ae557604adf67be50417f59c2c2f167def9a775; squad_research @ 7b6d24c440a36b6815f21b70d25016731768db1f; 4 clients, 4 per round, 3 rounds, 1 local epoch, batch 2, lr 2e-5, max_length 128"
+  "training": "Qwen/Qwen2.5-0.5B-Instruct @ 7ae557604adf67be50417f59c2c2f167def9a775; squad_research @ 7b6d24c440a36b6815f21b70d25016731768db1f; 4 clients, 4 per round, 3 rounds, 1 local epoch, batch 2, lr 2e-5, max_length 128",
+  "matched_descent_requests": 10,
+  "matched_honest_round": true
  },
  "arms": {
   "C": {

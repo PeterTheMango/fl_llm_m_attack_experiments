@@ -99,7 +99,7 @@ What "matched" means concretely:
 - **No RAG pipeline. No training defense.**
 - **Guard:** `client_guard: {mode: shadow, policy_file: approved_training_policy.json, release_budget: 3, diagnostic: true, validation_workers: 4, feature_schema: parameter_structure_v2, detector_file, detector_sha256}`.
 - **Training:** the same pinned model and dataset revisions and training recipe as the causal validation: Qwen2.5-0.5B-Instruct @ 7ae5576, squad_research @ 7b6d24c, 4 clients, 3 rounds, 1 local epoch, batch 2, lr 2e-5, max_length 128.
-- **New job fields (proposed):** `matched_controls: {public_descent_batches: 10, honest_round: true}`.
+- **New job fields:** `matched_descent_requests: 10`, `matched_honest_round: true`. The draft's single `matched_controls` mapping was renamed at implementation; see status.md.
 
 ## Endpoints (fixed before any run)
 
@@ -167,25 +167,33 @@ The outcomes are mutually exclusive: "separates" requires zero matched rejection
 - **One model, one data set, one reference policy.** W_R is the post-FL model that the harness supplies. Whether a real client would hold W_R as an approved reference is a trust question this study does not answer; the v4 handoff warns against promoting accepted requests to references.
 - **D was fitted on 2 pilot targets.** A "separates" result would not show that it generalizes beyond this setting.
 
-## Implementation (proposed; nothing done yet)
+## Implementation (done before any GPU run; see [`status.md`](status.md))
 
-- **`amia.py`:** an opt-in `matched_controls` config, valid only for the causal variant with a pinned guard.
-  - `_run_target` builds M1, M2 and M2raw from W_R, after C and before the attack trials.
-  - It checks each one with `dc_replace(guard_runtime, scope="benign_control:<seed>:<arm>:<i>")` and `reserve=False`, the same pattern as the existing public-calibration check.
-  - It records ‖Δ‖₂, the losses, and public-batch hashes (no text) in the result.
-  - The M1 public records are added to the existing token-prefix disjointness check.
-  - The core fingerprint changes (from c9f0701f97b6). `guard_features`, `guard_detector`, `guard_runtime` and `collect_guard_traces` stay unchanged.
+- **`master_script/core/attacks/matched_controls.py`** (new) builds and checks the controls.
+  - M1 uses `normalized_steps`, the update rule of `optimize_request`. A test shows that ascending the candidate's loss with it reproduces `optimize_request` exactly.
+  - M2 and M2raw come from `honest_round`, which runs the unguarded training client for round R+1 and applies FedAvg.
+  - Each control is checked with `dc_replace(guard_runtime, scope="benign_control:<seed>:<arm>:<i>")` and `reserve=False`. The result records ‖Δ‖₂, the losses and public-batch hashes, never text.
+- **`amia.py`:**
+  - two opt-in fields, `matched_descent_requests` (0–100) and `matched_honest_round`. They are valid only for the causal variant with one target and no adaptive steps;
+  - `_run_target` refuses them **before any training** unless a detector is pinned;
+  - the M1 public records join the existing token disjointness check;
+  - both LMs are parked on the CPU while the controls run.
+- **Unchanged:** `guard_features`, `guard_detector`, `guard_runtime` and `guard_replay` are byte-identical to the pilot commit, and a test pins their hashes. `collect_guard_traces` and `build_guard_stage` are also unchanged (collector digest `5a33b51ec411`).
+- **Fingerprint:** the core fingerprint changes from `c9f0701f97b6` to `5c53eaa5b4a3`.
 - **`master_script/tools/matched_reference_controls.py`:**
-  - `prepare` writes the jobs and a `guard_collection_v4` launch, pins D and this protocol, and enforces the exclusions and the seed band.
+  - `prepare` writes the jobs and a `guard_collection_v4` launch. It pins D and this protocol, and enforces the exclusions and the seed band.
+  - `check` reports each completed job's matching checks and timing, and withholds every detector decision.
   - `analyze` computes E1–E3, S1–S5 and the decision.
-- **Tests (`tests/test_matched_reference_controls.py`):**
-  - M1 step length and optimizer parity with `optimize_request`;
-  - M2 norm match;
-  - identical reference hashes across arms;
-  - no ledger debit for controls;
+- **Tests (`tests/test_matched_reference_controls.py`, 23):**
+  - optimizer parity, M1 step length and M2 norm match;
+  - FedAvg, and honest-round scheduling;
+  - identical reference hashes and no ledger debit;
   - the assembler refusing the `benign_control` scope and the `matched_control_evaluation` role;
-  - exclusion and seed-band refusal;
-  - endpoint arithmetic, including the degenerate-interval rule.
+  - refusal of exclusions, the seed band and other detectors;
+  - endpoint arithmetic and every decision branch, including the degenerate-interval rule;
+  - a decision withheld on a matching failure;
+  - `check` hiding decisions.
+- **Full suite:** 702 passed, 2 skipped.
 - The collector resolves and runs the launches unchanged. It freezes and excludes targets before any GPU work, runs one job at a time, verifies each result against its target, and retires weights.
 
 ## Budget and rough cost
