@@ -2,13 +2,13 @@
 
 Protocol: [`protocol.md`](protocol.md) / [`protocol.json`](protocol.json). Code: branch `analysis/causal-attack-validation` at `5b8b593`, core fingerprint `521a82164f09`. Server outputs are not in git.
 
-## Where things are (2026-09-30)
+## Where things are (2026-09-30, after Stage B)
 
 | Step | State |
 |---|---|
 | Stage A (4 targets × 2 arms) | **Complete**: 8/8 jobs, verified and weights retired |
 | Selection | **Frozen**: `probe_epochs 12`, score **cosine** |
-| Stage B (10 targets, seeds 6004–6013) | **Prepared and resolved**; targets frozen; **no GPU job run yet** |
+| Stage B (10 targets, seeds 6004–6013) | **Complete**: 10/10 jobs, verified and weights retired (last job finished 2026-09-30) |
 | Analysis | Not run |
 
 Server paths (host LCALC08, conda env `LLMPrivacy`, worktree `/home/calc08/projects/LLMPrivacy/fl_causal_validation` detached at `5b8b593`; keep it until Stage B is analysed, because the launches pin the fingerprint):
@@ -19,14 +19,13 @@ Server paths (host LCALC08, conda env `LLMPrivacy`, worktree `/home/calc08/proje
 - `$OUT/stage-a-2` — completed Stage A; `$OUT/selection.json` — frozen selection
 - `$OUT/stage-b` — resolved Stage B launch
 
-## Next commands (on the server, in the worktree, inside tmux)
+## Next commands (on the server, in the worktree)
 
 ```bash
-python -m master_script.tools.collect_guard_traces run "$OUT/stage-b/launch.json" --gpu 0 --max-jobs 10
 python -m master_script.tools.causal_attack_validation analyze "$OUT/stage-b" "$OUT/selection.json" "$OUT/analysis.json"
 ```
 
-Stage A jobs took about 30 minutes each, so Stage B needs roughly 5 hours. Clear the Hugging Face offline variables first. Detach from tmux with Ctrl-b d; don't stop a running job.
+This runs on CPU and takes seconds. It refuses to overwrite an existing `analysis.json`. Paste its printed summary, and the per-target rows from `analysis.json`, into the session that writes the results up. Keep the worktree until the analysis has been run.
 
 ## Stage A results (tuning only; consumed)
 
