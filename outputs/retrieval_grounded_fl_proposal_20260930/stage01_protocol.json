@@ -1,0 +1,137 @@
+{
+ "schema": "grounded_fl_stage01_protocol_v1",
+ "status": "frozen 2026-09-30 with proposal revision 4; governs Stage 0 (build and validation) and Stage 1 (pilot) only. The Stage 2 confirmation protocol and budget are finalized from the pilot and may tighten, never loosen, these definitions.",
+ "proposal": "outputs/retrieval_grounded_fl_proposal_20260930/proposal.md (revision 4)",
+ "scope_note": "Measurement study of leakage through weights, client updates and the datastore under grounded (RG) vs closed-book answer-only (CB-AO) federated fine-tuning. The method is not claimed as new (RA-DIT, FedRAG). No privacy claim is made from Stage 0/1.",
+ "data": {
+  "source": "rajpurkar/squad train split, partitioned by article into T, T-hold, U, L, N, P, V (article-disjoint; the only exception is each target's own passage inserted into the private library in the library-on condition)",
+  "one_question_per_passage_in_training": true,
+  "library_sizes": {
+   "private_L": 256,
+   "public_P": 256
+  },
+  "final_utility_F": "questions about L passages, at least 300; never used for training or tuning",
+  "target_eligibility": "at least 4 SQuAD questions; first in seeded order is the training pair; the next 3 qualifying siblings are probes; a sibling qualifies if its normalized answer does not occur in the training question or answer, the training answer does not occur in it, and its answer span does not overlap the training answer span; passages with fewer than 3 qualifying siblings are skipped by rule and counted",
+  "N_documents": "at least 3 questions; first 3 in seeded order are probes",
+  "exclusions": "every earlier target question (guard v3/v4, causal Stage A/B, matched controls, reserved finals) via recomputed old record hashes; reserved-final cohort stays closed",
+  "checks_before_gpu": [
+   "article disjointness except the planned exception",
+   "one question per passage per training set",
+   "validate_partition_tokens",
+   "exclusion audit"
+  ]
+ },
+ "arms": {
+  "RG": "private triples; passage in the context slot of the rag._prepare_prompt chat template; loss on answer tokens only",
+  "CB-AO": "same questions and answers; same template with an empty context slot; loss on answer tokens only",
+  "RG-public": "public triples (U); 5 seeds shared by all targets",
+  "P0": "pretrained, no fine-tuning",
+  "CB-LM": "today's closed-book format with full LM loss; Stage 1 bridge only",
+  "dp_budgets_epsilon": [
+   "inf",
+   64,
+   16
+  ],
+  "delta": 1e-05,
+  "dp_sigma": {
+   "64": 1.91,
+   "16": 5.45
+  },
+  "accountant": "defenses.privacy_bound as implemented: Gaussian zCDP, no amplification, replace-one, 51 steps for the busiest client; conservative; no participation-based accountant",
+  "dp_scope": "only the accounted DP-SGD training releases and their post-processing (aggregates, final weights, Reference scores); not responses to crafted server requests, RAG outputs, or the library"
+ },
+ "design": "two FL worlds per target (member W1 with t; non-member W0 with t replaced by a T-hold record); library switch L+/L- without retraining; four cells",
+ "measurements": {
+  "reference": "Carlini log-perplexity ratio vs pretrained; per target s1=s(t,W1), s0=s(t,W0); pooled Mann-Whitney AUC over targets",
+  "causal": "validated config (cosine, probe_epochs 12, probe_lr 0.005); 40 trials in W1; per-target AUC; pooled mean; second 40-trial pass with release noise sigma_obs 1.0 (secondary)",
+  "natural_question": "3 queries per document per condition (its probes), retrieval on; F1 scorer (Riddle Me This adaptation) and entailment scorer (MEntA adaptation, pinned NLI model) from the same responses; refusals (rag.is_refusal) score 0, refusal-excluded sensitivity reported; document score = mean of its 3 probe scores; per target d+ (W0, L+) and d- (W0, L-); pooled Mann-Whitney AUC",
+  "retention": "target's 3 probes without retrieval (empty context slot); per-world mean F1, refusals 0; r_t = F1(W1) - F1(W0); R_arm = mean r_t; H4 requires R_RG > 0 and R_RG - R_CB-AO > 0",
+  "utility": "RAG token F1 on F (private library, top-k 4) on each W1 with L+; W0 also reported; RG-public and P0 on the same F; F clustered by SQuAD article",
+  "attacker_choices": "per arm on the tuning cohort: Reference form, causal direction, NQ scorer; highest pooled tuning AUC, ties to the standard form or F1 scorer; frozen before Stage 2"
+ },
+ "stage0_validation": {
+  "datastore_sensitivity": {
+   "model": "P0",
+   "documents": "at least 60 V target passages, library in vs out",
+   "construction": "as measurements.natural_question",
+   "pass": "pooled AUC 95% bootstrap lower bound >= 0.70 for a scorer; only passing scorers are eligible",
+   "fail": "H3 not evaluable with these adaptations; report verbatim baseline only"
+  },
+  "positive_control": {
+   "setup": "12 V targets, paired worlds; each member world additionally fine-tuned on the target passage's full text (full LM loss, 3 epochs)",
+   "learning_check": "a target has learned its passage if passage-token NLL in W1 <= 0.5 x W0 and greedy continuation reproduces >= 50% of the next 32 passage tokens given the first 32; judged before and independently of the probes",
+   "strengthening": "if fewer than 10 of 12 learn, rerun once at 6 epochs; if still fewer than 10, sensitivity is unverified and H4 becomes secondary (six primaries, 99.2%)",
+   "retention_sensitivity": "decisive; on learned targets only: mean r_t 95% target-bootstrap lower bound > 0.05 F1; failure with >= 10 learned targets makes H4 not evaluable and secondary",
+   "auc_sensitivity": "secondary only; training-only NQ AUC lower bound >= 0.60 on learned targets; failure marks the secondary membership AUC insensitive and never affects H4's primary status"
+  },
+  "gate_calibration": "CPU on V; at most 5% benign gold-document loss",
+  "timings": [
+   "sequence length 384",
+   "DP-SGD overhead",
+   "full paired job"
+  ]
+ },
+ "stage1_pilot": {
+  "seed_band": [
+   8000,
+   8099
+  ],
+  "data": "V",
+  "jobs": "4 targets x {RG, CB-AO} x epsilon {inf, 64, 16}; plus 4 CB-LM targets; RG-public 5 seeds; P0",
+  "decides": [
+   "attacker choices (measurements.attacker_choices)",
+   "timings",
+   "precision projections for option (b): 20 targets at epsilon inf, 10 for DP arms"
+  ],
+  "does_not_decide": "no design branch; pilot RG-vs-P0 is descriptive; H6 always kept; H7 is decided on final data only",
+  "role": "tuning data; never reported as evidence",
+  "gate": "researcher finalizes the Stage 2 protocol.json and budget (option (b) provisional); definitions and rules may be tightened, never loosened"
+ },
+ "statistics": {
+  "unit": "target; paired target bootstrap with all arms together; 10,000 resamples; numpy default_rng(20260930)",
+  "utility_bootstrap": "crossed: models (targets or seeds) x F article clusters, siblings kept together",
+  "primaries": [
+   "H1",
+   "H2",
+   "H3",
+   "H4",
+   "H5",
+   "H6",
+   "H7"
+  ],
+  "decision_interval": "99.3% (1 - 0.05/7); 99.2% if H4 is downgraded; 95% also reported",
+  "classification_first_match": [
+   "lo >= m: meaningful improvement",
+   "lo > 0: statistical improvement",
+   "hi <= -m: meaningful harm",
+   "hi < 0: statistical harm",
+   "-m < lo and hi < m: equivalent",
+   "otherwise: inconclusive"
+  ],
+  "margins": {
+   "auc": 0.05,
+   "f1": 0.05
+  },
+  "H7": "D = F1(P0) - F1(RG, eps inf) on final data; lo > -0.05: fine-tuning not needed for answer quality; hi < -0.05: RG meaningfully better; else inconclusive",
+  "cross_channel": "H1 supported and (H2 'RG increases' or H3 supported); H4 never counts"
+ },
+ "budget_gpu_hours": {
+  "stage0": [
+   10,
+   20
+  ],
+  "stage1": [
+   16,
+   32
+  ],
+  "stage2_option_b": [
+   40,
+   80
+  ],
+  "total_option_b": [
+   65,
+   130
+  ],
+  "note": "estimates; option (b) provisional"
+ }
+}

@@ -2,14 +2,16 @@
 
 *Short title: Read, Don't Memorize? — A Controlled Study of Grounded Federated RAG*
 
-Status: **draft proposal, revision 3 (after the second review), awaiting the researcher's approval.** Nothing is implemented or run.
+Status: **revision 4: approved with corrections for Stage 0/1 (2026-09-30).** Nothing is implemented or run.
 
-- **Decided on 2026-09-30:**
-  - the training/library overlap set is included and central (decision 3);
-  - two trained models per target (decision 4);
-  - 20 final targets (decision 8), with the options in §10.
-- **Still open:** everything else, including the title.
-- **Review responses:** §0.
+- **Carried forward** (third review, relayed by the researcher):
+  - the title, the arms and the conservative DP budgets;
+  - the statistical framework;
+  - the validation thresholds: datastore AUC lower bound ≥ 0.70, retention lower bound > 0.05 F1, secondary membership AUC lower bound ≥ 0.60, and 3 queries per document.
+- **Budget:** option (b) is provisional, pending the pilot's timings and precision estimates.
+- **Frozen now:** the Stage 0/1 procedures, in [`stage01_protocol.json`](stage01_protocol.json).
+- **Finalized from the pilot:** the Stage 2 confirmation protocol and budget.
+- **Decided earlier:** the overlap set is central (decision 3), there are two trained models per target (decision 4), and there are 20 final targets for the ε = ∞ arms (decision 8).
 
 ---
 
@@ -27,6 +29,16 @@ Every target record goes into training or not, and into the library or not. This
 
 ## 0. Review responses
 
+### Revision 4 (third review)
+
+| Review point | Change |
+|---|---|
+| Branch B was wrong: failing to show that RG beats P0 does not establish that private fine-tuning is unnecessary | **Branch B removed; the pilot no longer changes the design.** A pre-registered **non-inferiority** comparison of P0 against RG (**H7**) is decided on **final data only**, with an explicit inconclusive outcome. H6 is always kept. The pilot's RG-vs-P0 numbers are descriptive only (§8, §9). |
+| H4 needs positive retention within RG *and* a positive difference-in-differences | **H4 is claimed only if both are supported.** The difference-in-differences alone could reflect CB-AO deteriorating more (§6.4, §9.2). |
+| Verify that the deliberate-memorization control learned its passage; use more than 6 targets | **Added an independent learning check** (passage NLL ratio and greedy continuation). Sensitivity is judged only on targets that learned their passage, with **12** control targets and one pre-set strengthening step (§8). |
+| Membership-AUC failure must not invalidate a successful retention measurement | **Kept secondary.** H4's status depends only on the learning check and the retention sensitivity (§8). |
+| Bootstrap utility by article or passage clusters | **Utility resamples F by article cluster,** keeping sibling questions together (§9.1). |
+
 ### Revision 3 (second review)
 
 | Review point | Change |
@@ -37,7 +49,7 @@ Every target record goes into training or not, and into the library or not. This
 | Separate statistical improvement, meaningful improvement, equivalence and uncertainty; "negligible" could include substantial harm | **Replaced** by a first-match classification with six outcomes (§9.2). Harm is its own outcome and can never be labelled negligible. |
 | The natural-question adaptations need numerical validation criteria, fixed query budgets, refusal handling and sibling-count rules, validated separately for datastore and training-only membership | **Added** (§6.3, §8): 3 queries per document per condition; refusals score 0 in the primary analysis; eligibility needs 3 qualifying siblings; separate numerical validation criteria for the datastore (P0) and for training-only membership (a deliberate-memorization positive control). |
 | H5 must specify the RG privacy budget and account for shared public-training seeds | **Specified.** The primary comparator is RG at ε = ∞, the case most favourable to private training, with ε = 64 and 16 as secondary. RG-public has 5 seeds, and the seed is its unit in a crossed bootstrap (§9.1). |
-| Replace "RG must beat P0" with a predefined branch | **Replaced** by Branch A / Branch B (§8). Branch B reports "private fine-tuning is unnecessary for utility in this setting" as a finding and still measures leakage. |
+| Replace "RG must beat P0" with a predefined branch | **Replaced** by Branch A / Branch B (§8). Branch B reports "private fine-tuning is unnecessary for utility in this setting" as a finding and still measures leakage. *Superseded in revision 4: Branch B removed, H7 added.* |
 | Limit the matched DP guarantee to the accounted training releases | **Stated explicitly** (§7). |
 
 ### Revision 2 (first review), kept for the record
@@ -62,9 +74,10 @@ Every target record goes into training or not, and into the library or not. This
 | **H1. Weights: record membership** | RG leaks less training-record membership than CB-AO, with acceptable RAG answer quality | Reference pooled AUC (training-only vs neither); RAG F1 on F |
 | **H2. Client updates** | RG changes update leakage compared with CB-AO. Two-sided | Causal attack mean per-target AUC (member world) |
 | **H3. Datastore** | RG makes library documents more detectable than CB-AO | Natural-question pooled AUC (library-only vs neither) |
-| **H4. Weights: passage-fact retention** | RG stores facts from training passages that the training question–answer pair did not contain | Closed-book retention difference-in-differences in F1 (§6.4) |
+| **H4. Weights: passage-fact retention** | RG stores facts from training passages that the training question–answer pair did not contain | Closed-book retention within RG **and** the difference-in-differences against CB-AO, both in F1 (§6.4) |
 | **H5. Is private training needed?** | RG-public gives RAG answer quality acceptable relative to RG at ε = ∞ | RAG F1 on F |
 | **H6. Utility at an equal budget** | At matched ε = 16, RG answers better than CB-AO, with training-record leakage no worse | RAG F1 on F; Reference pooled AUC at ε = 16 |
+| **H7. Is fine-tuning needed at all?** | Without any fine-tuning, RAG answer quality (P0) is non-inferior to RG at ε = ∞ | RAG F1 on F, non-inferiority with margin 0.05, **final data only** |
 
 **Cross-channel ("channel shift") claim.** This is claimed only if both of these hold:
 
@@ -176,11 +189,12 @@ For target *t* (with training pair (q_t, a_t) and passage p_t), and for each arm
 - **Queries.** The target's 3 probes, which ask about facts absent from (q_t, a_t) by construction (§4). They are asked **without retrieval**: the same template with an empty context slot.
 - **Per-world retention score:** the mean token F1 over the 3 probes. Refusals score 0.
 - **Per target:** retention r_t = F1(W1) − F1(W0). This is the gain from having trained on *t*, whose passage appeared in RG's context and not in CB-AO's.
-- **Endpoint:** D_H4 = mean_t r_t(RG) − mean_t r_t(CB-AO), a difference-in-differences.
-  - It measures factual retention directly. It is not a membership score.
-  - CB-AO controls for gains from the training question–answer pair itself.
+- **Two endpoints, both required:**
+  - **(i) Retention within RG:** R_RG = mean_t r_t(RG) > 0.
+  - **(ii) Difference-in-differences:** D_H4 = R_RG − R_CB-AO > 0.
+- **Why both.** (ii) alone could be positive because CB-AO's closed-book answers got **worse**, with RG retaining nothing. CB-AO controls for gains from the training question–answer pair itself. These measure factual retention directly; they are not membership scores.
 - **Secondary:**
-  - mean r_t per arm;
+  - R_CB-AO;
   - the natural-question membership AUC in the training-only cell (W1 L− against W0 L−).
 
 ### 6.5 Fixing the attacker's choices on tuning
@@ -194,7 +208,8 @@ These choices are frozen in `protocol.json` before Stage 2.
 
 ### 6.6 Utility
 
-- **Primary:** RAG token F1 on **F** (private library, retrieval on, top-k = 4), measured on each member world W1 with L+. The non-member world is also scored and reported.
+- **Primary:** RAG token F1 on **F** (private library, retrieval on, top-k = 4), measured on each member world W1 with L+. The non-member world is also scored and reported. RG-public (5 seeds) and P0 are scored on the same F.
+- **Clustering.** F questions are grouped by the **SQuAD article** of their passage. The utility bootstrap resamples whole articles (§9.1).
 - **Secondary:** EM, public-library F1, no-context F1 and answer NLL (utility protocol v4).
 
 ## 7. Matched DP budgets, and what they cover
@@ -226,10 +241,16 @@ These choices are frozen in `protocol.json` before Stage 2.
 4. **Datastore-sensitivity validation (H3).** Run on V with P0, at least 60 V target passages, library in against out, and the §6.3 construction.
    - **Pass** if the pooled AUC's 95% bootstrap lower bound is **≥ 0.70** for at least one scorer. Only scorers that pass can be chosen in §6.5.
    - **If none passes,** H3 is recorded as *not evaluable with these adaptations*, and only the verbatim baseline is reported.
-5. **Training-only sensitivity validation (H4).** A **deliberate-memorization positive control** on V: paired worlds on at least 6 V targets, where each member world is additionally fine-tuned on the target passage's full text (full LM loss, 3 epochs).
-   - **Pass** if the retention r_t (§6.4) has a mean 95% lower bound **> 0.05 F1**, **and** the training-only natural-question AUC has a 95% lower bound **≥ 0.60**.
-   - **If the retention test fails,** H4 is recorded as *not evaluable: the probe cannot detect retention even under deliberate memorization*.
-   - **If only the AUC test fails,** the H4 membership AUC is reported as insensitive.
+5. **Training-only sensitivity validation (H4).** A **deliberate-memorization positive control** on V: paired worlds on **12** V targets, where each member world is additionally fine-tuned on the target passage's full text (full LM loss, 3 epochs).
+   - **(a) Learning check, done first and independently of the probes.** A control target has *learned* its passage if both hold:
+     - its passage-token NLL in W1 is at most 0.5× that in W0;
+     - greedy continuation reproduces at least 50% of the next 32 passage tokens, given the first 32.
+   - **One strengthening step.** If fewer than 10 of the 12 targets learn their passage, the control is rerun **once** at 6 epochs.
+   - **If still fewer than 10 learn,** the control *failed to learn*. H4's sensitivity is then **unverified**: H4 is downgraded to a secondary endpoint, reported with that label, and the primaries become six (99.2% intervals).
+   - **(b) Retention sensitivity (decisive),** on the learned targets only. **Pass** if mean r_t has a 95% target-bootstrap lower bound **> 0.05 F1**.
+     - **If it fails** (with at least 10 learned targets), H4 is recorded as *not evaluable: the probes cannot detect retention even when the passage was demonstrably learned*, and becomes secondary.
+   - **(c) Membership-AUC sensitivity (secondary only),** on the learned targets: training-only natural-question AUC lower bound **≥ 0.60**.
+     - **Failure** marks the secondary H4 membership AUC as insensitive. It **never** affects H4's primary status.
 6. **Gate calibration** on V (CPU): at most 5% benign gold-document loss.
 7. **Timings:** sequence length 384 (median passage 105 words, 90th percentile 145), DP-SGD overhead, and a full paired job.
 
@@ -238,15 +259,14 @@ These choices are frozen in `protocol.json` before Stage 2.
 - **Scope:** 4 targets × {RG, CB-AO} × ε ∈ {∞, 64, 16}, plus 4 CB-LM bridge targets, RG-public (5 seeds) and P0.
 - **Fix** the attacker choices (§6.5).
 - **Estimate** variances and re-estimate the Stage 2 cost.
-- **Branch decision** (predefined; replaces "RG must beat P0"). Take the difference in pilot F1 on V, D₀ = F1(RG, ε = ∞) − F1(P0), and classify it with §9.2 using 95% intervals.
-  - **Branch A** (D₀ is a statistical improvement, outcome 1 or 2): the full Stage 2.
-  - **Branch B** (any other outcome). The study reports **"private fine-tuning is unnecessary for utility in this setting"** as a primary finding. Stage 2 still measures leakage (H1–H5 at ε = ∞), because deployments may fine-tune anyway. The DP arms and H6 are dropped, since utility at a matched budget is moot. Stage 2 re-tests RG against P0 on F as a secondary endpoint.
+- **No design branch.** The pilot's RG-vs-P0 F1 is reported descriptively and changes nothing. Whether fine-tuning is needed is decided only by H7, on final data. H6 is always run.
+- **Precision estimates.** Use the pilot's variances to project the Stage 2 interval widths for each primary, under option (b): 20 targets for ε = ∞ and 10 for the DP arms.
 - **Pilot data are tuning data** and are never reported as evidence.
-- **Gate:** the researcher approves the Stage 2 budget.
+- **Gate: finalizing Stage 2.** From the pilot's timings and precision estimates, the researcher finalizes the confirmation `protocol.json` and approves the Stage 2 budget, option (b) unless changed. Endpoint definitions, margins and rules can be tightened but never loosened after seeing pilot results.
 
 ### Stage 2: confirmation (seed band 9000–9099; frozen `protocol.json`)
 
-The approved branch and budget option, paired: every target runs under every per-target arm.
+The finalized design and budget, paired: every target runs under every per-target arm.
 
 ## 9. Statistics
 
@@ -262,9 +282,11 @@ The approved branch and budget option, paired: every target runs under every per
   - Each resample draws target indices with replacement.
   - It carries all of a target's quantities together, for **every arm at once**, so arm differences are paired.
   - Pooled AUCs and means are recomputed on each resample.
-- **Utility endpoints** use a **crossed bootstrap**, because F questions are shared across all models. Each resample draws targets (or seeds) **and** F questions independently, then recomputes the mean F1.
-- **H5 compares RG-public (5 seeds) with RG (20 targets).** Its resample draws RG-public **seeds**, RG **targets** and F **questions** independently. RG-public's variance therefore rests on 5 seeds, and its interval is wider for it.
-- **Multiplicity:** six primary hypotheses. **Decision intervals are 99.2%** (Bonferroni, 1 − 0.05/6); 95% intervals are also reported.
+- **Utility endpoints** use a **crossed cluster bootstrap**, because F questions are shared across all models.
+  - Each resample draws models (targets, or seeds) **and** F **article clusters** independently. A drawn article brings all its questions, so siblings stay together.
+  - It then recomputes each model's mean F1 over the resampled questions.
+- **H5 and H7** draw RG-public seeds, RG targets and F article clusters independently. RG-public's interval therefore reflects only 5 seeds; P0 is a single model.
+- **Multiplicity:** seven primary hypotheses. **Decision intervals are 99.3%** (Bonferroni, 1 − 0.05/7); 95% intervals are also reported. If H4 is downgraded (§8), it is six primaries at 99.2%.
 
 ### 9.2 Outcome classification (first match wins)
 
@@ -289,9 +311,18 @@ For a difference D, oriented so that positive is the hypothesis's direction, wit
 | H1 | AUC_Ref(CB-AO) − AUC_Ref(RG), at ε = ∞ | D supported **and** RG − CB-AO utility acceptable |
 | H2 | AUC_causal(CB-AO) − AUC_causal(RG), at ε = ∞ | Its outcome is the result |
 | H3 | AUC_NQ(RG) − AUC_NQ(CB-AO), at ε = ∞ | Supported |
-| H4 | D_H4 (§6.4), at ε = ∞ | Supported |
+| H4 | R_RG, and D_H4 = R_RG − R_CB-AO (§6.4), at ε = ∞ | **Both** supported (outcome 1 or 2); the claim reports each outcome |
 | H5 | F1(RG-public) − F1(RG, ε = ∞); secondary against ε = 64 and 16 | Acceptable (lo > −0.05) |
 | H6 | F1(RG) − F1(CB-AO) at ε = 16; plus AUC_Ref(CB-AO) − AUC_Ref(RG) at ε = 16 | Utility supported **and** the AUC difference has lo > −0.05 (no worse beyond the margin) |
+| H7 | F1(P0) − F1(RG, ε = ∞), final data | See the H7 readings below |
+
+**H7 readings.**
+
+- **lo > −0.05:** *fine-tuning not needed for answer quality in this setting*, because non-inferiority is shown.
+- **hi < −0.05:** *RG is meaningfully better*, so fine-tuning helps.
+- **Otherwise:** *inconclusive*.
+
+A failure to show that RG beats P0 is never reported as "fine-tuning unnecessary".
 
 **Secondary (descriptive):**
 
@@ -315,14 +346,13 @@ These are estimates, replaced by Stage 0 timings. A paired job trains two FL wor
 
 | Stage | Jobs | Est. GPU-hours |
 |---|---|---|
-| 0: smoke, validation (P0 datastore run, plus a positive control on 6 targets) and timing | about 10 | 6–12 |
+| 0: smoke, validation (P0 datastore run, plus a positive control on 12 targets with a possible 6-epoch rerun) and timing | about 16–28 | 10–20 |
 | 1: pilot (4 targets × 6 arms, plus 4 CB-LM), RG-public (5 seeds) and P0 | about 30 | 16–32 |
 | 2, option (a): 20 targets × 6 arms | 120 | 60–120 |
 | 2, option (b): 20 targets for ε = ∞; 10 targets for the DP arms | 80 | 40–80 |
-| 2, Branch B: 20 targets, ε = ∞ only | 40 | 20–40 |
-| **Total** | | **(a) about 80–165 · (b) about 60–125 · Branch B about 40–85** |
+| **Total** | | **(a) about 85–170 · (b) about 65–130** (option (b) provisional) |
 
-The Stage 2 budget is approved only after Stage 1.
+The Stage 2 budget and the confirmation protocol are finalized only after Stage 1.
 
 ## 11. What this study cannot show
 
@@ -348,17 +378,21 @@ The Stage 2 budget is approved only after Stage 1.
 8. **Study tool** (`prepare`, `check`, `analyze`) and tests, including every §9 construction and the classification. `check` never shows endpoint values before `analyze`.
 9. **Fingerprint.** The core fingerprint changes. Earlier results keep theirs.
 
-## Decisions to approve
+## Decisions (status, 2026-09-30)
 
-1. **Title and main question; the cross-channel rule** (§1).
-2. **Arms** (§3), including RG-public with 5 seeds.
-3. **Data design and eligibility** (§4): 3 qualifying siblings, and the absent-fact rules. *(Overlap: decided.)*
-4. **Core design** (§5). *(Two worlds per target: decided.)*
-5. **DP budgets and scope** (§7): ε ∈ {∞, 64, 16}, the conservative accountant, and the coverage statement.
-6. **Measurements and validation** (§6, §8):
-   - query budget 3, refusals scored 0;
-   - the datastore pass criterion (lower bound ≥ 0.70);
-   - the positive-control criteria (retention lower bound > 0.05 F1, AUC lower bound ≥ 0.60);
-   - the branch rule.
-7. **Statistics** (§9): paired and crossed bootstraps, 99.2% decision intervals, the six-outcome classification, m = 0.05.
-8. **Budget** (§10): option (a) or (b). The Stage 2 budget is approved after Stage 1.
+1. **Title and main question; the cross-channel rule** (§1). *Carried forward.*
+2. **Arms** (§3), including RG-public with 5 seeds. *Carried forward.*
+3. **Data design and eligibility** (§4). *Overlap: decided. Design carried forward.*
+4. **Core design** (§5). *Two worlds per target: decided.*
+5. **DP budgets and scope** (§7): ε ∈ {∞, 64, 16} with the conservative accountant. There is no participation-based accountant. *Carried forward.*
+6. **Measurements and validation** (§6, §8). *Thresholds carried forward:*
+   - datastore lower bound ≥ 0.70;
+   - retention lower bound > 0.05 F1;
+   - secondary AUC lower bound ≥ 0.60;
+   - 3 queries.
+
+   *Revision 4 adds* the learning check, 12 control targets, the strengthening rule, and AUC-secondary.
+7. **Statistics** (§9). *Carried forward*, with H7 added (seven primaries, 99.3%) and article-cluster utility bootstrap.
+8. **Budget** (§10). *Option (b), provisional*, finalized with the Stage 2 protocol after the pilot.
+
+**Next:** implement Stage 0 (§12). The researcher's go-ahead is needed before code changes.
