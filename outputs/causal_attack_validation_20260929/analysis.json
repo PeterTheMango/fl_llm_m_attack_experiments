@@ -1,0 +1,194 @@
+{
+  "schema": "causal_attack_analysis_v1",
+  "selected": {
+    "probe_epochs": 12,
+    "score": "cosine"
+  },
+  "stage_b_launch_sha256": "b2b23038b8c896dc63b7a0ee90ebeb066d744f7144b989f4636b800b1b448ab7",
+  "selection_sha256": "1c4aeb0cc383bb8da9b568d10835c915e2d43954a12b9f2af80cdd25bbb1e25e",
+  "protocol_sha256": "619d8d9f396ab8c5fc955a36ea820794684a94a0f32a7a32e2f6717f07fa6205",
+  "validation_tool_sha256": "9acd6cd1e5a119f526d1921f83d3307cbce9b3fdfe2978d76f49bf225f206c9c",
+  "implementation_fingerprint": "521a82164f09",
+  "primary": {
+    "mean_per_target_auc": 0.99175,
+    "ci95": [
+      0.9807499999999999,
+      0.9985000000000002
+    ],
+    "targets": 10,
+    "null_percentile_of_mean_auc": 1.0
+  },
+  "operating_point": {
+    "target_fpr": 0.05,
+    "tpr": 0.965,
+    "tpr_ci95": [
+      0.92,
+      1.0
+    ],
+    "fpr": 0.165,
+    "fpr_ci95": [
+      0.07,
+      0.275
+    ]
+  },
+  "paired": {
+    "fraction_member_higher": 1.0,
+    "ci95": [
+      1.0,
+      1.0
+    ],
+    "positive": 200,
+    "negative": 0,
+    "ties": 0,
+    "sign_test_p_one_sided": 6.223015277861142e-61
+  },
+  "decision": "effective",
+  "calibration_failure": false,
+  "per_target": [
+    {
+      "target_sha256": "57bd68ffe4f512d1aa95a3884a49934562e3e257ec8caa18326324ae4e442456",
+      "result_sha256": "78d3ca530009ec8d59c39b5165ea1337aa230aa94ad53df18a1cd134d5b08b05",
+      "auc": 0.9975,
+      "threshold": 0.5924962560587088,
+      "tp": 18,
+      "members": 20,
+      "fp": 0,
+      "nonmembers": 20,
+      "pairs_positive": 20,
+      "pairs_negative": 0,
+      "pairs": 20,
+      "null_percentile": 1.0
+    },
+    {
+      "target_sha256": "ab7d56856fee9e621c53300b3adbd2d12d66f625b88d7d20bcb1dca640d9319d",
+      "result_sha256": "a11950526697b1ef3dec0ad9ba441788beb5978cbf17a6183a13dda5b06ed46d",
+      "auc": 0.9925,
+      "threshold": 0.6465475311946186,
+      "tp": 20,
+      "members": 20,
+      "fp": 2,
+      "nonmembers": 20,
+      "pairs_positive": 20,
+      "pairs_negative": 0,
+      "pairs": 20,
+      "null_percentile": 1.0
+    },
+    {
+      "target_sha256": "aca057863e33528c2635d1a20796bbb6806be1536bc063735a14db0ef8b8507a",
+      "result_sha256": "02c597a92ea71c7a15544c37cb8c76cb7a29a831de3b6c87ae7cef76cfaf719c",
+      "auc": 1.0,
+      "threshold": 0.6039347700628782,
+      "tp": 20,
+      "members": 20,
+      "fp": 11,
+      "nonmembers": 20,
+      "pairs_positive": 20,
+      "pairs_negative": 0,
+      "pairs": 20,
+      "null_percentile": 1.0
+    },
+    {
+      "target_sha256": "37563aeeb0588e7c5e385bb14a1510e4697081abc70b57104c8faf22588e7731",
+      "result_sha256": "be3b1a8013b04fd834fea099ce89b79f0139bfb54544e15bc62fcbdb09b222e7",
+      "auc": 1.0,
+      "threshold": 0.6790242313730805,
+      "tp": 20,
+      "members": 20,
+      "fp": 4,
+      "nonmembers": 20,
+      "pairs_positive": 20,
+      "pairs_negative": 0,
+      "pairs": 20,
+      "null_percentile": 1.0
+    },
+    {
+      "target_sha256": "8f365cca562131ae8c7a6278232262dea5ce5e49c9bf87ebc75d806047b08fa5",
+      "result_sha256": "cdc4f1176ad5f66065278c21fc78e09380e393262963a89fb09420ffe310aedc",
+      "auc": 0.995,
+      "threshold": 0.7186827046720188,
+      "tp": 19,
+      "members": 20,
+      "fp": 2,
+      "nonmembers": 20,
+      "pairs_positive": 20,
+      "pairs_negative": 0,
+      "pairs": 20,
+      "null_percentile": 1.0
+    },
+    {
+      "target_sha256": "5cae99b086e3f986f5f5097e22fdbf178d77afb89dd484e06ca82611b6ede065",
+      "result_sha256": "6a0a38ac37bd581a041914831c8ccd5c4bc9b39360097d281efcd8cbdeb353f7",
+      "auc": 0.99,
+      "threshold": 0.8549339978177745,
+      "tp": 20,
+      "members": 20,
+      "fp": 3,
+      "nonmembers": 20,
+      "pairs_positive": 20,
+      "pairs_negative": 0,
+      "pairs": 20,
+      "null_percentile": 1.0
+    },
+    {
+      "target_sha256": "d9cc27232bd762227e49059e908cdbd74d0a4e11f66b503cf31f7fba6092b30b",
+      "result_sha256": "f94dd602cd881079af69067e52abb93997bb22256e80ac66fec1251f859b8b78",
+      "auc": 0.9975,
+      "threshold": 0.8674234481946804,
+      "tp": 20,
+      "members": 20,
+      "fp": 1,
+      "nonmembers": 20,
+      "pairs_positive": 20,
+      "pairs_negative": 0,
+      "pairs": 20,
+      "null_percentile": 1.0
+    },
+    {
+      "target_sha256": "70766304186e0a4e83c0440b251efa4161646b5a0754dd6a762f779fe6d8796f",
+      "result_sha256": "7e74f077ad351aff87a31401e40253c53ac9b414ef09604fe6a1106dee4050bd",
+      "auc": 1.0,
+      "threshold": 0.6266842161409354,
+      "tp": 20,
+      "members": 20,
+      "fp": 8,
+      "nonmembers": 20,
+      "pairs_positive": 20,
+      "pairs_negative": 0,
+      "pairs": 20,
+      "null_percentile": 1.0
+    },
+    {
+      "target_sha256": "98f84d63a2c5badbc3496257decef9d8ae774b64bcd1b351a8caddb0035fbb84",
+      "result_sha256": "76c8e416bc9811ee44f833e2562c0c32dffbcf8bdc40d001b7eede3f5deae520",
+      "auc": 1.0,
+      "threshold": 0.13683497602690803,
+      "tp": 20,
+      "members": 20,
+      "fp": 0,
+      "nonmembers": 20,
+      "pairs_positive": 20,
+      "pairs_negative": 0,
+      "pairs": 20,
+      "null_percentile": 1.0
+    },
+    {
+      "target_sha256": "e558fb3f494a62bd00093095fbc05aa472b646424cac1e02ccdbb329a5e852c7",
+      "result_sha256": "38cdcc0eebc7ea487a5bb74207cc57a4a6bf9dbaee77c02c30a55744f659ade3",
+      "auc": 0.945,
+      "threshold": 0.9620492818022648,
+      "tp": 16,
+      "members": 20,
+      "fp": 2,
+      "nonmembers": 20,
+      "pairs_positive": 20,
+      "pairs_negative": 0,
+      "pairs": 20,
+      "null_percentile": 1.0
+    }
+  ],
+  "method": {
+    "bootstrap": 10000,
+    "permutations": 10000,
+    "rng_seed": 20260929
+  }
+}
