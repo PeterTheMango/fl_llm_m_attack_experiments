@@ -1,208 +1,288 @@
-# Keeping Private Facts Out of the Model: Retrieval-Grounded Federated Fine-Tuning for Privacy-Preserving RAG
+# Does Retrieval Grounding Keep Private Facts Out of the Model? Leakage Through Weights, Client Updates and the Datastore in Federated RAG
 
-*Short title: Read, Don't Memorize — Privacy-Preserving Federated RAG*
+*Short title: Read, Don't Memorize? — A Controlled Study of Grounded Federated RAG*
 
-Status: **draft proposal.** On 2026-09-30 the researcher decided three items: decision 3 (include the overlap set), decision 4 (keep two trained models per target) and decision 8 (20 final targets). Decisions 1, 2, 5, 6 and 7 are still open; the researcher wants to change something in them. Nothing is implemented or run. Once approved, the confirmation stage's endpoints are frozen in a `protocol.json` before any of its results exist, as in the earlier studies.
+Status: **draft proposal, revision 2 (after review), awaiting the researcher's approval.** Nothing is implemented or run.
+
+- **Decided on 2026-09-30:** the training/library overlap set is included, and is now the central design (decision 3). There are two trained models per target (decision 4). The final stage has 20 targets (decision 8), which this revision's budget options revisit.
+- **Still open:** the rest, including the title.
+- **Review response:** [§0](#0-changes-in-this-revision) lists every review point and how it was addressed.
 
 ---
 
 ## Summary in plain terms
 
-Today, the federated clients teach the model to **memorize** their private question–answer pairs. The documents the model looks things up in (the RAG library) are only added afterwards, when it answers.
+Today the federated clients teach the model to memorize private question–answer pairs, and the document library (RAG) is only added when the model answers. We want to know what happens to privacy if clients instead teach the model to **answer from a document**. This is "grounded" training, and it is not a new training method: RA-DIT and FedRAG already do versions of it.
 
-This is bad for privacy, because the private facts end up stored inside the model, where attacks can find them. It is also bad for usefulness: a small model cannot remember SQuAD answers without the paragraph in front of it.
+What nobody has measured, as far as our search found, is **where the private information goes** when training is grounded. There are three places it can leak:
 
-**Our defense: teach the model to *read*, not to memorize.**
+1. **The model's weights**, which can reveal whether a record was trained on.
+2. **The updates clients send to the server**, which a malicious server can attack.
+3. **The document library**, which can reveal whether a document is stored in it.
 
-- Each training example becomes "here is a paragraph, here is a question, give the answer". The model is marked only on the answer.
-- The private facts stay in the RAG library, which gets its own protection. The model only learns the skill of answering from a document.
+Grounding might reduce leakage in one place and increase it in another. For example, the model might memorize less from its training answers but become better at revealing what is in the library. It might also still soak up paragraph content during training, even though it is never graded on the paragraph.
 
-We test whether this approach:
+We test this with careful comparisons. Every target record is placed in training or not, and in the library or not, giving four combinations. We also compare three training setups, all graded the same way:
 
-- leaks less, in three places: the model, the updates sent to the server, and the library;
-- needs less added noise for the same protection;
-- still answers questions as well.
+- training without a paragraph;
+- training with a private paragraph;
+- training on public data only.
+
+Then we compare usefulness at **equal, stated privacy budgets**.
 
 ---
 
+## 0. Changes in this revision
+
+| Review point | Change |
+|---|---|
+| The novelty claim overlaps RA-DIT (document-conditioned training, output-only loss) and FedRAG (federated RAG fine-tuning) | **The method is not claimed as new.** The contribution is a **controlled study of how grounding changes leakage across three channels**: weights, client updates and datastore. Our search found no exact duplicate of that combined experiment. It does not establish "first", and no such claim is made (§2). |
+| Reduced memorization must be a hypothesis | **Now stated as hypotheses only.** Masking passage tokens from the loss does not stop their information from shaping gradients and weights, so this is tested directly (H4). |
+| A closed-book baseline with identical answer-only supervision and prompt structure is needed | **CB-AO added** as the primary comparison. It uses the same prompt template and answer-only loss, with an empty context slot. The only difference from RG is whether the passage is present. Today's full-loss closed-book training (CB-LM) is kept as a pilot bridge only. |
+| Keep pretrained + RAG | **P0 retained.** |
+| Test whether private training is necessary | **RG-public added:** grounded fine-tuning on public data only (H5). |
+| A single noise level cannot establish "needs less noise" | **Replaced by comparisons at matched, explicitly accounted DP budgets,** ε ∈ {∞, 64, 16} at δ = 10⁻⁵, with ε reported per arm (H6). The claim is reworded to "better utility at equal ε". |
+| The datastore evaluation needs natural-question attacks | **Two natural-question attacks added,** adapted from Riddle Me This and MEntA. The verbatim yes/no attack is kept as a weak baseline (§6). |
+| The overlap experiment should be central if claiming a channel shift | **The four-cell design (training × library) is now the core design.** Every primary endpoint is defined in its cells (§5). |
+| Ambiguity in the final-question/library split | **Resolved** with explicit groups and one-question-per-passage rules (§4). |
+| Overlapping hypothesis decision rules | **Replaced** with mutually exclusive, exhaustive outcome rules and a multiplicity adjustment (§9). |
+| Revise controls before committing the full budget | **The Stage 2 budget is approved separately,** after Stage 1 timings and variances (§10). |
+
 ## 1. Research question
 
-**Main question.** If federated clients train the model to answer from retrieved documents, instead of memorizing their private question–answer data, does it leak less private information and need less noise, while still answering questions as well?
+**Main question.** When federated clients fine-tune with retrieved context (grounded training) rather than closed-book, how does private-information leakage change through each channel (the model weights, the client updates and the retrieval datastore), and at what cost in answer quality under matched, accounted privacy budgets?
 
-| Sub-question | Hypothesis | What we measure |
+| Sub-question | Hypothesis (a claim only if supported) | Primary endpoint |
 |---|---|---|
-| **Q1. Model (training data)** | **H1.** Retrieval-grounded training lowers training-record membership leakage, at no more than a small loss of RAG answer quality | Reference attack AUC; RAG F1 |
-| **Q2. Updates sent to the server** | **H3.** Retrieval-grounded training weakens the gradient attack, including an attacker who knows the new training method. *"No reduction" is a valid outcome.* | Causal gradient attack AUC, standard and adaptive; also with release noise |
-| **Q3. Noise** | **H2.** At the same noise level, retrieval-grounded training keeps better answer quality with no worse protection | RAG F1 and Reference AUC at a fixed DP-SGD noise σ* |
-| **Q4. RAG library** | **H4.** A verbatim-overlap gate lowers document-membership leakage from the library while keeping normal questions working | RAG membership-attack AUC; benign gold-document loss |
+| **Q1. Weights (training records)** | **H1.** RG leaks less training-record membership than CB-AO, with non-inferior RAG answer quality | Reference-attack AUC; RAG F1 |
+| **Q2. Client updates** | **H2.** RG changes leakage through client updates compared with CB-AO. Two-sided: any direction, or no change, is a result | Causal gradient attack AUC, strongest attacker score |
+| **Q3. Datastore** | **H3.** RG makes library documents *more* detectable than CB-AO, because a model trained to use context reveals it more faithfully | Natural-question RAG membership AUC, library-only cell |
+| **Q4. Passage information in the weights** | **H4.** Although passage tokens are masked from the loss, RG still stores passage information in the weights. Questions about a trained-on passage become answerable without retrieving it | Natural-question membership AUC in the training-only cell |
+| **Q5. Is private training needed?** | **H5.** Grounded fine-tuning on public data only (RG-public) gives RAG answer quality non-inferior to RG on private data | RAG F1 |
+| **Q6. Utility at equal privacy budget** | **H6.** At matched ε, RG answers better than CB-AO, with no worse training-record leakage | RAG F1 and Reference AUC at ε = 16 |
 
-**Scope.** The contribution is the combination: an FL training objective designed around the retriever, so that private knowledge moves out of the weights and into a separately protected library. It is evaluated against active FL attacks and RAG membership attacks together. The claim "new" still needs a systematic related-work search; the quick scan is in [`../defense_directions_20260930/README.md`](../defense_directions_20260930/README.md).
+**"Channel shift"** is a pattern claim: leakage falls in one channel and rises in another. It is only claimed if H1 is supported and at least one of H3 or H4 is supported. Nothing is averaged across channels.
 
-## 2. Why this direction (evidence so far)
+## 2. Related work and novelty
 
-| Finding | Source | What it means here |
+- **The method already exists.**
+  - [RA-DIT](https://arxiv.org/abs/2310.01352) fine-tunes the LM on instructions prefixed with retrieved chunks and minimizes the loss on the output segment only.
+  - [FedRAG](https://arxiv.org/abs/2506.09200) supports federated fine-tuning of RAG components.
+  - This study uses grounded training as the treatment. It does not propose it.
+- **Relevant privacy findings.** [Zeng et al. (ACL Findings 2024)](https://aclanthology.org/2024.findings-acl.267.pdf) found that retrieval reduces an LLM's output of memorized training data at inference. RAG membership attacks include:
+  - verbatim and templated probes ([Mirabel](https://arxiv.org/abs/2505.22061) defends against these);
+  - natural-question attacks: [Riddle Me This](https://arxiv.org/abs/2502.00306) and [MEntA](https://arxiv.org/abs/2605.24312).
+- **What may be new is the combined experiment.** It crosses grounding against training membership against library membership, under active FL attacks and RAG membership attacks, with matched, accounted DP budgets. Our search found no exact duplicate, but it was not systematic. A structured related-work search is a Stage 0 deliverable, and no "first" claim is made.
+
+## 3. Arms
+
+All arms share the same model, FL setting, questions, prompt template and answer-only loss wherever training happens.
+
+| Arm | Training data | Prompt at training | Loss | Role |
+|---|---|---|---|---|
+| **RG** (grounded, private) | Private client triples (passage, question, answer) | RAG inference template (`rag._prepare_prompt`, chat format) with the passage in the context slot | Answer tokens only | Treatment |
+| **CB-AO** (closed-book, answer-only) | The same questions and answers, no passage | The **same template** with an **empty** context slot | Answer tokens only | Primary comparison: differs from RG only by the passage |
+| **RG-public** | Public triples only, from separate articles; no private data | As RG | Answer tokens only | Tests whether private training is needed. No private client updates exist; trained once per seed, not per target |
+| **P0** | None (pretrained) | — | — | Floor and reference point; evaluation only |
+| CB-LM (pilot bridge) | Today's closed-book records | Today's `"Question: …\nAnswer: …"` | Full LM loss | Links to earlier results. Stage 1 only |
+
+**DP variants.** RG and CB-AO are each trained at ε ∈ {∞, 64, 16} (§7). RG-public and P0 contain no private training data.
+
+## 4. Data design (resolving the split)
+
+The source is the SQuAD train split, partitioned **by article**. Each passage contributes **at most one question** to any training set. That way a passage's other ("sibling") questions stay unused and can serve as natural-question probes.
+
+| Group | Articles | Contents | Used for |
+|---|---|---|---|
+| **T** (private training) | Set A | One (passage, question, answer) per passage, spread over 4 clients × 32 records | RG and CB-AO client data; the **target records** for training-side attacks |
+| **T-hold** | Set B | Same form as T | The non-member record that replaces the target in each non-member world |
+| **U** (public training) | Set C | Same form | RG-public training only |
+| **L** (private library) | Set D | 256 passages | The private datastore. Its passages' questions become **final utility questions (F)** |
+| **N** (non-member documents) | Set E | Passages never placed in any library | Non-member documents for RAG membership attacks, with their SQuAD questions as probes |
+| **P** (public library) | Set F | 256 passages, with their questions | The public datastore and public-library utility questions |
+| **V** (tuning) | Set G | A smaller copy of all the above, plus a separate public slice for attacker calibration | Every tuning choice and every pilot |
+
+**Rules that resolve the old ambiguity:**
+
+- **F consists of questions about L passages.** L and F therefore share articles on purpose, and no F question is ever used for training or tuning. T, T-hold, U, N, P and V are article-disjoint from L and from each other.
+- **Probes come from siblings.** The natural-question probes for a document are its unused sibling SQuAD questions. They never overlap F: probe documents are the target passages (from T) and N passages, never L passages.
+- **The overlap set is the one planned exception to disjointness.** For each target, its **own passage** is either inserted into the private library or left out, which is the library switch. That is the only way a T passage enters L.
+- **Checks before any GPU job:**
+  - no shared article across groups, except that planned exception;
+  - one question per passage in each training set;
+  - `validate_partition_tokens` passes;
+  - every earlier target question is excluded (guard v3/v4, causal Stage A/B, matched controls and the reserved finals, matched by recomputed old record hashes).
+- **The reserved-final cohort stays closed.**
+
+## 5. Core design: the four-cell overlap experiment
+
+For each target record *t* from T, and for each training arm (RG and CB-AO, at each ε):
+
+|  | *t*'s passage **in** library | *t*'s passage **not** in library |
 |---|---|---|
-| The causal gradient attack on client updates is **effective**: AUC 0.992 [0.981, 0.999] | [causal validation](../causal_attack_validation_20260929/results.md) | The update channel leaks and needs a defense we can test against |
-| The request detector flags benign requests as readily as attacks (200/200) | [matched controls](../matched_reference_controls_20260930/results.md) | Detecting attacks does not work. A defense must protect every request, not pick out bad ones |
-| The Reference attack reaches 100% in pilots. DP-SGD σ=2 brings it to chance. DP-FedAvg reduced RAG F1 to 0 | [research plan](../../master_script/docs/client_guard_privacy_research_plan.md) §2 | Noise works but can destroy usefulness. **Where** the noise goes matters |
-| Release noise (σ=1–2) stopped the old probe attack with RAG quality unchanged | same | Never tested on the validated causal attack. This is a cheap gap to close |
-| Mirabel removes the gold document for 81% of benign questions | [Mirabel calibration](../mirabel_calibration_20260929/README.md) | The library needs a better-calibrated protection. Mirabel stays a *retrieval-removal control* |
-| No-context F1 is 0.01–0.06, even for the **pretrained** model. RAG F1 is 0.2–0.5 | [utility control](../guard_v2_utility_review_20260924/analysis.md) | Usefulness comes from retrieval, not from memorized facts |
-| FL records are closed-book `"Question: …\nAnswer: …"`; the SQuAD passage is dropped (`datasets._format_squad`) | code | FL and RAG are never connected during training. This is the gap the defense fills |
+| ***t* in training** (member world) | **both** | **training-only** |
+| ***t* not in training** (non-member world: *t* replaced by a T-hold record) | **library-only** | **neither** |
 
-## 3. The defense: retrieval-grounded federated fine-tuning (RG)
+- **Two FL worlds are trained per target** (decision 4). The library switch needs no retraining. This is the existing `membership_overlap` mechanism.
+- **Weights (H1):** the Reference attack, training-only against neither.
+- **Client updates (H2):** the causal attack in the member world.
+- **Datastore (H3):** the natural-question attack, library-only against neither.
+- **Passage information in the weights (H4):** the natural-question attack, training-only against neither. For CB-AO the model never saw the passage. For RG it saw the passage as context, masked from the loss.
+- **Compounding (secondary):** the "both" cell against the stronger of the two single-channel cells.
 
-- **Training example.** It is a SQuAD triple (passage, question, answer), laid out with the **same prompt the RAG system uses at inference** (`rag._prepare_prompt`, chat format): passage as context, then the question, then the answer.
-- **Loss.** Only on the answer tokens. The prompt, passage and question are masked out (label −100). The model is never trained to reproduce the passage or the question.
-- **Clients.** Each FL client holds its own triples. FedAvg, rounds, clients and learning rate stay as in the current setting, except for the sequence length below.
-- **Inference.** Unchanged RAG: retrieve the top-k passages from the library and answer.
-- **Comparison arm (CB, closed-book).** Today's training on `"Question: …\nAnswer: …"` records drawn from the same questions, so both arms see the same facts.
-- **Reference point (P0).** The pretrained model with RAG and no FL training. It is cheap (evaluation only) and answers an honest question: is training worth it at all? If P0 answers as well as RG, the weights need no private data.
+## 6. Attacks
 
-## 4. Data design: four article-disjoint groups
+| Channel | Attack | Standard score | Adaptive score (attacker knows the training format) |
+|---|---|---|---|
+| Weights | **Reference** (Carlini log-perplexity ratio against the pretrained model) | Loss of the record text | Answer loss given the template and, for RG, the passage |
+| Client updates | **Causal gradient alignment** (validated: cosine score, `probe_epochs: 12`) | The record's LM-loss direction | The answer-only loss direction given the template and passage |
+| Datastore | **Natural-question attack, adapted from Riddle Me This.** Ask the document's sibling questions; the membership score is answer correctness (token F1 against the gold answer) | — | — |
+| Datastore | **Entailment attack, adapted from MEntA.** About 5 queries per document; score whether the responses are entailed by the document, using a pinned NLI model | — | — |
+| Datastore (baseline) | Verbatim yes/no probe (existing) | — | — |
 
-SQuAD asks several questions about each paragraph, and many paragraphs share an article. Every group is therefore split **by article**, so no fact reaches two groups through sibling questions. SQuAD's own train and dev splits are already article-disjoint. This design adds article-disjointness *inside* the train split, which is what the study uses.
+- **Labels.** The two natural-question attacks are **adaptations**, not reproductions, and are labelled that way. Each must pass an adaptation check on V before use: members must beat non-members with P0 and the library on, following the repo's `adapt-attack` workflow.
+- **Choosing the attacker's score.** For each arm, the attacker's score (standard or adaptive, and for the datastore the stronger of the two natural-question attacks) is fixed on the **tuning** cohort by a pre-set rule: highest mean AUC, ties to the simpler score. It is never chosen on final data.
+- **Release noise (secondary).** The causal attack runs a second time on the same member world, with σ_obs = 1.0 noise on the released update. This costs attack trials only, and is the first test of release noise on the validated attack.
+- **Library gate (secondary).** The verbatim-overlap gate is evaluated against every datastore attack. It is expected to stop verbatim probes but not natural questions.
 
-| Group | Contents | Used for |
-|---|---|---|
-| **T. Training** | Client triples; a held-out slice of other articles provides the *non-member* records for training-side attacks | FL training; member and non-member records for the Reference and causal attacks |
-| **L. RAG library** | A private library (the sensitive datastore) and a public library of passages; a held-out slice of other articles provides non-member documents | Retrieval at inference; member and non-member documents for the RAG membership attack |
-| **V. Tuning** | A small copy of the whole setup: its own training records, library, questions and targets, plus a separate public slice for the attacker's threshold calibration | Every choice: the noise level, the gating threshold, the attacker's score, pilots |
-| **F. Final test** | Questions about library passages that were never used anywhere else, plus fresh target seeds | Grading only, once, in the confirmation stage |
+## 7. Matched, explicitly accounted DP budgets
 
-- **Sizes (proposed).** The private and public libraries stay at 256 passages each, like today's study. The final test grows from 20 to **at least 300 questions**, because 20 gives far too wide an F1 interval. Each client keeps 32 records; there are 4 clients.
-- **Checks before any GPU job.** No shared article, passage or question across groups. The existing token-level disjointness check (`validate_partition_tokens`) must pass.
-- **Earlier targets.** Every earlier target is excluded by SQuAD question: guard v3/v4, causal Stage A/B, matched controls and the reserved final targets. They are matched by recomputing the old record hashes. **The reserved-final cohort stays closed.**
-- **Overlap (decision 3: included).** Each target's passage is placed in the private library in one condition and left out in the other. Crossed with the two trained models per target (decision 4), this gives the four cells already in the code (`membership_overlap`): in training only, in the library only, in both, in neither.
-  - The library switch needs no retraining.
-  - The cells measure how training and library leakage interact, as a secondary analysis.
-  - The main comparisons use the disjoint records.
+- **Mechanism.** DP-SGD with per-example clipping and Gaussian noise at each local step (`defenses.private_train`). The answer-only mask applies in the RG and CB-AO paths.
+- **Accountant, as implemented** (`defenses.privacy_bound`): Gaussian zCDP, **no subsampling amplification**, replace-one adjacency, counting every local step of the busiest client. The target's client holds 33 records (32 plus the target). With batch 2, 1 local epoch and 3 rounds, that is 51 steps. Where ρ = 2 · 51 / σ²:
+  - ε = ρ + 2√(ρ ln(1/δ))
 
-## 5. Where noise and protection go
+| Target ε (δ = 10⁻⁵) | Required σ | Note |
+|---|---:|---|
+| ∞ | 0 | No DP |
+| 64 | 1.91 | About the pilot's σ = 2 (ε ≈ 60) |
+| 16 | 5.45 | The primary matched budget for H6 |
 
-Noise only protects the thing it is added to, so each channel gets its own mechanism and its own accounting. The channels are **never averaged** into one privacy score.
-
-| Channel | Mechanism (existing code unless noted) | Privacy unit |
-|---|---|---|
-| Model and training updates | **DP-SGD** (`defenses.private_train`): per-example clipping plus Gaussian noise at each local step. It works for both CB and RG, with the answer-only mask for RG | Training record |
-| Updates released to the server | **Release noise** (`defenses.protect_observation`): clip the whole released gradient and add noise, σ_obs = 1.0 | Client batch, per release |
-| RAG library | **Verbatim-overlap gate** (*new*): if the query shares a long exact span with a retrieved passage, beyond a threshold calibrated on benign questions in V, that passage is withheld | Library document |
-
-DP-FedAvg is not an arm. It trusts the server to add the noise, which does not fit a malicious server, and it reduced RAG F1 to 0 in the pilot.
-
-## 6. Attacks (fixed battery)
-
-| Attack | Standard version | Adaptive version (attacker knows RG) |
-|---|---|---|
-| **Reference** (training-record membership, Carlini log-perplexity ratio against the pretrained model) | Loss on the record text | Loss on the answer given the passage and question |
-| **Causal gradient** (validated: cosine score, `probe_epochs: 12`) | Candidate direction from the record's LM loss | Candidate direction from the answer-only loss given the passage and question |
-| **RAG membership** (yes/no on the private library) | Verbatim yes/no probe | — (paraphrase attacks are a known limit; see §11) |
-
-- **Choosing the attacker's score.** For each arm, the stronger of the standard and adaptive score is fixed on the **tuning** cohort, by a pre-set rule: highest mean AUC, ties to the standard score. It is never chosen on final data.
-- **Reference design (decision 4: two models per target, as now).**
-  - For each target, one FL world is trained with the target record (member world) and one with a held-out record in its place (non-member world).
-  - The Reference attack compares the target's score across the two worlds; the target is the unit.
-  - The causal attack runs on the member world.
-  - Scoring all client records against held-out records in each world is reported as secondary only; it is free once the worlds exist.
-- **Release noise.** The causal attack runs twice on the same world: once on raw releases and once on releases with σ_obs noise. This costs attack trials only.
-
-## 7. Arms (paired: every target runs under every arm)
-
-|  | No training noise | DP-SGD at σ* |
-|---|---|---|
-| **CB (closed-book)** | CB | CB+DP |
-| **RG (retrieval-grounded)** | RG | RG+DP |
-
-Plus P0 (pretrained model with RAG, evaluation only). The gate is evaluated inside every arm, as library "gate on" against "gate off".
+- **Same budget, same noise.** RG and CB-AO have identical record counts, batch size and steps, so matched ε means the same σ. Each run records its accounted ε, and the analysis refuses a comparison if the two differ.
+- **The accountant is conservative.** A record takes part in only 3 of the 51 steps. A participation-based accountant would give much smaller ε for the same σ. It is **not** used unless the researcher approves it separately (decision 5).
+- **Scope.** DP-SGD covers only the weights and the training updates, per training record. It does **not** protect the datastore, or updates released to a malicious server's crafted requests; release noise and the gate cover those. There is no end-to-end ε.
 
 ## 8. Stages
 
-**Stage 0. Build and check (mostly CPU, 2–3 GPU smoke jobs).**
+**Stage 0. Build and check (mostly CPU, 3–5 GPU smoke jobs).**
 
-- Build the data split and its disjointness audit.
-- Implement the RG format with the answer-only mask, in both the normal and the DP-SGD training paths. Check prompt parity with `rag._prepare_prompt`.
-- Implement the adaptive attack directions and the one-world Reference evaluation.
-- Calibrate the gate on V, CPU only, in the style of the Mirabel study: the largest-overlap threshold with ≤5% benign gold-document loss.
-- **Go/no-go gate.** On V, RG must improve RAG F1 over P0. If training teaches nothing, the privacy comparison is moot, and we stop and report that.
-- Time the DP-SGD overhead and the new sequence length.
+- **Structured related-work search**, recorded as a document.
+- **Data:** build the split and its audit (§4).
+- **Training code:** the RG, CB-AO and RG-public formatters with the answer-only mask, in both the normal and the DP-SGD paths. Prompt-parity tests against `rag._prepare_prompt`.
+- **Attacks:** the adaptive attack scores; the natural-question and entailment attack adaptations, with their checks on V.
+- **Library:** gate calibration (CPU).
+- **Go/no-go:**
+  - On V, RG must beat P0 on RAG F1. If grounded training teaches nothing, stop and report that.
+  - The natural-question attacks must pass their adaptation check.
+- **Timings:** training at sequence length 384 (median passage 105 words, 90th percentile 145), DP-SGD overhead, and a full job.
 
-**Stage 1. Pilot on the tuning cohort (fresh seed band 8000–8099).**
+**Stage 1. Pilot (tuning seed band 8000–8099; V data).**
 
-- Estimate variances and job times.
-- Fix σ* by rule: the smallest σ in {0.5, 1, 2} at which CB+DP's Reference AUC upper bound is ≤ 0.60 on tuning worlds. If none qualifies, use 2 and record it.
-- Fix each arm's attacker score, using the rule in §6.
-- Pilot results are tuning data and are never reported as evidence.
+- **Scope:** 4 targets × {RG, CB-AO} × ε ∈ {∞, 64, 16}, plus a CB-LM bridge on 4 targets, RG-public (3 seeds) and P0.
+- **Fix the attacker scores** by the §6 rule.
+- **Estimate variances** and re-estimate the Stage 2 cost.
+- **Pilot results** are tuning data and are never reported as evidence.
+- **Gate:** the researcher approves the Stage 2 budget from the pilot's timings.
 
-**Stage 2. Confirmation (fresh seed band 9000–9099, frozen protocol).**
+**Stage 2. Confirmation (final seed band 9000–9099; frozen `protocol.json`).**
 
-- 20 targets × 4 arms, run paired, plus P0.
-- Endpoints and decision rules are as in §9, frozen in `protocol.json` before Stage 2 starts.
+- The approved design option (§10), paired: every target runs under every arm it includes.
 
 ## 9. Endpoints and decision rules (Stage 2)
 
-The unit is the trained world (target). Intervals are 95%, from a paired bootstrap over targets with 10,000 resamples. Each hypothesis has one primary endpoint and is claimed separately. All results are reported whatever the outcome.
+**Setup.**
 
-| Hypothesis | Primary endpoint | Supported if | Refuted if |
-|---|---|---|---|
-| **H1** | ΔAUC_Ref = AUC(CB) − AUC(RG), no training noise; plus ΔF1 = F1(RG) − F1(CB) on the private library | ΔAUC_Ref lower bound > 0 **and** ΔF1 lower bound > −0.05 | ΔAUC_Ref upper bound < 0.02 (no meaningful reduction), **or** ΔF1 upper bound < −0.05 (clearly worse answers) |
-| **H2** | At σ*: ΔF1 = F1(RG+DP) − F1(CB+DP), with AUC_Ref(RG+DP) − AUC_Ref(CB+DP) | ΔF1 lower bound > 0 **and** the AUC difference upper bound < 0.02 | ΔF1 upper bound < 0 |
-| **H3** | ΔAUC_causal = AUC(CB) − AUC(RG), strongest attacker score | Lower bound > 0 | The interval lies inside ±0.05: "no reduction", a valid result |
-| **H4** | Reduction in RAG membership AUC, gate on against gate off (RG arm) | Reduction lower bound > 0 with benign gold-document loss ≤ 5% on F | Reduction upper bound < 0.02 |
+- The unit is the target, with paired bootstrap over targets (10,000 resamples).
+- **Multiplicity:** six primary hypotheses. Decisions use Bonferroni-adjusted **99.2%** intervals (1 − 0.05/6). 95% intervals are also reported.
+- Every difference *D* is oriented so that a positive value is the hypothesis's direction. The smallest effect of interest is **m = 0.05** for AUC and **0.05** for F1.
 
-Anything between the "supported" and "refuted" bounds is **inconclusive**. Extending the study needs a new pre-registration, never targets added after seeing results.
+**Outcome rules** are mutually exclusive and exhaustive. Here [lo, hi] is the decision interval.
 
-**Secondary (descriptive):**
+- **Directional hypotheses (H1 privacy part, H3, H4, H6 utility part):**
+  - *supported* if lo > 0;
+  - *not supported, negligible* if lo ≤ 0 and hi < m;
+  - *inconclusive* if lo ≤ 0 and hi ≥ m.
+  - Within "not supported", the case hi < 0 is additionally flagged as *reversed*.
+- **Two-sided hypothesis (H2),** with *D* = AUC(CB-AO) − AUC(RG):
+  - *RG reduces* if lo > 0;
+  - *RG increases* if hi < 0;
+  - *no meaningful change* if −m < lo ≤ 0 ≤ hi < m;
+  - *inconclusive* otherwise.
+- **Non-inferiority (utility parts of H1 and H6, and H5),** margin 0.05 F1:
+  - *non-inferior* if lo > −0.05;
+  - *inferior* if hi < −0.05;
+  - *inconclusive* otherwise.
 
-- causal attack AUC under release noise σ_obs, in every arm. This is the first test of release noise on the validated attack;
-- no-context F1 and answer NLL (utility protocol v4);
-- public-library RAG F1 and EM;
-- the P0 comparison;
-- the overlap cells, if included;
-- per-client results.
+| Hypothesis | *D* | Claimed when |
+|---|---|---|
+| **H1** | AUC_Ref(CB-AO) − AUC_Ref(RG), training-only vs neither, ε = ∞; plus F1(RG) − F1(CB-AO) on F | Privacy part supported **and** utility part non-inferior |
+| **H2** | AUC_causal(CB-AO) − AUC_causal(RG), member world, ε = ∞ | Any of the four outcomes is reported as the result |
+| **H3** | AUC_NQ(RG) − AUC_NQ(CB-AO), library-only vs neither, ε = ∞ | Supported |
+| **H4** | AUC_NQ(RG) − AUC_NQ(CB-AO), training-only vs neither, ε = ∞ | Supported |
+| **H5** | F1(RG-public) − F1(RG), on F | Non-inferior |
+| **H6** | F1(RG) − F1(CB-AO) at ε = 16; plus AUC_Ref(CB-AO) − AUC_Ref(RG) at ε = 16 | Utility part supported **and** privacy part ≥ −m at its lower bound (no worse) |
+
+- **Secondary, descriptive:**
+  - ε = 64, and the full frontier (F1 and each attack's AUC against ε);
+  - the causal attack under release noise;
+  - the gate;
+  - the "both" cell;
+  - public-library F1;
+  - no-context F1 and answer NLL (utility protocol v4);
+  - P0 against every arm;
+  - the CB-LM bridge;
+  - per-client results.
+- **Extending the study** needs a new pre-registration. Targets are never added after seeing results.
 
 ## 10. Budget and rough cost
 
-These are estimates, to be replaced by Stage 0 timings. Each job trains **two** FL worlds (decision 4). RG examples need a sequence length of about 384 tokens instead of 128 (passages have a median of 105 words and a 90th percentile of 145). That makes training several times more expensive per step. DP-SGD adds roughly 1.5–2× at batch size 2, which is unmeasured.
+These are estimates, replaced by Stage 0 timings. Assumptions:
 
-| Stage | Jobs | Est. per job | Est. GPU-hours |
-|---|---|---|---|
-| 0: smoke and timing | 2–3 | 30–55 min | 1–3 |
-| 1: pilot (4 arms × 4 targets, plus a σ grid of 3 × 3 CB+DP) | about 25 | 30–55 min | 13–23 |
-| 2: confirmation (4 arms × 20 targets; decision 8) | 80 | 30–55 min | 40–73 |
-| **Total** | | | **about 55–100** | Disk and retention follow the existing collector: one job at a time, weights retired after verification.
+- A paired job trains **two** FL worlds at sequence length 384. It also runs the RAG evaluation once (utility and membership probes, with the library on and off) and the causal attack twice (raw and noised). Estimate: **30–60 min** per job without DP; DP-SGD adds an unmeasured overhead.
+- RG-public (3 seeds) and P0 need a few GPU-hours of training and evaluation in total.
+
+| Stage | Jobs | Est. GPU-hours |
+|---|---|---|
+| 0: smoke and timing | 3–5 | 3–5 |
+| 1: pilot (4 targets × 6 arms, plus 4 CB-LM) | about 28 | 14–28 |
+| 2, option (a): 20 targets × 6 arms (RG and CB-AO at 3 budgets) | 120 | 60–120 |
+| 2, option (b): 20 targets for the ε = ∞ arms (H1–H4) and 10 targets for the DP arms (H6) | 80 | 40–80 |
+| RG-public and P0 | — | about 5 |
+| **Total** | | **(a) about 80–160 · (b) about 60–120** |
+
+Option (b) keeps 20 targets (decision 8) for the central channel study and halves the DP arms, at the cost of a wider H6 interval. **The Stage 2 budget is approved only after Stage 1.**
 
 ## 11. What this study cannot show
 
-- **One model** (Qwen2.5-0.5B-Instruct), **one data set** (SQuAD) and **one FL setting** (4 clients, 3 rounds). Generalization is untested.
-- **Library attacks by paraphrase** (for example "Riddle Me This") can bypass a verbatim gate. H4 covers verbatim attackers only.
-- **Weights versus library.** Moving facts into the library shifts risk rather than removing it. The library's protection is only as strong as the gate and its access control.
-- **The DP guarantees are per channel.** There is no single end-to-end ε, and none is claimed.
-- **No end-to-end privacy claim.** RG's effect on release leakage may be zero (H3). The guard/detector line is closed and is not part of this study.
+- **One model** (Qwen2.5-0.5B-Instruct), **one data set** (SQuAD), **one FL setting** (4 clients, 3 rounds). There are no generalization claims.
+- **The natural-question attacks are adaptations.** Stronger or adaptive datastore attackers may exist.
+- **The ε values are large,** because the accountant has no amplification. They are comparable *between arms*, but they are not strong absolute guarantees. There is no end-to-end ε.
+- **No new defense mechanism is claimed.** The contribution is measurement. A defense built on its findings (for example, library-side protection sized by H3/H4) would be a follow-up study.
+- **The guard/detector line is closed** and is not part of this study.
 
 ## 12. Implementation work (after approval)
 
-1. **Split builder and audit** (article-disjoint), plus the old-target exclusion by SQuAD question.
-2. **RG formatter and answer-only loss mask**, in the AdamW client path and in `private_train`, with a prompt-parity test against `rag._prepare_prompt`.
-3. **New RAG study file built from L:** 256 private and 256 public passages, at least 300 final questions, and member and non-member documents.
+1. **Data:** split builder and audit (§4), plus the old-target exclusion by SQuAD question.
+2. **Training:** the RG, CB-AO, RG-public and CB-LM formatters; the answer-only mask in the AdamW path and in `private_train`; prompt-parity tests.
+3. **RAG study data:** new study data from L, N and P: the libraries, the F questions, and the probe sets.
 4. **Attacks:**
-   - adaptive Reference score and the one-world Reference evaluation;
-   - adaptive causal direction;
-   - a second causal pass on the same world with release noise.
-5. **The gate**, plus its CPU calibration script.
-6. **Study tool** (`prepare`, `check`, `analyze`) and tests, following the earlier studies. `check` never shows endpoint values before `analyze`.
-7. **Fingerprint.** The core fingerprint will change. Earlier results keep theirs.
+   - adaptive Reference and causal scores;
+   - the natural-question and entailment attack adaptations, with an NLI model pinned by revision;
+   - the second causal pass with release noise.
+5. **Accounting:** a per-run ε record, and a refusal in the analysis when the ε of paired arms differs.
+6. **Library gate:** the gate and its calibration.
+7. **Study tool** (`prepare`, `check`, `analyze`) and tests, following the earlier studies. `check` never shows endpoint values before `analyze`.
+8. **Fingerprint.** The core fingerprint will change. Earlier results keep theirs.
 
 ## Decisions to approve
 
-1. **Title and research question**, as written in §1.
-2. **The defense (§3):** RG with answer-only loss and the inference prompt layout; CB as the comparison arm; P0 as the reference point.
-3. **Data design (§4):** four article-disjoint groups; library sizes 256/256; at least 300 final questions; exclusions by SQuAD question. **Decided: include the overlap set.**
-4. **Reference evaluation (§6):** **Decided: keep two trained models per target** (member and non-member worlds).
-5. **Noise and protection (§5):**
-   - DP-SGD with σ* chosen by the Stage 1 rule from {0.5, 1, 2};
-   - release noise σ_obs = 1.0;
-   - the verbatim-overlap gate with ≤5% benign loss;
-   - no DP-FedAvg arm.
-6. **Stages (§8),** including the Stage 0 go/no-go rule and the seed bands 8000–8099 (tuning) and 9000–9099 (final).
-7. **Endpoints and decision rules (§9),** including the margins (0.05 on F1, 0.02 on AUC, ±0.05 for "no reduction").
-8. **Budget (§10):** **Decided: 20 targets in Stage 2**, about 55–100 GPU-hours in total with two worlds per target.
+1. **Title and main question** (§1). The title is now phrased as a question.
+2. **Arms** (§3): RG, CB-AO, RG-public, P0, and CB-LM as a Stage 1 bridge only.
+3. **Data design** (§4): the groups, one question per passage, siblings as probes, F drawn from L, and the overlap exception. *(Overlap set already decided: included.)*
+4. **Core design** (§5): the four cells with two worlds per target. *(Already decided.)*
+5. **DP budgets** (§7):
+   - ε ∈ {∞, 64, 16} at δ = 10⁻⁵, with the existing conservative accountant;
+   - ε = 16 as the primary budget for H6;
+   - whether to also approve a participation-based accountant (recommended: not now).
+6. **Attacks** (§6): the two natural-question adaptations and their checks, the attacker-score rule, release noise σ_obs = 1.0, and the gate as secondary.
+7. **Endpoints and rules** (§9): the six primaries, the 99.2% decision intervals, m = 0.05, and the exclusive outcome rules.
+8. **Budget** (§10): option (a) or (b), with the Stage 2 budget approved after the Stage 1 pilot.
