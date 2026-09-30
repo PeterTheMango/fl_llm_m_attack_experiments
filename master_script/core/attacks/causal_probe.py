@@ -46,9 +46,21 @@ def alignment_terms(released, public_direction):
     return {"dot": dot, "direction_norm": float(np.sqrt(norm)), "released_norm": float(np.sqrt(released_norm))}
 
 
-def score_from_terms(terms):
-    """Projection of the released gradient onto the public direction."""
-    return terms["dot"] / max(terms["direction_norm"], 1e-12)
+SCORES = ("projection", "cosine")
+
+
+def score_from_terms(terms, kind="projection"):
+    """Membership score from the server-observable alignment terms.
+
+    projection: dot / ||direction||, which grows with the batch's overall
+    gradient size. cosine: dot / (||released|| ||direction||), the score
+    validated in outputs/causal_attack_validation_20260929 (Stage B, 12 epochs).
+    """
+    if kind == "projection":
+        return terms["dot"] / max(terms["direction_norm"], 1e-12)
+    if kind == "cosine":
+        return terms["dot"] / max(terms["released_norm"] * terms["direction_norm"], 1e-24)
+    raise ValueError("Unknown causal score")
 
 
 def alignment_score(released, public_direction):

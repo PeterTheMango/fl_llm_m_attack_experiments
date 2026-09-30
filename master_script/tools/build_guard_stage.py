@@ -50,6 +50,9 @@ def build_stage(plan, *, detector=None, adaptive=False):
             arm = {"base": {"attack_variant": variant, "attack_targets": plan["targets"],
                             "probe_epochs": plan["probe_epochs"], "counterbalance_trials": True, "observation_defense": "gaussian" if protected else "none",
                             "observation_noise_multiplier": 1.0}, "pipeline": pipeline(condition)}
+            if variant == "causal_gradient_alignment" and "causal_score" in plan:
+                # Opt-in; plans without the key keep the projection score and identical job text.
+                arm["base"]["causal_score"] = plan["causal_score"]
             # Same condition names across variants; analysis matches attack_variant.
             arms.append(arm)
     if adaptive:

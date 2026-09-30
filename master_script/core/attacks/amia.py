@@ -65,6 +65,7 @@ class AmiaConfig(AttackConfig):
     request_interpolation: float = 1.0
     adaptive_public_steps: int = 0
     counterbalance_trials: bool = False
+    causal_score: str = "projection"
 
 
 METHODOLOGY = {
@@ -477,7 +478,7 @@ def calibrate_probe(model, tokenizer, probe, config):
         if config.attack_variant == "causal_gradient_alignment":
             from .causal_probe import protected_gradients, alignment_terms, score_from_terms
             terms.append(alignment_terms(protected_gradients(probe, tokenizer, batch, config), probe._public_direction))
-            scores.append(score_from_terms(terms[-1]))
+            scores.append(score_from_terms(terms[-1], getattr(config, "causal_score", "projection")))
         else:
             scores.append(gradient_score(client_loss_gradients(model, tokenizer, probe, batch, config)))
     result = nonmember_threshold(scores, config.calibration_fpr)
@@ -704,7 +705,7 @@ def run_attack_trials(model_path, probe, clients, config, calibration=None, guar
                 raise RuntimeError("A rejected observation must not carry gradient arrays")
             terms = (alignment_terms(parameters_to_ndarrays(update.parameters), public_direction)
                      if preserving and not rejected else None)
-            score = None if rejected else (score_from_terms(terms) if preserving
+            score = None if rejected else (score_from_terms(terms, getattr(config, "causal_score", "projection")) if preserving
                                            else gradient_score(parameters_to_ndarrays(update.parameters)))
             trial_id = server_round - 1
             threshold = calibration["threshold"] if calibration is not None else config.gradient_threshold
@@ -945,7 +946,7 @@ def custom_trials_adapter(config, artifact_dir, pipeline=None):
 def build_payload_adapter(config, trials, artifact_dir, context):
     clean_trials = [{k: v for k, v in t.items() if k != "pipeline_evaluation"} for t in trials]
     if "target_contexts" in context:
-        result = {"status": "complete", "methodology": dict(METHODOLOGY) if config.attack_variant == "probe_head" else {"attack": "causal_gradient_alignment", "guarantee": "No original AMIA guarantee applies"},
+        result = {"status": "complete", "methodology": dict(METHODOLOGY) if config.attack_variant == "probe_head" else {"attack": "causal_gradient_alignment", "score": config.causal_score, "guarantee": "No original AMIA guarantee applies"},
                   "attack_variant": config.attack_variant,
                   "metrics": _summarize_attack(trials), "attack_trials": clean_trials,
                   "target_evaluations": context["target_contexts"],
@@ -964,6 +965,7 @@ def build_payload_adapter(config, trials, artifact_dir, context):
     if config.attack_variant != "probe_head":
         result["methodology"] = {"attack": "causal_gradient_alignment",
                                  "observation": "full protected LM gradients only",
+                                 "score": config.causal_score,
                                  "status": "experimental variant; baseline success must be established",
                                  "guarantee": "No original AMIA guarantee applies"}
     result["unique_target_count"] = context.get("unique_target_count", 1)

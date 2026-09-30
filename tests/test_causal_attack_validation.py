@@ -285,3 +285,79 @@ def test_analysis_refuses_changed_or_incomplete_results(tmp_path, pilot_cohort):
     (tmp_path / "a" / "progress.json").write_text(json.dumps(state))
     with pytest.raises(ValueError, match="not complete"):
         cav.select(tmp_path / "a", tmp_path / "s.json")
+
+
+def test_causal_score_choice_matches_the_validation_definitions():
+    terms = {"dot": 3., "direction_norm": 2., "released_norm": 5.}
+    for kind in causal_probe.SCORES:
+        assert causal_probe.score_from_terms(terms, kind) == cav.score(terms, kind)
+    assert causal_probe.score_from_terms(terms) == 1.5 and causal_probe.score_from_terms(terms, "cosine") == 0.3
+    with pytest.raises(ValueError, match="Unknown causal score"):
+        causal_probe.score_from_terms(terms, "raw")
+
+
+def test_opt_in_cosine_scores_trials_and_calibration_and_keeps_terms(monkeypatch):
+    from master_script.core import runtime_memory
+    stub_flower(monkeypatch)
+    monkeypatch.setattr(amia, "get_parameters", lambda p: [np.ones(2)])
+    released = [[np.array([3., 4.])], [np.array([0., 2.])]]
+
+    def simulate(server_app, client_app, **kwargs):
+        strategy = server_app.server_fn(None).strategy
+        for i, arrays in enumerate(released):
+            strategy.aggregate_fit(i + 1, [(None, SimpleNamespace(parameters=arrays, num_examples=4,
+                                                                  metrics={"partition_id": 0}))], [])
+    monkeypatch.setattr(runtime_memory, "run_simulation", simulate)
+    monkeypatch.setattr(runtime_memory, "simulation_backend", lambda c: {})
+    config = SimpleNamespace(num_clients=1, target_client_id=0, attack_trials=2, gradient_threshold=0., seed=7,
+                             attack_variant="causal_gradient_alignment", causal_score="cosine")
+    probe = SimpleNamespace(_public_direction=[np.array([1., 0.])])
+    rows = amia.run_attack_trials("unused", probe, [["private"]], config)
+    assert [r["score"] for r in rows] == [0.6, 0.]
+    assert rows[0]["alignment_terms"] == {"dot": 3., "direction_norm": 1., "released_norm": 5.}
+
+    records = [f"public record {i}" for i in range(40)]
+    monkeypatch.setattr(amia.dataset_sources, "calibration_records", lambda c, n: records[:n])
+    monkeypatch.setattr(amia.dataset_sources, "target_record_for", lambda c, d: "the target")
+    monkeypatch.setattr(amia.dataset_sources, "uses_real_dataset", lambda c: True)
+    monkeypatch.setattr(causal_probe, "protected_gradients",
+                        lambda probe, tok, batch, cfg: [np.array([float(len("".join(batch))), 1.])])
+    tokenizer = lambda text, truncation, max_length: {"input_ids": [ord(c) for c in text] + [0]}
+    config = SimpleNamespace(calibration_nonmember_count=20, adversary_negative_count=4, attack_batch_size=4, seed=7,
+                             attack_variant="causal_gradient_alignment", calibration_fpr=0.05, max_length=64,
+                             causal_score="cosine")
+    result = amia.calibrate_probe(None, tokenizer, SimpleNamespace(_public_direction=[np.array([1., 1.])]), config)
+    cosine = [cav.score(t, "cosine") for t in result["alignment_terms"]]
+    assert len(cosine) == 20 and result["threshold"] == nonmember_threshold(cosine, 0.05)["threshold"]
+
+
+def test_causal_score_is_an_explicit_causal_only_field():
+    from dataclasses import replace
+    from master_script.core.config import validate_attack_config
+    default = amia.AmiaConfig()
+    assert (default.causal_score, default.probe_epochs) == ("projection", 80)
+    validate_attack_config(replace(default, attack_variant="causal_gradient_alignment", causal_score="cosine"))
+    with pytest.raises(ValueError, match="causal gradient variant"):
+        validate_attack_config(replace(default, causal_score="cosine"))
+    with pytest.raises(ValueError, match="projection or cosine"):
+        validate_attack_config(replace(default, attack_variant="causal_gradient_alignment", causal_score="raw"))
+
+
+def test_guard_stage_plans_opt_in_to_the_causal_score_for_causal_arms_only():
+    from master_script.tools.build_guard_stage import build_stage, ROOT
+    from master_script.core.yaml_config import load_config_doc
+    plan = json.loads((ROOT / "guard/stages/collection_v2.json").read_text())
+    assert "causal_score" not in json.dumps(build_stage(plan))
+    pairs = load_config_doc(build_stage({**plan, "causal_score": "cosine"}))
+    scores = {cfg.attack_variant: cfg.causal_score for cfg, spec in pairs if spec.name == "amia"}
+    assert scores == {"probe_head": "projection", "causal_gradient_alignment": "cosine"}
+
+
+def test_finished_validation_tool_is_unchanged_and_keeps_the_projection_default(tmp_path, pilot_cohort):
+    from master_script.core.queue import load_batch
+    analysis = json.loads((cav.PROTOCOL.parent / "analysis.json").read_text())
+    assert cav.tool_digest() == analysis["validation_tool_sha256"]
+    launch = cav.prepare(tmp_path / "a", "a", [pilot_cohort])
+    for job in launch["jobs"]:
+        assert "causal_score" not in (tmp_path / "a" / job["config"]).read_text()
+        assert load_batch([tmp_path / "a" / job["config"]]).pairs[0][0].causal_score == "projection"

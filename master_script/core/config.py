@@ -187,6 +187,10 @@ def validate_attack_config(config, spec=None):
             raise ValueError("Interpolation is only supported for the distinct causal variant")
         if config.attack_variant == "causal_gradient_alignment" and config.ldp_mechanism != "none":
             raise ValueError("Causal gradient variant does not use AMIA frozen-feature LDP")
+        if config.causal_score not in ("projection", "cosine"):
+            raise ValueError("causal_score must be projection or cosine")
+        if config.attack_variant == "probe_head" and config.causal_score != "projection":
+            raise ValueError("causal_score only applies to the causal gradient variant")
     if hasattr(config, "attack_targets"):
         if config.attack_trials % (2 * config.attack_targets):
             raise ValueError("AMIA attack_trials must be divisible by 2 * attack_targets for paired batches")
