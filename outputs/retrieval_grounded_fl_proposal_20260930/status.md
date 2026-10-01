@@ -5,6 +5,51 @@
 - **Core fingerprint:** `714ec988b38b` (it was `5c53eaa5b4a3`; `86eacb02a66f` at 62ebf0f, before the 512 change). Earlier results keep theirs.
 - **Tests:** 777 passed, 2 skipped (previously 703 passed). The frozen guard files and `causal_attack_validation.py` are byte-identical, and a test pins each.
 
+## Stage 0 results so far (validation data on V; not evidence)
+
+**Build (server, fingerprint `714ec988b38b`).** Study sha256 `d7eac161d178b6e855979fc879752a5d511516674e913788e590194d4dbecd92`.
+
+- **Exclusions.** All 50 earlier target hashes matched SQuAD rows; the smoke target is the only allowed unmatched one. The cohorts are:
+
+  | Cohort | Targets |
+  |---|---|
+  | Reserved finals | 4 |
+  | Causal Stage A | 4 |
+  | Causal Stage B | 10 |
+  | Matched controls | 20 |
+  | Guard v3/v4 development | 11 |
+
+  52 questions were removed, because SQuAD repeats some identical question–answer pairs.
+- **Skips.**
+  - 2,972 passages fell outside 24–160 words.
+  - 174 duplicate questions within a passage.
+  - No article was skipped.
+- **Eligible targets.**
+
+  | | Targets | Limit | Fewer than 4 questions | Fewer than 3 qualifying probes | Eligible but no hold record |
+  |---|---:|---|---:|---:|---:|
+  | V | 186 | hold records | 63 | 55 | 311 |
+  | final | 124 | hold records | 123 | 35 | 362 |
+
+**Gate calibration (CPU, V).**
+- The threshold is τ = 0.45 (3-gram overlap with the top document).
+- Benign gold-document loss is 4.4% (13 of the 297 V utility questions whose gold document is retrieved), within the 5% limit.
+- Verbatim membership probes are withheld 100% of the time.
+
+**P0 datastore-sensitivity check (60 V targets, the same passage in vs out; launch sha256 `972362d8…`). It passed for both scorers, so H3 is evaluable and both scorers are eligible for §6.5.**
+
+| Scorer | Pooled AUC | 95% CI (target bootstrap) | Passes (lower bound ≥ 0.70) | Secondary AUC vs 64 N documents |
+|---|---:|---|---|---|
+| F1 | 0.902 | [0.854, 0.947] | yes | 0.890 [0.826, 0.945] |
+| Entailment | 0.887 | [0.837, 0.934] | yes | 0.907 [0.852, 0.953] |
+
+- The verbatim yes/no baseline has AUC 0.75.
+- No refusals occurred, so the refusal-excluded AUCs equal the primary ones.
+- **Timing.** The P0 job took 31 min:
+  - 14 min for the datastore pass;
+  - 16.5 min for utility (300 F questions with and without context, plus 100 F_P).
+- **Scope.** This validates the attack's sensitivity on the pretrained model only. It is not a privacy result.
+
 ## What was built
 
 | Stage 0 item (proposal §8, §12) | Where |
