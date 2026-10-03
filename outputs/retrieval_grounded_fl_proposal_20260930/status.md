@@ -50,6 +50,26 @@
   - 16.5 min for utility (300 F questions with and without context, plus 100 F_P).
 - **Scope.** This validates the attack's sensitivity on the pretrained model only. It is not a privacy result.
 
+**Timing launch (V timing target, seed 8081; two full paired RG jobs; all checks verified).**
+
+| | ε = ∞ | ε = 16 (accounted 16.0096 per world, 51 steps) |
+|---|---:|---:|
+| FL training, per world | 299 s / 303 s | 319 s / 323 s |
+| Measurements, per world (W1 / W0) | 271 s / 304 s | 1009 s / 1084 s |
+| Causal: 2 directions × (plain + release noise), 160 trials | 5796 s (97 min) | 5802 s (97 min) |
+| **Total** | **1.94 h** | **2.37 h** |
+
+- **Sequence length.** The longest training record was 329 tokens (mean 199), so the 512 cap leaves room.
+- **DP-SGD overhead.** About 7% on training time.
+- **DP measurements are 3.7× slower.** The probable cause, not yet checked, is that the noisier model's answers run to the 64-token cap.
+- **The causal attack dominates.** It takes about 36 s per trial: each trial reloads the model in a Ray client.
+- **Budget projection.** At these rates the pilot as planned costs about 59 GPU-hours (budget 16–32). Stage 2 option (b) costs about 110–130 GPU-hours (budget 40–80), even with only the chosen direction. **The researcher must decide on cost before the pilot**; options are in the session record.
+
+**Positive control, 3 epochs (12 V targets; launch sha256 `9d203eb0…`).**
+- **Learning check.** 4 of 12 targets learned their passage; at least 10 are needed.
+- **Rule.** By the pre-registered rule, the control is rerun once at 6 epochs, on the same 12 targets, lr 1e-4 and code fingerprint `714ec988b38b`.
+- **Not computed.** Retention and AUC sensitivity are not computed until the rerun decides.
+
 ## What was built
 
 | Stage 0 item (proposal §8, §12) | Where |
