@@ -641,8 +641,29 @@ def trial_member(config, trial_id):
     return bool((trial_id % 2) == flip)
 
 
+_VICTIM_MODEL = {}
+
+
+def cached_victim_model(model_path, device):
+    """One loaded victim LM per worker process, reused across observation rounds.
+
+    Every trial overwrites the whole state dict with the received request
+    (set_parameters is strict), and gradients come from torch.autograd.grad,
+    which accumulates nothing, so a reused model observes exactly what a fresh
+    load would. Only one model is kept; a new path or device replaces it.
+    """
+    from transformers import AutoTokenizer
+    from ..model_io import load_causal_model
+    key = (str(model_path), str(device))
+    if _VICTIM_MODEL.get("key") != key:
+        _VICTIM_MODEL.clear()
+        _VICTIM_MODEL.update(key=key, model=load_causal_model(model_path).to(device).eval(),
+                             tokenizer=AutoTokenizer.from_pretrained(model_path))
+    return _VICTIM_MODEL["model"], _VICTIM_MODEL["tokenizer"]
+
+
 def run_attack_trials(model_path, probe, clients, config, calibration=None, guard_runtime=None, checkpoint_dir=None, checkpoint_metadata=None,
-                      target=None):
+                      target=None, reuse_victim_model=False):
     """Send the same malicious parameters to the victim in each observed round.
 
     The harness owns private partitions and ground truth. Only the client_fn
@@ -703,9 +724,13 @@ def run_attack_trials(model_path, probe, clients, config, calibration=None, guar
             from ..federation import seed_training
             seed_training(config.seed + trial_id // 2)
             device = client_device(config)
-            from ..model_io import load_causal_model
-            model = load_causal_model(model_path).to(device).eval()
-            tokenizer = AutoTokenizer.from_pretrained(model_path)
+            if reuse_victim_model and preserving:
+                # Opt-in (grounded study): the request below replaces every tensor.
+                model, tokenizer = cached_victim_model(model_path, device)
+            else:
+                from ..model_io import load_causal_model
+                model = load_causal_model(model_path).to(device).eval()
+                tokenizer = AutoTokenizer.from_pretrained(model_path)
             if preserving:
                 set_parameters(model, parameters)
             else:

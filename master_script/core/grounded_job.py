@@ -324,7 +324,7 @@ def causal_passes(config, model_path, tokenizer, clients, member_record, candida
             trials = amia.run_attack_trials(model_path, probe, clients, pass_config,
                                             checkpoint_dir=Path(directory) / f"{direction}-{name}",
                                             checkpoint_metadata={"direction": direction, "pass": name},
-                                            target=member_record)
+                                            target=member_record, reuse_victim_model=True)
             clean = [{k: t[k] for k in ("trial_id", "truth_member", "score", "batch_pair_seed", "alignment_terms",
                                         "response_seconds") if k in t} for t in trials]
             out[direction][name] = {"trials": clean, "seconds": _now() - started,

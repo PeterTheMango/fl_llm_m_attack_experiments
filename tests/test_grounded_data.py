@@ -540,3 +540,34 @@ def test_jobs_refuse_other_study_data(tmp_path):
     job = gs.job_document(study, "control", "RG", "V", target_index=0, control={"epochs": 3, "lr": 1e-4})
     with pytest.raises(ValueError, match="Study data"):
         grounded_job.run_job(job, small_study(seed=5), tmp_path / "out")
+
+
+def test_a_reused_victim_model_observes_exactly_what_a_fresh_load_does(tiny, tmp_path, monkeypatch):
+    import torch
+    from transformers import AutoTokenizer
+    from master_script.core.attacks import amia
+    from master_script.core.attacks.causal_probe import raw_gradients
+    from master_script.core.model_io import load_causal_model
+    tiny.save_pretrained(tmp_path / "model")
+    monkeypatch.setattr(AutoTokenizer, "from_pretrained", staticmethod(lambda path: ChatTokenizer()))
+    base = amia.get_parameters(tiny)
+    request = [p + 0.01 for p in base]
+    other = [p - 0.03 for p in base]
+    config = SimpleNamespace(max_length=384)
+    batch = examples()[:2]
+
+    fresh = load_causal_model(tmp_path / "model").eval()
+    amia.set_parameters(fresh, request)
+    expected = raw_gradients(fresh, ChatTokenizer(), batch, config)
+
+    amia._VICTIM_MODEL.clear()
+    cached, _ = amia.cached_victim_model(tmp_path / "model", "cpu")
+    amia.set_parameters(cached, other)  # an earlier, different trial
+    raw_gradients(cached, ChatTokenizer(), batch, config)
+    again, _ = amia.cached_victim_model(tmp_path / "model", "cpu")
+    assert again is cached
+    amia.set_parameters(again, request)
+    observed = raw_gradients(again, ChatTokenizer(), batch, config)
+    assert all(np.array_equal(a, b) for a, b in zip(expected, observed))
+    assert all(p.grad is None for p in again.parameters())
+    amia._VICTIM_MODEL.clear()

@@ -63,7 +63,7 @@
 - **DP-SGD overhead.** About 7% on training time.
 - **DP measurements are 3.7× slower.** The probable cause, not yet checked, is that the noisier model's answers run to the 64-token cap.
 - **The causal attack dominates.** It takes about 36 s per trial: each trial reloads the model in a Ray client.
-- **Budget projection.** At these rates the pilot as planned costs about 59 GPU-hours (budget 16–32). Stage 2 option (b) costs about 110–130 GPU-hours (budget 40–80), even with only the chosen direction. **The researcher must decide on cost before the pilot**; options are in the session record.
+- **Budget projection.** At these rates the pilot as planned costs about 59 GPU-hours (budget 16–32). Stage 2 option (b) costs about 110–130 GPU-hours (budget 40–80), even with only the chosen direction. **Cost decision (2026-10-03).** The researcher chose one measure only: the victim client keeps its loaded model across observation trials (`amia.cached_victim_model`, opt-in through `run_attack_trials(reuse_victim_model=True)`). Each trial still overwrites every tensor with the request, and a test shows the gradients are bit-identical to a fresh load. Nothing else changes: the pilot keeps both directions and the release-noise pass, and no-context F1 stays. The guard studies' path is unchanged. Core fingerprint `714ec988b38b` → `4da0821d7111`. The 3- and 6-epoch control runs stay on `714ec988b38b`. A new timing launch must measure the saving before the pilot is costed.
 
 **Positive control, 3 epochs (12 V targets; launch sha256 `9d203eb0…`).**
 - **Learning check.** 4 of 12 targets learned their passage; at least 10 are needed.
