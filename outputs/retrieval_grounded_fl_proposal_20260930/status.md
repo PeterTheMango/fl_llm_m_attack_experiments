@@ -65,6 +65,10 @@
 - **The causal attack dominates.** It takes about 36 s per trial: each trial reloads the model in a Ray client.
 - **Budget projection.** At these rates the pilot as planned costs about 59 GPU-hours (budget 16–32). Stage 2 option (b) costs about 110–130 GPU-hours (budget 40–80), even with only the chosen direction. **Cost decision (2026-10-03).** The researcher chose one measure only: the victim client keeps its loaded model across observation trials (`amia.cached_victim_model`, opt-in through `run_attack_trials(reuse_victim_model=True)`). Each trial still overwrites every tensor with the request, and a test shows the gradients are bit-identical to a fresh load. Nothing else changes: the pilot keeps both directions and the release-noise pass, and no-context F1 stays. The guard studies' path is unchanged. Core fingerprint `714ec988b38b` → `4da0821d7111`. The 3- and 6-epoch control runs stay on `714ec988b38b`. A new timing launch must measure the saving before the pilot is costed.
 
+**Second timing launch `timing-2` (2026-10-03).**
+- **Ran on the old code.** `d171bed` had not been pushed, so the server worktree was still at `b7a185d`. This is inferred from the branch state; the launch's fingerprint has not been confirmed. **It does not test the fix.**
+- **Repeatability check.** It does show that timings repeat. Totals: 6958 s vs 6984 s (ε = ∞) and 8577 s vs 8548 s (ε = 16). Causal: 5767 s and 5863 s.
+
 **Positive control, 3 epochs (12 V targets; launch sha256 `9d203eb0…`).**
 - **Learning check.** 4 of 12 targets learned their passage; at least 10 are needed.
 - **Rule.** By the pre-registered rule, the control is rerun once at 6 epochs, on the same 12 targets, lr 1e-4 and code fingerprint `714ec988b38b`.
