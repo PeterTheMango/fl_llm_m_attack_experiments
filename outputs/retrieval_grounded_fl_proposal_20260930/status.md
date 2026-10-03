@@ -81,6 +81,8 @@
 - **Cause.** About 25 s per trial is simulation overhead. The likely cause, unconfirmed, is that the 2 GB request goes to all four clients and the three bystanders return it. Drawing release noise in float64 costs about 15 s.
 - **Totals.** 1.87 h (ε = ∞) and 2.30 h (ε = 16).
 
+**Second cost measure (2026-10-03, researcher's choice).** Observation rounds now simulate only the attacked client (`run_attack_trials(observe_target_only=True)`, opt-in; the guard studies' path is unchanged). It receives the same partition, seeds and request, so observations are unchanged; the three bystanders no longer receive and return the 2 GB request every trial. Core fingerprint `4da0821d7111` → `4a001c5eb678`. The pilot keeps both directions, the release-noise pass and no-context F1. A fourth timing launch measures the saving. The 6-epoch control rerun runs from a worktree pinned to `b7a185d` (fingerprint `714ec988b38b`), the same code as the 3-epoch run.
+
 **Positive control, 3 epochs (12 V targets; launch sha256 `9d203eb0…`).**
 - **Learning check.** 4 of 12 targets learned their passage; at least 10 are needed.
 - **Rule.** By the pre-registered rule, the control is rerun once at 6 epochs, on the same 12 targets, lr 1e-4 and code fingerprint `714ec988b38b`.

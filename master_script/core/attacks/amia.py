@@ -663,7 +663,7 @@ def cached_victim_model(model_path, device):
 
 
 def run_attack_trials(model_path, probe, clients, config, calibration=None, guard_runtime=None, checkpoint_dir=None, checkpoint_metadata=None,
-                      target=None, reuse_victim_model=False):
+                      target=None, reuse_victim_model=False, observe_target_only=False):
     """Send the same malicious parameters to the victim in each observed round.
 
     The harness owns private partitions and ground truth. Only the client_fn
@@ -789,21 +789,25 @@ def run_attack_trials(model_path, probe, clients, config, calibration=None, guar
             # This is an observation round, never FedAvg over gradient payloads.
             return initial, {}
 
+    # Opt-in (grounded study): simulate only the observed victim. Bystanders
+    # never compute, but each would receive and return the full request.
+    nodes = 1 if observe_target_only else config.num_clients
+
     def client_fn(context):
-        cid = int(context.node_config["partition-id"])
+        cid = config.target_client_id if observe_target_only else int(context.node_config["partition-id"])
         return VictimClient(cid, clients[cid]).to_client()
 
     def server_fn(context):
         strategy = ObserveGradient(fraction_fit=1.0, fraction_evaluate=0.0,
-                                   min_fit_clients=config.num_clients,
-                                   min_available_clients=config.num_clients,
+                                   min_fit_clients=nodes,
+                                   min_available_clients=nodes,
                                    initial_parameters=initial, accept_failures=False,
                                    on_fit_config_fn=lambda r: {"trial_id": r - 1})
         return ServerAppComponents(strategy=strategy,
                                    config=ServerConfig(num_rounds=config.attack_trials))
 
     run_simulation(server_app=ServerApp(server_fn=server_fn), client_app=ClientApp(client_fn=client_fn),
-                   num_supernodes=config.num_clients,
+                   num_supernodes=nodes,
                    backend_config=simulation_backend(config))
     if len(trials) != config.attack_trials:
         raise RuntimeError("Incomplete AMIA observation rounds")

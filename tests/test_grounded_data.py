@@ -571,3 +571,30 @@ def test_a_reused_victim_model_observes_exactly_what_a_fresh_load_does(tiny, tmp
     assert all(np.array_equal(a, b) for a, b in zip(expected, observed))
     assert all(p.grad is None for p in again.parameters())
     amia._VICTIM_MODEL.clear()
+
+
+@pytest.mark.parametrize("target_only, nodes", [(True, 1), (False, 4)])
+def test_observation_rounds_can_simulate_the_victim_alone(monkeypatch, target_only, nodes):
+    import flwr.client
+    import flwr.server
+    from master_script.core import runtime_memory
+    from master_script.core.attacks import amia
+    seen = {}
+    monkeypatch.setattr(flwr.server, "ServerApp", lambda server_fn: SimpleNamespace(server_fn=server_fn))
+    monkeypatch.setattr(flwr.client, "ClientApp", lambda client_fn: SimpleNamespace(client_fn=client_fn))
+
+    def simulate(server_app, client_app, num_supernodes, backend_config):
+        seen["nodes"] = num_supernodes
+        seen["strategy"] = server_app.server_fn(None).strategy
+        seen["partitions"] = [client_app.client_fn(SimpleNamespace(node_config={"partition-id": i})).numpy_client.partition_id
+                              for i in range(num_supernodes)]
+    monkeypatch.setattr(runtime_memory, "run_simulation", simulate)
+    probe = SimpleNamespace(_public_direction=[np.zeros(1)])
+    monkeypatch.setattr(amia, "get_parameters", lambda model: [np.zeros(1, "float32")])
+    config = SimpleNamespace(attack_variant="causal_gradient_alignment", num_clients=4, target_client_id=2,
+                             attack_trials=2, sim_num_gpus=0.0, sim_max_concurrent_clients=1)
+    with pytest.raises(RuntimeError, match="Incomplete"):
+        amia.run_attack_trials("unused", probe, [["a"], ["b"], ["c"], ["d"]], config, observe_target_only=target_only)
+    assert seen["nodes"] == nodes
+    assert (seen["strategy"].min_fit_clients, seen["strategy"].min_available_clients) == (nodes, nodes)
+    assert seen["partitions"] == ([2] if target_only else [0, 1, 2, 3])
