@@ -69,6 +69,18 @@
 - **Ran on the old code.** `d171bed` had not been pushed, so the server worktree was still at `b7a185d`. This is inferred from the branch state; the launch's fingerprint has not been confirmed. **It does not test the fix.**
 - **Repeatability check.** It does show that timings repeat. Totals: 6958 s vs 6984 s (ε = ∞) and 8577 s vs 8548 s (ε = 16). Causal: 5767 s and 5863 s.
 
+**Third timing launch `timing-3` (fingerprint `4da0821d7111`, with the reuse fix).**
+- **Saving.** The causal attack took 5567 s and 5558 s, only about 4% less. Model reloading was not the bottleneck.
+- **Per-trial split (ε = ∞ job).**
+
+  | Pass | Wall time per trial | Victim client compute |
+  |---|---:|---:|
+  | Plain | 27–28 s | 3 s |
+  | Release noise | 41–43 s | 17–18 s |
+
+- **Cause.** About 25 s per trial is simulation overhead. The likely cause, unconfirmed, is that the 2 GB request goes to all four clients and the three bystanders return it. Drawing release noise in float64 costs about 15 s.
+- **Totals.** 1.87 h (ε = ∞) and 2.30 h (ε = 16).
+
 **Positive control, 3 epochs (12 V targets; launch sha256 `9d203eb0…`).**
 - **Learning check.** 4 of 12 targets learned their passage; at least 10 are needed.
 - **Rule.** By the pre-registered rule, the control is rerun once at 6 epochs, on the same 12 targets, lr 1e-4 and code fingerprint `714ec988b38b`.
