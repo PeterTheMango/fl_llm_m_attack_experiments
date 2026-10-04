@@ -101,6 +101,15 @@
   - 40 DP jobs at up to about 1.18 h;
   - P0 and RG-public.
 - **Remaining large cost.** The DP worlds' measurements take about 1000 s per world, against 275 s at ε = ∞.
+- **Per-trial split (`timing-4`, ε = ∞).**
+
+  | Pass | Wall time per trial | Victim compute |
+  |---|---:|---:|
+  | Plain | 12 s | 2.5 s |
+  | Release noise | 26 s | 17 s |
+
+- **Budget decision (2026-10-03).** The researcher accepted the pilot as designed, at about 37 GPU-hours.
+- **Open: run-to-run agreement.** `timing-3` and `timing-4` used the same target and seed. The largest per-trial difference in the no-noise causal scores was 0.41 (record direction) and 0.92 (template direction), far more than GPU non-determinism should give. **The pilot waits until this is explained.**
 
 **Positive control, 3 epochs (12 V targets; launch sha256 `9d203eb0…`).**
 - **Learning check.** 4 of 12 targets learned their passage; at least 10 are needed.
