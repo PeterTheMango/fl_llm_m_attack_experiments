@@ -219,6 +219,14 @@ def test_resolve_run_check_and_analyze_the_control(built, tmp_path, monkeypatch)
     assert analysis["learned"] == 2 and analysis["status"] in ("sensitive", "not_evaluable")
     with pytest.raises(ValueError, match="already exists"):
         gs.analyze(root, tmp_path / "control-analysis.json")
+    # An earlier launch stays readable after the code moves on; it is never re-resolved.
+    study = json.loads(study_path.read_bytes())
+    monkeypatch.setattr(gs, "implementation_fingerprint", lambda: "moved-on")
+    with pytest.raises(ValueError, match="Core code changed"):
+        gs.completed(root)
+    assert len(gs.frozen_results(root, study)) == 2
+    with pytest.raises(ValueError, match="another study"):
+        gs.frozen_results(root, dict(study, seed=1))
 
 
 def test_changed_files_are_refused(built, tmp_path):
@@ -470,3 +478,42 @@ def test_paired_records_are_built_from_job_results():
     assert r["reference"]["template"] == (2.0, 1.0) and r["retention"] == pytest.approx(0.4)
     assert r["nq"]["f1"]["d_plus"] == pytest.approx(0.8) and r["nq"]["f1"]["d_minus"] == pytest.approx(0.1)
     assert r["causal"]["record"] == {"plain": 0.9, "release_noise": 0.6} and r["utility"] == [0.5]
+
+
+def pilot_result(arm, eps, i, gap=0.0):
+    rng = np.random.default_rng(1000 * i + len(arm) + (0 if eps == "inf" else eps))
+    cell = lambda v: probes(float(np.clip(v, 0, 1)))
+    privacy = {"epsilon": "inf"} if eps == "inf" else {"epsilon": gs.expected_epsilon(eps)[1]}
+    util = [{"query_id": f"q{k}", "f1": float(np.clip(0.6 + rng.normal(0, .05), 0, 1))} for k in range(QUESTIONS)]
+    return {"kind": "paired", "arm": arm, "epsilon_budget": eps, "target_sha256": f"t{i}", "privacy": {"W1": privacy, "W0": privacy},
+            "worlds": {"W1": {"reference": {"record": 1 + gap + rng.normal(0, .1), "template": 1 + rng.normal(0, .1)},
+                              "retention": {"f1": 0.3}, "utility": {"F": util, "F_P": []},
+                              "natural_questions": {"both": cell(.9), "training_only": cell(.5)}},
+                       "W0": {"reference": {"record": 1 + rng.normal(0, .1), "template": 1 + rng.normal(0, .1)},
+                              "retention": {"f1": 0.1}, "utility": {"F": util, "F_P": []},
+                              "natural_questions": {"library_only": cell(.8 + rng.normal(0, .05)),
+                                                    "neither": cell(.2 + rng.normal(0, .05))}}},
+            "causal": {"record": {"plain": {"auc": 0.9}}, "template": {"plain": {"auc": 0.8}}},
+            "timings": {"total_seconds": 1.0}}
+
+
+def test_pilot_analysis_fixes_choices_and_projects_precision():
+    rows = [{"result": pilot_result(arm, eps, i, gap=1.0)} for arm in ("RG", "CB-AO") for eps in ("inf", 64, 16) for i in range(4)]
+    rows += [{"result": pilot_result("CB-LM", "inf", i)} for i in range(4, 8)]
+    util = lambda level: [{"query_id": f"q{k}", "f1": level} for k in range(QUESTIONS)]
+    rows += [{"result": {"kind": "public", "arm": "RG-public", "epsilon_budget": "inf", "timings": {"total_seconds": 1.0},
+                         "worlds": {"public": {"utility": {"F": util(0.5 + 0.01 * s)}}}}} for s in range(5)]
+    p0 = [{"result": {"worlds": {"P0": {"utility": {"F": util(0.55)}}}}, "launch_kind": "datastore"}]
+    study = {"cohorts": {"V": {"F": [{"id": f"q{k}", "article": CLUSTERS[k]} for k in range(QUESTIONS)]}}}
+    report = gs.analyze_pilot(rows, study, {"eligible_scorers": ["f1"]}, {"h4_primary": True}, p0)
+    assert report["role"].startswith("tuning") and report["h4_primary"] is True
+    assert set(report["attacker_choices"]) == {"RG", "CB-AO", "CB-LM"}
+    assert report["attacker_choices"]["RG"]["reference_form"] == report["attacker_choices"]["CB-AO"]["reference_form"] == "record"
+    assert report["attacker_choices"]["RG"]["causal_direction"] == "record" and report["attacker_choices"]["RG"]["nq_scorer"] == "f1"
+    names = set(report["projections"])
+    assert {"H1.D", "H1.utility", "H2.D", "H3.D", "H4.R_RG", "H4.D_H4", "H5.D", "H6.utility", "H6.reference_auc", "H7.D"} <= names
+    h1 = report["projections"]["H1.D"]
+    assert (h1["pilot_targets"], h1["planned_targets"]) == (4, 20)
+    assert report["projections"]["H6.utility"]["planned_targets"] == 10
+    assert report["accounted_epsilon"]["inf"] == "inf" and abs(report["accounted_epsilon"]["16"] - 16) < 0.05
+    assert "H7" in report["descriptive_pilot_differences"]

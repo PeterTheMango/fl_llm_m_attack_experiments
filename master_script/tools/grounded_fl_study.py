@@ -514,6 +514,29 @@ def completed(root, partial=False):
     return launch, state, study, rows
 
 
+def frozen_results(root, study):
+    """Completed results of an earlier launch, possibly prepared under older code: each result is
+    checked against the launch's own completion record, never re-run or re-resolved."""
+    root = Path(root).resolve()
+    launch = json.loads((root / "launch.json").read_bytes())
+    state = json.loads((root / "progress.json").read_bytes())
+    if launch.get("schema") != LAUNCH_SCHEMA or launch["study_sha256"] != grounded.study_sha256(study):
+        raise ValueError("The earlier launch belongs to another study")
+    if state["launch_sha256"] != digest(root / "launch.json") or state.get("active_job") is not None \
+            or len(state["completed"]) != len(launch["jobs"]):
+        raise ValueError("The earlier launch is changed or incomplete")
+    rows = []
+    for done in state["completed"]:
+        path = (root / done["result"]).resolve()
+        if root not in path.parents or digest(path) != done["sha256"]:
+            raise ValueError("An earlier result changed after collection")
+        result = json.loads(path.read_bytes())
+        if result["implementation_fingerprint"] != launch["implementation_fingerprint"]:
+            raise ValueError("An earlier result was not produced by its launch's code")
+        rows.append({"index": done["job"], "result": result, "launch_kind": launch["kind"]})
+    return rows
+
+
 def _structure(result):
     """Counts only: every expected measurement row is present."""
     counts = {}
@@ -835,11 +858,17 @@ def projection(draws, n_pilot, n_plan, level):
 
 # ------------------------------------------------------------ hypotheses
 
-def hypotheses(paired, public, p0, choices, h4_primary=True, clusters=None):
+def hypotheses(paired, public, p0, choices, h4_primary=True, clusters=None, sink=None):
     """H1-H7 and the cross-channel rule on final data (§9). paired: per-target records;
-    public: RG-public per-seed F1 vectors; p0: the P0 F1 vector; clusters: F article per question."""
+    public: RG-public per-seed F1 vectors; p0: the P0 F1 vector; clusters: F article per question.
+    sink, when given, receives each difference's bootstrap draws (pilot precision projections)."""
     import numpy as np
     level = decision_level(h4_primary)
+
+    def summarize(point, draws, level, name=None):
+        if sink is not None and name is not None:
+            sink[name] = draws
+        return globals()["summarize"](point, draws, level)
     require_matched_epsilon(paired)
     rng = np.random.default_rng(RNG_SEED)
     by = lambda arm, eps: [r for r in paired if r["arm"] == arm and str(r["epsilon_budget"]) == str(eps)]
@@ -864,16 +893,16 @@ def hypotheses(paired, public, p0, choices, h4_primary=True, clusters=None):
 
     # H1: weights, record membership.
     (rg_auc, rg_boot), (cb_auc, cb_boot) = ref(arms["RG"], "RG", idx), ref(arms["CB-AO"], "CB-AO", idx)
-    d = summarize(cb_auc - rg_auc, cb_boot - rg_boot, level)
+    d = summarize(cb_auc - rg_auc, cb_boot - rg_boot, level, "H1.D")
     d["classification"] = classify(*d["decision_interval"])
     u_point, u_draws = utility_diff(arms["RG"], arms["CB-AO"], idx)
-    u = summarize(u_point, u_draws, level)
+    u = summarize(u_point, u_draws, level, "H1.utility")
     u["acceptable"] = u["decision_interval"][0] > -MARGIN
     out["H1"] = {"D": d, "utility_RG_minus_CBAO": u, "claimed": d["classification"]["supported"] and u["acceptable"]}
     # H2: client updates, two-sided.
     causal = lambda rows, arm: np.array([r["causal"][choices[arm]["causal_direction"]]["plain"] for r in rows])
     rg_c, cb_c = causal(arms["RG"], "RG"), causal(arms["CB-AO"], "CB-AO")
-    d = summarize(cb_c.mean() - rg_c.mean(), cb_c[idx].mean(axis=1) - rg_c[idx].mean(axis=1), level)
+    d = summarize(cb_c.mean() - rg_c.mean(), cb_c[idx].mean(axis=1) - rg_c[idx].mean(axis=1), level, "H2.D")
     d["classification"] = classify(*d["decision_interval"])
     out["H2"] = {"D": d, "reading": h2_reading(d["classification"])}
     # H3: datastore.
@@ -883,7 +912,7 @@ def hypotheses(paired, public, p0, choices, h4_primary=True, clusters=None):
             plus, minus = [r["nq"][s]["d_plus"] for r in rows], [r["nq"][s]["d_minus"] for r in rows]
             return auc(plus, minus), auc_resampled(plus, minus, idx)
         (rg_n, rg_nb), (cb_n, cb_nb) = nq(arms["RG"], "RG"), nq(arms["CB-AO"], "CB-AO")
-        d = summarize(rg_n - cb_n, rg_nb - cb_nb, level)
+        d = summarize(rg_n - cb_n, rg_nb - cb_nb, level, "H3.D")
         d["classification"] = classify(*d["decision_interval"])
         out["H3"] = {"D": d, "claimed": d["classification"]["supported"]}
     else:
@@ -891,9 +920,9 @@ def hypotheses(paired, public, p0, choices, h4_primary=True, clusters=None):
     # H4: both endpoints required.
     rg_r = np.array([r["retention"] for r in arms["RG"]])
     cb_r = np.array([r["retention"] for r in arms["CB-AO"]])
-    r_rg = summarize(rg_r.mean(), rg_r[idx].mean(axis=1), level)
+    r_rg = summarize(rg_r.mean(), rg_r[idx].mean(axis=1), level, "H4.R_RG")
     r_rg["classification"] = classify(*r_rg["decision_interval"])
-    d_h4 = summarize(rg_r.mean() - cb_r.mean(), rg_r[idx].mean(axis=1) - cb_r[idx].mean(axis=1), level)
+    d_h4 = summarize(rg_r.mean() - cb_r.mean(), rg_r[idx].mean(axis=1) - cb_r[idx].mean(axis=1), level, "H4.D_H4")
     d_h4["classification"] = classify(*d_h4["decision_interval"])
     out["H4"] = {"R_RG": r_rg, "D_H4": d_h4, "primary": h4_primary,
                  "claimed": r_rg["classification"]["supported"] and d_h4["classification"]["supported"]}
@@ -902,7 +931,7 @@ def hypotheses(paired, public, p0, choices, h4_primary=True, clusters=None):
     rg_point = np.mean([np.mean(r["utility"]) for r in arms["RG"]])
     seed_idx = target_indices(len(public), rng)
     pub = arm_means(model_means(public, weights), seed_idx)
-    d = summarize(np.mean([np.mean(s) for s in public]) - rg_point, pub - rg_means, level)
+    d = summarize(np.mean([np.mean(s) for s in public]) - rg_point, pub - rg_means, level, "H5.D")
     d["acceptable"] = d["decision_interval"][0] > -MARGIN
     out["H5"] = {"D": d, "claimed": d["acceptable"]}
     for eps in (64, 16):
@@ -914,14 +943,14 @@ def hypotheses(paired, public, p0, choices, h4_primary=True, clusters=None):
                             pub - other, 0.95)
             out["H5"][f"secondary_vs_eps{eps}"] = sec
     p0_draws = model_means([p0], weights)[:, 0]
-    d = summarize(np.mean(p0) - rg_point, p0_draws - rg_means, level)
+    d = summarize(np.mean(p0) - rg_point, p0_draws - rg_means, level, "H7.D")
     out["H7"] = {"D": d, "reading": h7_reading(*d["decision_interval"]), "data": "final data only"}
     # H6: utility at matched epsilon 16, leakage no worse.
     u_point, u_draws = utility_diff(arms16["RG"], arms16["CB-AO"], idx16)
-    u = summarize(u_point, u_draws, level)
+    u = summarize(u_point, u_draws, level, "H6.utility")
     u["classification"] = classify(*u["decision_interval"])
     (rg16, rg16b), (cb16, cb16b) = ref(arms16["RG"], "RG", idx16), ref(arms16["CB-AO"], "CB-AO", idx16)
-    leak = summarize(cb16 - rg16, cb16b - rg16b, level)
+    leak = summarize(cb16 - rg16, cb16b - rg16b, level, "H6.reference_auc")
     leak["no_worse"] = leak["decision_interval"][0] > -MARGIN
     out["H6"] = {"utility": u, "reference_auc_CBAO_minus_RG": leak,
                  "claimed": u["classification"]["supported"] and leak["no_worse"]}
@@ -932,7 +961,48 @@ def hypotheses(paired, public, p0, choices, h4_primary=True, clusters=None):
 
 # --------------------------------------------------------------- analyze
 
-def analyze(root, output, datastore=None, control=None):
+PLANNED_TARGETS = {"inf": 20, "dp": 10}  # option (b), provisional
+
+
+def analyze_pilot(rows, study, datastore, control, p0_rows):
+    """Stage 1: attacker choices on the tuning cohort, descriptive pilot differences and
+    projected decision half-widths for option (b). Pilot data are never evidence."""
+    import numpy as np
+    records = [paired_record(r["result"]) for r in rows if r["result"]["kind"] == "paired"]
+    epsilons = require_matched_epsilon(records)
+    choices = attacker_choices(records, datastore["eligible_scorers"])
+    h4_primary = bool(control.get("h4_primary"))
+    public = [[q["f1"] for q in r["result"]["worlds"]["public"]["utility"]["F"]] for r in rows if r["result"]["kind"] == "public"]
+    p0 = [q["f1"] for q in p0_rows[0]["result"]["worlds"]["P0"]["utility"]["F"]]
+    article = {q["id"]: q["article"] for q in study["cohorts"]["V"]["F"]}
+    ids = next(r["utility_ids"] for r in records if r["arm"] == "RG")
+    if any(len(v) != len(ids) for v in public + [p0]):
+        raise ValueError("Utility vectors differ in length across models")
+    draws = {}
+    described = hypotheses(records, public, p0, choices, h4_primary, [article[i] for i in ids], sink=draws)
+    level = decision_level(h4_primary)
+    counts = {"inf": len({r["target"] for r in records if r["arm"] == "RG" and str(r["epsilon_budget"]) == "inf"}),
+              "dp": len({r["target"] for r in records if r["arm"] == "RG" and str(r["epsilon_budget"]) == "16"})}
+    projections = {}
+    for name, values in draws.items():
+        kind = "dp" if name.startswith("H6") else "inf"
+        projections[name] = {"pilot_targets": counts[kind], "planned_targets": PLANNED_TARGETS[kind],
+                             "pilot_decision_halfwidth": float((np.quantile(values, 1 - (1 - level) / 2)
+                                                                - np.quantile(values, (1 - level) / 2)) / 2),
+                             "projected_decision_halfwidth": projection(values, counts[kind], PLANNED_TARGETS[kind], level)}
+    return {"schema": "grounded_pilot_analysis_v1", "role": "tuning data; never reported as evidence",
+            "accounted_epsilon": epsilons, "attacker_choices": choices,
+            "attacker_choice_rule": "per arm, pooling its pilot jobs over all budgets; highest pooled tuning AUC, ties to the standard form or F1",
+            "h4_primary": h4_primary, "projections": projections,
+            "projection_note": ("normal approximation scaled by sqrt(pilot/planned targets); utility terms also carry "
+                                "article-cluster and seed variance that does not shrink with targets, so they are optimistic"),
+            "descriptive_pilot_differences": described,
+            "descriptive_note": "Pilot differences are tuning data: descriptive only, never evidence; RG-vs-P0 changes nothing (§8)",
+            "timings": [{"arm": r["result"]["arm"], "epsilon_budget": r["result"]["epsilon_budget"],
+                         "total_seconds": r["result"]["timings"]["total_seconds"]} for r in rows]}
+
+
+def analyze(root, output, datastore=None, control=None, p0_launch=None):
     launch, _, study, rows = completed(root)
     datastore = json.loads(Path(datastore).read_bytes()) if datastore else None
     if launch["kind"] == "datastore":
@@ -942,16 +1012,13 @@ def analyze(root, output, datastore=None, control=None):
     elif launch["kind"] == "timing":
         report = analyze_timing(rows)
     else:
-        if datastore is None or control is None:
-            raise ValueError("The pilot analysis needs the datastore and control analyses")
+        if datastore is None or control is None or p0_launch is None:
+            raise ValueError("The pilot analysis needs the datastore and control analyses and the P0 datastore launch")
         control = json.loads(Path(control).read_bytes())
-        records = [paired_record(r["result"]) for r in rows if r["result"]["kind"] == "paired"]
-        epsilons = require_matched_epsilon(records)
-        report = {"schema": "grounded_pilot_analysis_v1", "role": "tuning data; never reported as evidence",
-                  "accounted_epsilon": epsilons, "attacker_choices": attacker_choices(
-                      [r for r in records if r["arm"] in ("RG", "CB-AO", "CB-LM")], datastore["eligible_scorers"]),
-                  "h4_primary": control.get("h4_primary"),
-                  "descriptive": {"note": "RG-vs-P0 F1 is descriptive only and changes nothing (§8)"}}
+        p0_rows = frozen_results(p0_launch, study)
+        if p0_rows[0]["launch_kind"] != "datastore":
+            raise ValueError("--p0-launch must be the P0 datastore launch")
+        report = analyze_pilot(rows, study, datastore, control, p0_rows)
     report.update(launch_sha256=digest(Path(root) / "launch.json"), study_tool_sha256=tool_digest(),
                   implementation_fingerprint=launch["implementation_fingerprint"],
                   protocol_sha256=launch["protocol_sha256"], study_sha256=launch["study_sha256"],
@@ -989,6 +1056,7 @@ def main(argv=None):
     c = sub.add_parser("check", help="integrity and timing; no endpoint values"); c.add_argument("root")
     a = sub.add_parser("analyze", help="validation rules or analysis"); a.add_argument("root"); a.add_argument("output")
     a.add_argument("--datastore-analysis"); a.add_argument("--control-analysis")
+    a.add_argument("--p0-launch", help="the P0 datastore launch folder (pilot analysis: P0 utility on V)")
     args = p.parse_args(argv)
     if args.action == "build":
         report = build(args.output, args.exclude_manifest)
@@ -1009,7 +1077,7 @@ def main(argv=None):
     elif args.action == "check":
         print(json.dumps(check(args.root), indent=1))
     else:
-        report = analyze(args.root, args.output, args.datastore_analysis, args.control_analysis)
+        report = analyze(args.root, args.output, args.datastore_analysis, args.control_analysis, args.p0_launch)
         print(json.dumps({k: v for k, v in report.items() if k not in ("learning_per_target",)}, indent=1, default=str))
 
 

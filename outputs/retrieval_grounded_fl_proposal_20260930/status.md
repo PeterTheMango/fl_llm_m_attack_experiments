@@ -110,6 +110,26 @@
 
 - **Budget decision (2026-10-03).** The researcher accepted the pilot as designed, at about 37 GPU-hours.
 - **Open: run-to-run agreement.** `timing-3` and `timing-4` used the same target and seed. The largest per-trial difference in the no-noise causal scores was 0.41 (record direction) and 0.92 (template direction), far more than GPU non-determinism should give. **The pilot waits until this is explained.**
+- **Explained (2026-10-04).** The two runs trained different W1 models. Round losses agree in round 1 (1.42352 vs 1.42352), drift by round 2 (0.7948 vs 0.7950) and differ in round 3 (0.422 vs 0.326). The attack amplifies the difference: the template request ended at loss 17.4 vs 7.8. The victim saw identical labels and batch seeds, and the FL training code is identical in both fingerprints, so the cause is GPU non-determinism in training, not the observation changes.
+- **Decision.** The researcher accepted run-to-run non-determinism. Each world is one random draw, as the paired design assumes; the noise affects W1 and W0 alike and is carried by the target bootstrap. Reruns are not bit-reproducible.
+
+**Positive control, 6-epoch rerun (launch sha256 `aa367f4d…`, fingerprint `714ec988b38b`, worktree at `b7a185d`).**
+- **Learning check: passes at the minimum.** 10 of 12 targets learned their passage.
+
+  | | Passage-NLL ratio | Continuation match |
+  |---|---|---|
+  | 10 learned | 0.000–0.106 | all 1.0 |
+  | 2 not learned | 0.138 and 0.031 (both pass) | 0.375 and 0.188 (both fail) |
+
+- **Retention sensitivity (decisive): passes.** Mean r = 0.142 F1, 95% target-bootstrap CI [0.066, 0.225], lower bound > 0.05. **H4 stays primary: seven primaries, 99.3%.**
+- **Secondary membership AUC (training-only cell, learned targets).** F1 0.80 [0.65, 0.95]; entailment 0.95 [0.87, 1.00]. Both are sensitive.
+- **Scope.** This shows the probes detect deliberately memorized passage facts. It is not a finding about grounded training.
+
+**Attacker-choice rule (decided 2026-10-04).** Each arm's choice pools its pilot jobs over all three budgets.
+
+**Pilot analysis completed before the pilot is prepared (tool only; core fingerprint unchanged at `4a001c5eb678`).** `analyze` on the pilot launch now:
+- reads P0's utility read-only from the datastore launch (`--p0-launch`);
+- computes the attacker choices, the descriptive pilot differences for H1–H7 and projected decision half-widths for option (b): 20 targets at ε = ∞ and 10 for H6.
 
 **Positive control, 3 epochs (12 V targets; launch sha256 `9d203eb0…`).**
 - **Learning check.** 4 of 12 targets learned their passage; at least 10 are needed.
@@ -199,7 +219,7 @@ The executor keeps the collector's guarantees without changing `collect_guard_tr
 
 - **Sequence length 512, not 384 (2026-09-30).** The first server `build` refused because an RG training record (SQuAD question `57063fcb52bb8914006899b6`) needs 405 tokens. The researcher chose to raise `max_length` to 512 rather than skip long passages or tighten the word cap. The word range and the no-truncation rule are unchanged. The protocol's timing item "sequence length 384" is now measured at 512.
 - **Related-work search.** The structured related-work search (Stage 0 item 1 in §8) is not part of this change.
-- **Pilot projections.** Precision projections exist (`projection`) but are not yet wired into the pilot `analyze`. This is Stage 1 work.
+- **Pilot projections.** Wired into the pilot `analyze` (2026-10-04). They use a normal approximation, which is optimistic for the utility terms.
 - **Stage 2.** No Stage 2 `prepare` exists, because its protocol is finalized after the pilot. `hypotheses()` is implemented and tested on synthetic data.
 - **Timing.** Timing is a separate launch: one full paired RG job at ε = ∞ and one at ε = 16, on the V timing target.
 
