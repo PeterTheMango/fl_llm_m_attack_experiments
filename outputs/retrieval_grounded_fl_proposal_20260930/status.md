@@ -83,6 +83,25 @@
 
 **Second cost measure (2026-10-03, researcher's choice).** Observation rounds now simulate only the attacked client (`run_attack_trials(observe_target_only=True)`, opt-in; the guard studies' path is unchanged). It receives the same partition, seeds and request, so observations are unchanged; the three bystanders no longer receive and return the 2 GB request every trial. Core fingerprint `4da0821d7111` → `4a001c5eb678`. The pilot keeps both directions, the release-noise pass and no-context F1. A fourth timing launch measures the saving. The 6-epoch control rerun runs from a worktree pinned to `b7a185d` (fingerprint `714ec988b38b`), the same code as the 3-epoch run.
 
+**Fourth timing launch `timing-4` (fingerprint `4a001c5eb678`, victim-only observation).**
+- **Saving.** The causal attack took 3074 s and 3037 s, 45% less than `timing-3`.
+- **Totals.** 1.18 h (ε = ∞) and 1.60 h (ε = 16). Training and measurement times are unchanged.
+- **Re-costed pilot.** About 37 GPU-hours (budget 16–32):
+
+  | Jobs | GPU-h |
+  |---|---:|
+  | 8 × ε = ∞ | 9.5 |
+  | 8 × ε = 64 (unmeasured; assumed between the two measured budgets) | ≈ 11 |
+  | 8 × ε = 16 | 12.8 |
+  | 4 CB-LM, record direction only | ≈ 3 |
+  | 5 RG-public | ≈ 1 |
+
+- **Re-costed Stage 2 option (b).** About 75–80 GPU-hours (budget 40–80), with the chosen direction only:
+  - 40 ε = ∞ jobs at about 0.76 h;
+  - 40 DP jobs at up to about 1.18 h;
+  - P0 and RG-public.
+- **Remaining large cost.** The DP worlds' measurements take about 1000 s per world, against 275 s at ε = ∞.
+
 **Positive control, 3 epochs (12 V targets; launch sha256 `9d203eb0…`).**
 - **Learning check.** 4 of 12 targets learned their passage; at least 10 are needed.
 - **Rule.** By the pre-registered rule, the control is rerun once at 6 epochs, on the same 12 targets, lr 1e-4 and code fingerprint `714ec988b38b`.
