@@ -72,7 +72,18 @@
 
 S2 costs about 56 GPU-h with no primary definition changed. **Nothing in Stage 2 is decided or prepared.**
 
-**Next server step (read-only, for decision C in the memo).** This prints the pilot's mean causal AUC per arm, budget, direction and pass, without and with release noise:
+**Pilot causal AUCs with release noise (read 2026-10-05; tuning data).** Chosen template direction, ε = ∞:
+
+| | No noise | Release noise |
+|---|---|---|
+| RG | 1.000 | 0.744 [0.68–0.78] |
+| CB-AO | 1.000 | 0.621 [0.53–0.79] |
+
+- **The noise takes the attack off the ceiling,** and suggests RG leaks more through updates.
+- **Inverted record direction.** RG's record direction is inverted at ε = ∞ (no-noise AUC 0.31).
+- **Memo §3 C** is updated with the full table, option C2 (✱, a selection-risk caution) and scenario S5 (30 targets with the noise pass, about 71 GPU-h).
+
+**The command used (read-only, for decision C in the memo).** This prints the pilot's mean causal AUC per arm, budget, direction and pass, without and with release noise:
 
 ```bash
 python - <<'PY'

@@ -59,8 +59,27 @@ There are two different questions, and they need very different precision:
 
 With the pre-registered definition, H2 would come out "no meaningful change". The reason is that both arms sit at AUC 1, not that their update leakage is equal.
 
-- **C1. Keep H2 as defined and report it with an explicit ceiling caveat (recommended).** No redesign needed.
-- **C2. Make the release-noise pass H2's primary endpoint ✱.** With noise the attack may come off the ceiling. This is a definition change needing a new pre-registration, and it needs the pilot's release-noise AUCs first (§4).
+**Pilot causal AUCs** (chosen template direction; mean over 4 targets, with each target's value in brackets):
+
+| | RG, no noise | RG, release noise | CB-AO, no noise | CB-AO, release noise |
+|---|---|---|---|---|
+| ε = ∞ | 1.000 | **0.744** [0.77, 0.76, 0.78, 0.68] | 1.000 | **0.621** [0.79, 0.53, 0.60, 0.56] |
+| ε = 64 | 0.935 | 0.633 | 0.999 | 0.698 |
+| ε = 16 | 1.000 | 0.580 | 0.967 | 0.691 |
+
+**What the table shows.**
+- **Release noise takes the attack off the ceiling.** At ε = ∞ it suggests RG leaks *more* through updates than CB-AO: D = CB-AO − RG ≈ −0.12.
+- **Projected precision for that D, from 4 targets and unpaired (target order not confirmed).** The 99.3% half-width would be about 0.075 at 20 targets, 0.061 at 30 and 0.053 at 40. At the pilot's size this would read "RG increases", and it would feed the cross-channel claim.
+- **Side observation.** The record direction is *inverted* for RG at ε = ∞ (no-noise AUC 0.31); the chosen template direction is unaffected.
+
+**Options.**
+- **C1. Keep H2 as defined and report it with an explicit ceiling caveat.** No redesign. The release-noise result stays secondary and descriptive.
+- **C2. Make the release-noise pass H2's primary endpoint ✱.** The no-noise pass becomes secondary. This is a definition change and needs a new pre-registration. **Caution:** choosing this endpoint *after* seeing that it shows a pilot difference is a selection risk. If you choose C2:
+  - the pre-registration should state that the choice was made from the pilot;
+  - it should keep the no-noise H2 as a reported secondary;
+  - Stage 2 must use fresh final targets only, which it does by design.
+
+  C2 requires keeping the release-noise pass (D1).
 
 ### D. The release-noise pass (secondary)
 
@@ -77,14 +96,31 @@ Per paired job with the chosen attack direction: ε = ∞ 0.76 h (0.46 h without
 | S1: A2 + B2 + D1 | 40 | ε = 16, 10 targets | yes | ≈ 86 |
 | **S2: A2 + B2 + D2 (recommended)** | 40 | ε = 16, 10 targets | no | **≈ 56** |
 | S3: A3 + B2 + D2 | 60 | ε = 16, 10 targets | no | ≈ 74 |
+| S5: 30 targets + B2 + C2 (keeps the noise pass) | 30 | ε = 16, 10 targets | yes | ≈ 71 |
 
-The approved Stage 2 budget was 40–80 (option (b), provisional). S2 and S3 fit; S1 does not.
+The approved Stage 2 budget was 40–80 (option (b), provisional). S2, S3 and S5 fit; S1 does not.
 
-**Open data before you decide C.** The pilot's release-noise AUCs are in the pilot results but not in the printed analysis. They show whether noise takes the causal attack off the ceiling. The command is in `status.md`'s server steps.
+**Data for decision C:** read on 2026-10-05; see §3 C.
 
-## 5. My recommendation, in one line
+## 5. My recommendation
 
-**S2.** That means 40 targets at ε = ∞, H6 kept at ε = 16 with 10 targets, ε = 64 dropped (secondary), the release-noise pass dropped (secondary) and H2 kept with a ceiling caveat. It costs about 56 GPU-hours, and every primary definition and margin stays unchanged, so no new pre-registration is needed. If you prefer C2, keep the noise pass (S1-like cost, about 86) and re-register H2 first.
+It depends on decision C.
+
+- **If you keep H2 as pre-registered (C1): S2.**
+  - 40 targets at ε = ∞;
+  - H6 at ε = 16 with 10 targets;
+  - ε = 64 and the noise pass dropped;
+  - about 56 GPU-h;
+  - no new pre-registration.
+- **If you want an informative H2 (C2): S5.**
+  - 30 targets at ε = ∞, keeping the noise pass;
+  - H6 at ε = 16 with 10 targets;
+  - about 71 GPU-h;
+  - a new pre-registration first.
+
+  Its H1 and H4 precision is somewhat lower than S2's, because it has 30 targets rather than 40.
+
+**I lean towards C1/S2.** It changes nothing after seeing the pilot. The release-noise H2 result can be reported as a secondary, descriptive finding from Stage 2 anyway, if you keep the noise pass. That costs about +30 GPU-h, which puts 40 targets over budget (S1); at 30 targets it fits. C2 is defensible, but it is a post-pilot endpoint switch toward the result the pilot showed.
 
 ## 6. What happens after you decide
 
