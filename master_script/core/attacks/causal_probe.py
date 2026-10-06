@@ -27,8 +27,13 @@ def _loss_inputs(model, tokenizer, texts, config):
 
 
 def raw_gradients(model, tokenizer, texts, config):
-    import torch
     from ..model_io import tensor_array
+    return [tensor_array(g) for g in gradient_tensors(model, tokenizer, texts, config)]
+
+
+def gradient_tensors(model, tokenizer, texts, config):
+    """raw_gradients before the transfer to NumPy: torch tensors on the model's device."""
+    import torch
     encoded = _loss_inputs(model, tokenizer, texts, config)
     model.eval()
     named = dict(model.named_parameters(remove_duplicate=False))
@@ -36,11 +41,15 @@ def raw_gradients(model, tokenizer, texts, config):
     gradients = torch.autograd.grad(model(**encoded).loss, parameters)
     by_id = {id(p): g for p, g in zip(parameters, gradients)}
     # Preserve state_dict order, including tied weights and non-parameter buffers.
-    return [tensor_array(by_id[id(named[k])]) if k in named else np.zeros_like(tensor_array(v))
-            for k, v in model.state_dict().items()]
+    return [by_id[id(named[k])] if k in named else torch.zeros_like(v) for k, v in model.state_dict().items()]
 
 
-def protected_gradients(model, tokenizer, texts, config):
+def protected_gradients(model, tokenizer, texts, config, noise_on_device=False):
+    """noise_on_device (opt-in, grounded study): clip and draw the release noise
+    with torch where the gradients are (defenses.protect_observation_on_device)."""
+    if noise_on_device:
+        from ..defenses import protect_observation_on_device
+        return protect_observation_on_device(gradient_tensors(model, tokenizer, texts, config), config)
     from ..defenses import protect_observation
     return protect_observation(raw_gradients(model, tokenizer, texts, config), config)
 

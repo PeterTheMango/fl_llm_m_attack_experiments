@@ -30,6 +30,43 @@ def protect_observation(gradients, config, rng=None):
                          if mechanism == "gaussian" else 0)).astype(np.float32) for g in arrays]
 
 
+def protect_observation_on_device(gradients, config, generator=None):
+    """protect_observation for torch gradients, computed where they already are.
+
+    Opt-in (grounded study). The same whole-vector clipping and the same
+    Gaussian std (noise multiplier x clip norm), in float64 arithmetic as the
+    NumPy path, but the noise is drawn by torch on the gradients' device from a
+    freshly seeded generator. Each tensor is released as a float32 array as
+    soon as it is protected, so only one tensor's working copies are held at once.
+    """
+    import torch
+    from .model_io import tensor_array
+    mechanism = config.observation_defense
+    if mechanism not in ("none", "clip", "gaussian"):
+        raise ValueError("Unknown observation defense")
+    if mechanism == "none":
+        return [tensor_array(g) for g in gradients]
+    if not gradients:
+        raise ValueError("Observation gradients must be finite and nonempty")
+    norm = math.sqrt(sum(float(torch.sum(g.detach().double() ** 2)) for g in gradients))
+    if not math.isfinite(norm):
+        raise ValueError("Observation gradients must be finite and nonempty")
+    scale = min(1.0, config.observation_clip_norm / max(norm, 1e-12))
+    std = config.observation_noise_multiplier * config.observation_clip_norm
+    if mechanism == "gaussian" and generator is None:
+        generator = torch.Generator(device=gradients[0].device)
+        generator.manual_seed(secrets.randbits(63))
+    released = []
+    for g in gradients:
+        value = g.detach().double() * scale
+        if mechanism == "gaussian":
+            value = value + torch.randn(value.shape, generator=generator, device=value.device,
+                                        dtype=torch.float64) * std
+        released.append(value.float().cpu().numpy())
+        del value
+    return released
+
+
 def privacy_bound(steps, noise_multiplier, delta):
     # Clipped-vector replacement sensitivity is 2C, noise std is sigma*C.
     rho = 2.0 * steps / (noise_multiplier ** 2)

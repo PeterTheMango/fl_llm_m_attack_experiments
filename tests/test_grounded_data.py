@@ -598,3 +598,153 @@ def test_observation_rounds_can_simulate_the_victim_alone(monkeypatch, target_on
     assert seen["nodes"] == nodes
     assert (seen["strategy"].min_fit_clients, seen["strategy"].min_available_clients) == (nodes, nodes)
     assert seen["partitions"] == ([2] if target_only else [0, 1, 2, 3])
+
+
+# ------------------------------------------------ observation speed-ups (opt-in)
+
+def _arrays(seed=3):
+    rng = np.random.default_rng(seed)
+    return [rng.normal(0, 0.7, (300, 40)).astype("float32"), rng.normal(0, 0.2, (5000,)).astype("float32"),
+            np.zeros((7,), "float32")]
+
+
+@pytest.mark.parametrize("mechanism, clip", [("none", 1.0), ("clip", 1.0), ("clip", 1e6)])
+def test_device_release_noise_clips_exactly_as_the_numpy_path(mechanism, clip):
+    import torch
+    from master_script.core.defenses import protect_observation, protect_observation_on_device
+    config = SimpleNamespace(observation_defense=mechanism, observation_clip_norm=clip, observation_noise_multiplier=1.0)
+    arrays = _arrays()
+    expected = protect_observation(arrays, config)
+    released = protect_observation_on_device([torch.from_numpy(a.copy()) for a in arrays], config)
+    assert [r.dtype for r in released] == [np.dtype("float32")] * 3
+    assert all(np.array_equal(a, b) for a, b in zip(expected, released))
+    if mechanism == "clip" and clip == 1.0:
+        assert np.sqrt(sum(float(np.sum(r.astype(float) ** 2)) for r in released)) == pytest.approx(1.0, rel=1e-6)
+
+
+def test_device_release_noise_has_the_configured_std_and_fresh_seeds():
+    import torch
+    from master_script.core.defenses import protect_observation_on_device
+    arrays = [np.full((400_000,), 3.0, "float32"), np.zeros((1000,), "float32")]
+    tensors = [torch.from_numpy(a.copy()) for a in arrays]
+    clip = SimpleNamespace(observation_defense="clip", observation_clip_norm=2.0, observation_noise_multiplier=0.5)
+    gaussian = SimpleNamespace(observation_defense="gaussian", observation_clip_norm=2.0, observation_noise_multiplier=0.5)
+    clipped = protect_observation_on_device(tensors, clip)
+    first = protect_observation_on_device(tensors, gaussian)
+    second = protect_observation_on_device(tensors, gaussian)
+    noise = np.concatenate([(f.astype(float) - c) for f, c in zip(first, clipped)])
+    assert noise.mean() == pytest.approx(0.0, abs=0.01)
+    assert noise.std() == pytest.approx(0.5 * 2.0, rel=0.01)  # std = noise multiplier x clip norm
+    assert not np.array_equal(first[0], second[0])  # each call draws from a freshly seeded generator
+    seeded = lambda: torch.Generator().manual_seed(5)
+    again = [protect_observation_on_device(tensors, gaussian, generator=seeded()) for _ in range(2)]
+    assert all(np.array_equal(a, b) for a, b in zip(*again))
+
+
+def _victim_records():
+    tokenizer = ChatTokenizer()
+    answers = ("Gustave", "Eiffel", "Paris", "fair", "tower", "iron", "1889")
+    return [grounded.encode_record(tokenizer, MODEL_CONFIG, dict(RECORD, id=f"v{i}", answer=a), PASSAGE[:18 + 3 * i],
+                                   "RG", SETTINGS) for i, a in enumerate(answers)]
+
+
+def _flower_simulation(monkeypatch, config):
+    """Drive the real VictimClient and ObserveGradient, with Flower's serialization, without Ray."""
+    import flwr.client
+    import flwr.server
+    from flwr.common import Code, FitRes, Status, ndarrays_to_parameters, parameters_to_ndarrays
+    from master_script.core import runtime_memory
+    monkeypatch.setattr(flwr.server, "ServerApp", lambda server_fn: SimpleNamespace(server_fn=server_fn))
+    monkeypatch.setattr(flwr.client, "ClientApp", lambda client_fn: SimpleNamespace(client_fn=client_fn))
+
+    def simulate(server_app, client_app, num_supernodes, backend_config):
+        strategy = server_app.server_fn(None).strategy
+        current = strategy.initial_parameters
+        for round_id in range(1, config.attack_trials + 1):
+            fit_config = strategy.on_fit_config_fn(round_id)
+            results = []
+            for node in range(num_supernodes):
+                client = client_app.client_fn(SimpleNamespace(node_config={"partition-id": node})).numpy_client
+                arrays, examples_, metrics = client.fit(parameters_to_ndarrays(current), fit_config)
+                results.append((None, FitRes(status=Status(code=Code.OK, message=""), parameters=ndarrays_to_parameters(arrays),
+                                             num_examples=examples_, metrics=metrics)))
+            current, _ = strategy.aggregate_fit(round_id, results, [])
+    monkeypatch.setattr(runtime_memory, "run_simulation", simulate)
+
+
+@pytest.mark.parametrize("mechanism", ["none", "clip"])
+def test_in_process_observation_releases_and_scores_exactly_what_the_victim_client_does(tiny, tmp_path, monkeypatch, mechanism):
+    import torch
+    from transformers import AutoTokenizer
+    from master_script.core.attacks import amia, causal_probe
+    tiny.save_pretrained(tmp_path / "model")
+    monkeypatch.setattr(AutoTokenizer, "from_pretrained", staticmethod(lambda path: ChatTokenizer()))
+    records = _victim_records()
+    target = records[0]
+    clients = [records, list(reversed(records[1:]))]
+    config = amia.AmiaConfig(attack_variant="causal_gradient_alignment", causal_score="cosine", attack_trials=6,
+                             counterbalance_trials=True, attack_batch_size=3, max_length=384, num_clients=2,
+                             target_client_id=0, seed=8123, observation_defense=mechanism, observation_clip_norm=0.05)
+    probe = deepcopy(tiny)
+    with torch.no_grad():
+        for parameter in probe.parameters():
+            parameter.add_(0.02 * torch.randn_like(parameter))
+    probe._public_direction = causal_probe.raw_gradients(probe, ChatTokenizer(), [target], config)
+    released = []
+    original = causal_probe.alignment_terms
+    monkeypatch.setattr(causal_probe, "alignment_terms",
+                        lambda arrays, direction: released.append([np.array(a) for a in arrays]) or original(arrays, direction))
+    _flower_simulation(monkeypatch, config)
+    paths = {}
+    for name, options in (("victim_client", {"reuse_victim_model": True, "observe_target_only": True}),
+                          ("in_process", {"in_process": True}),
+                          ("in_process_device_noise", {"in_process": True, "noise_on_device": True})):
+        released.clear()
+        amia._VICTIM_MODEL.clear()
+        trials = amia.run_attack_trials(str(tmp_path / "model"), probe, clients, config, target=target,
+                                        checkpoint_dir=tmp_path / name, **options)
+        paths[name] = ([{k: v for k, v in t.items() if k != "response_seconds"} for t in trials], list(released))
+        assert all(t["response_seconds"] >= 0 for t in trials)
+    amia._VICTIM_MODEL.clear()
+    expected_trials, expected_released = paths["victim_client"]
+    assert len(expected_trials) == 6 and {t["truth_member"] for t in expected_trials} == {True, False}
+    assert len({t["score"] for t in expected_trials}) > 1
+    for name in ("in_process", "in_process_device_noise"):
+        trials, arrays = paths[name]
+        assert trials == expected_trials  # trial_id, truth_member, score, batch_pair_seed, alignment_terms, ...
+        assert len(arrays) == len(expected_released) == 6
+        assert all(np.array_equal(a, b) for x, y in zip(arrays, expected_released) for a, b in zip(x, y))
+    assert all(p.grad is None for p in probe.parameters())
+
+
+def test_in_process_observation_refuses_guards_calibration_and_the_probe_head():
+    from master_script.core.attacks import amia
+    causal = SimpleNamespace(attack_variant="causal_gradient_alignment")
+    with pytest.raises(ValueError, match="causal request only"):
+        amia.run_attack_trials("unused", None, [[]], SimpleNamespace(attack_variant="probe_head"), in_process=True)
+    with pytest.raises(ValueError, match="no guard"):
+        amia.run_attack_trials("unused", None, [[]], causal, guard_runtime=object(), in_process=True)
+    with pytest.raises(ValueError, match="no guard"):
+        amia.run_attack_trials("unused", None, [[]], causal, calibration={"threshold": 0.0}, in_process=True)
+
+
+def test_grounded_causal_passes_opt_in_to_both_observation_speed_ups(monkeypatch, tmp_path):
+    from master_script.core import grounded_job, model_io
+    from master_script.core.attacks import amia, causal_probe
+    calls = []
+    model = SimpleNamespace(to=lambda device: model)
+    monkeypatch.setattr(model_io, "load_causal_model", lambda path: model)
+    monkeypatch.setattr(causal_probe, "optimize_request", lambda *a: [1.0])
+    monkeypatch.setattr(causal_probe, "raw_gradients", lambda *a: [np.zeros(1)])
+
+    def trials(model_path, probe, clients, config, **options):
+        calls.append((config.observation_defense, options))
+        return [{"trial_id": i, "truth_member": i % 2 == 0, "score": float(i % 2 == 0), "batch_pair_seed": 1,
+                 "alignment_terms": {}, "response_seconds": 0.1} for i in range(4)]
+    monkeypatch.setattr(amia, "run_attack_trials", trials)
+    config = amia.AmiaConfig(attack_variant="causal_gradient_alignment")
+    out = grounded_job.causal_passes(config, "path", None, [[]], "target", {"template": "candidate"}, True, tmp_path)
+    assert [c[0] for c in calls] == ["none", "gaussian"]
+    assert all(c[1]["in_process"] is True and c[1]["noise_on_device"] is True for c in calls)
+    assert out["template"]["observation"] == {"in_process": True, "noise_on_device": True}
+    assert set(out["template"]) >= {"plain", "release_noise"}

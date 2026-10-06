@@ -663,12 +663,20 @@ def cached_victim_model(model_path, device):
 
 
 def run_attack_trials(model_path, probe, clients, config, calibration=None, guard_runtime=None, checkpoint_dir=None, checkpoint_metadata=None,
-                      target=None, reuse_victim_model=False, observe_target_only=False):
+                      target=None, reuse_victim_model=False, observe_target_only=False, noise_on_device=False,
+                      in_process=False):
     """Send the same malicious parameters to the victim in each observed round.
 
     The harness owns private partitions and ground truth. Only the client_fn
     receives a partition; aggregate_fit makes predictions from gradients alone.
+    noise_on_device and in_process are opt-in (grounded study); see
+    causal_probe.protected_gradients and observe_in_process.
     """
+    if in_process:
+        return observe_in_process(model_path, probe, clients, config, calibration=calibration,
+                                  guard_runtime=guard_runtime, checkpoint_dir=checkpoint_dir,
+                                  checkpoint_metadata=checkpoint_metadata, target=target,
+                                  noise_on_device=noise_on_device)
     import numpy as np
     from flwr.client import NumPyClient, ClientApp
     from flwr.common import ndarrays_to_parameters, parameters_to_ndarrays
@@ -740,7 +748,7 @@ def run_attack_trials(model_path, probe, clients, config, calibration=None, guar
                                         random.Random(config.seed + 1009 + trial_id // 2), target=target)
             if preserving:
                 from .causal_probe import protected_gradients
-                gradients = protected_gradients(model, tokenizer, batch, config)
+                gradients = protected_gradients(model, tokenizer, batch, config, noise_on_device=noise_on_device)
             else:
                 gradients = client_loss_gradients(model, tokenizer, malicious, batch, config)
             return gradients, len(batch), {"partition_id": self.partition_id,
@@ -813,6 +821,80 @@ def run_attack_trials(model_path, probe, clients, config, calibration=None, guar
         raise RuntimeError("Incomplete AMIA observation rounds")
     if checkpoint_dir is not None:
         write_json(Path(checkpoint_dir) / "progress.json", {**checkpoint_header, "status": "complete", "completed_trials": len(trials)})
+    return trials
+
+
+def observe_in_process(model_path, probe, clients, config, calibration=None, guard_runtime=None, checkpoint_dir=None,
+                       checkpoint_metadata=None, target=None, noise_on_device=False):
+    """The observation rounds of run_attack_trials without a Flower/Ray round.
+
+    Opt-in (grounded study only): the causal request, no guard, no calibration.
+    Each trial computes the victim's released gradient in this process exactly as
+    VictimClient.fit does (the same seed_training, batch, request parameters and
+    protected_gradients) and scores it as ObserveGradient does, so the trial
+    records are the same; only the 2 GB transport is skipped. The request is set
+    once: gradients come from torch.autograd.grad in eval mode, which leaves the
+    model unchanged, as in cached_victim_model. The attacker's model may stay on
+    the CPU; the victim is loaded on the client device and released at the end.
+    """
+    import time
+    from .causal_probe import alignment_terms, protected_gradients, score_from_terms
+    from ..federation import seed_training
+    from ..model_io import load_causal_model
+    from transformers import AutoTokenizer
+    if getattr(config, "attack_variant", "probe_head") != "causal_gradient_alignment":
+        raise ValueError("In-process observation supports the causal request only")
+    if calibration is not None or guard_runtime is not None:
+        raise ValueError("In-process observation has no guard or calibrated threshold")
+    checkpoint_header = None
+    if checkpoint_dir is not None:
+        from ..queue import write_json
+        from uuid import uuid4
+        checkpoint_dir = Path(checkpoint_dir) / uuid4().hex
+        checkpoint_dir.mkdir(parents=True, exist_ok=False)
+        checkpoint_header = {"status": "partial", "planned_trials": config.attack_trials,
+                             "target_seed": config.seed, "audit_outputs_private": True,
+                             **(checkpoint_metadata or {}), "policy_sha256": None, "detector_sha256": None}
+        write_json(checkpoint_dir / "progress.json", {**checkpoint_header, "completed_trials": 0})
+    public_direction = probe._public_direction
+    private_texts = clients[config.target_client_id]
+    device = client_device(config)
+    model = load_causal_model(model_path).to(device).eval()
+    tokenizer = AutoTokenizer.from_pretrained(model_path)
+    set_parameters(model, get_parameters(probe))
+    trials = []
+    try:
+        for trial_id in range(config.attack_trials):
+            response_start = time.perf_counter()
+            seed_training(config.seed + trial_id // 2)
+            batch = sample_attack_batch(private_texts, config, trial_member(config, trial_id),
+                                        random.Random(config.seed + 1009 + trial_id // 2), target=target)
+            gradients = protected_gradients(model, tokenizer, batch, config, noise_on_device=noise_on_device)
+            response_seconds = time.perf_counter() - response_start
+            terms = alignment_terms(gradients, public_direction)
+            del gradients
+            score = score_from_terms(terms, getattr(config, "causal_score", "projection"))
+            trials.append({"trial_id": trial_id, "truth_member": trial_member(config, trial_id),
+                           "score": score, "pred_member": predict_member(score, config),
+                           "threshold": config.gradient_threshold, "threshold_comparator": ">",
+                           "batch_size": len(batch), "response_seconds": response_seconds,
+                           "membership_target": "private_client_batch",
+                           "target_client_id": config.target_client_id,
+                           "attack_variant": config.attack_variant,
+                           "calibration_scope": "fixed_higher_score_direction; independent_direction_validation_required",
+                           "batch_pair_seed": config.seed + 1009 + trial_id // 2, "alignment_terms": terms})
+            if checkpoint_dir is not None:
+                write_json(checkpoint_dir / f"trial-{trial_id:06d}.json", {**checkpoint_header, "trial": trials[-1]})
+                write_json(checkpoint_dir / "progress.json", {**checkpoint_header, "completed_trials": len(trials)})
+    finally:
+        del model
+        import gc
+        import torch
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    if checkpoint_dir is not None:
+        write_json(checkpoint_dir / "progress.json", {**checkpoint_header, "status": "complete", "completed_trials": len(trials)})
     return trials
 
 

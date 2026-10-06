@@ -298,6 +298,12 @@ def reference_scores(bundle, reference, closed_text, template, max_length):
             "template": calibrated_reference_score(_nll(bundle, template), _nll(reference, template))}
 
 
+# The grounded study opts in to both observation speed-ups (status.md, 2026-10-06):
+# trials run in this process, not through a Flower/Ray round, and the release
+# noise is drawn by torch on the victim's device. Neither changes what is released.
+OBSERVATION = {"in_process": True, "noise_on_device": True}
+
+
 def causal_passes(config, model_path, tokenizer, clients, member_record, candidates, release_noise, directory):
     """Per direction: one optimized request, a 40-trial pass and optionally a release-noise pass."""
     import torch
@@ -318,14 +324,14 @@ def causal_passes(config, model_path, tokenizer, clients, member_record, candida
         passes = {"plain": config}
         if release_noise:
             passes["release_noise"] = replace(config, **RELEASE_NOISE)
-        out[direction] = {"request_loss": history, "request_seconds": _now() - started}
+        out[direction] = {"request_loss": history, "request_seconds": _now() - started, "observation": dict(OBSERVATION)}
         for name, pass_config in passes.items():
             started = _now()
             trials = amia.run_attack_trials(model_path, probe, clients, pass_config,
                                             checkpoint_dir=Path(directory) / f"{direction}-{name}",
                                             checkpoint_metadata={"direction": direction, "pass": name},
                                             target=member_record, reuse_victim_model=True,
-                                            observe_target_only=True)
+                                            observe_target_only=True, **OBSERVATION)
             clean = [{k: t[k] for k in ("trial_id", "truth_member", "score", "batch_pair_seed", "alignment_terms",
                                         "response_seconds") if k in t} for t in trials]
             out[direction][name] = {"trials": clean, "seconds": _now() - started,

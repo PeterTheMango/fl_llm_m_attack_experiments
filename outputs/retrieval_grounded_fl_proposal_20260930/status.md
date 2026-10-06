@@ -1,9 +1,53 @@
 # Grounded federated RAG study: status
 
-**2026-10-05.** Stage 0 is complete and the Stage 1 pilot has run (33 jobs, core fingerprint `4a001c5eb678`). **The Stage 2 protocol and budget are not finalized:** the pilot's precision projections (below) need the researcher's decision first. Everything on V is tuning or validation data, never evidence.
+**2026-10-06.** Stage 0 is complete and the Stage 1 pilot has run (33 jobs, core fingerprint `4a001c5eb678`). Decision C is C2 (below). **The Stage 2 protocol and budget are not finalized:** decisions A and B are open, and a fifth timing launch measures the two observation speed-ups first. Everything on V is tuning or validation data, never evidence.
 
-- **Core fingerprint:** `714ec988b38b` (it was `5c53eaa5b4a3`; `86eacb02a66f` at 62ebf0f, before the 512 change). Earlier results keep theirs.
-- **Tests:** 777 passed, 2 skipped (previously 703 passed). The frozen guard files and `causal_attack_validation.py` are byte-identical, and a test pins each.
+- **Core fingerprint:** `8b031bbfdcc1` (2026-10-06, the two observation speed-ups). The pilot ran on `4a001c5eb678`; the 3- and 6-epoch controls on `714ec988b38b`. Earlier results keep theirs.
+- **Tests:** 789 passed, 2 skipped (previously 781). The frozen guard files and `causal_attack_validation.py` are byte-identical, and a test pins each.
+
+## Observation speed-ups (2026-10-06; core fingerprint `4a001c5eb678` → `8b031bbfdcc1`)
+
+**Why.** `timing-4` measured about 12 s per plain causal trial (2.5 s of victim compute) and about 26 s per release-noise trial (17 s of victim compute). About 9 s of every trial was Flower/Ray moving the 2 GB request and gradient; drawing the release noise as float64 NumPy on the CPU cost about 15 s. Both measures were agreed with the researcher on 2026-10-05. Both are opt-in; the guard studies' default paths are unchanged.
+
+1. **Release noise on the GPU** (`defenses.protect_observation_on_device`, used through `causal_probe.protected_gradients(noise_on_device=True)`).
+   - The same whole-vector clipping in float64 arithmetic, and Gaussian noise with the same std (σ_obs × C = 1.0 × 1.0), drawn by torch on the gradients' device from a freshly seeded generator (`secrets.randbits(63)`, as `private_train` does). Each tensor is released as float32 as soon as it is protected.
+   - `protect_observation` itself is unchanged.
+   - Tests: the clipped release equals `protect_observation`'s bit for bit (clip active, clip inactive, no defense); the noise has mean 0 and the configured std (within 1% over 400,000 draws); two calls draw different noise.
+2. **In-process observation trials** (`amia.observe_in_process`, through `run_attack_trials(in_process=True)`).
+   - Each trial computes the victim's released gradient in the job's own process, with the same `trial_member`, `sample_attack_batch` seed (`config.seed + 1009 + trial_id // 2`), `seed_training(config.seed + trial_id // 2)`, request parameters and `protected_gradients`, then scores it with `alignment_terms` / `score_from_terms`. There is no Flower/Ray round. The trial records and checkpoints have the same fields.
+   - The request is loaded into the victim once per pass. Gradients come from `torch.autograd.grad` in eval mode and leave the model unchanged (the same argument as `cached_victim_model`, tested earlier). The attacker's model stays on the CPU; the victim model is released after the pass.
+   - It refuses the probe-head attack, guards and calibrated thresholds, so only the grounded study can use it.
+   - Test: on a tiny GPT-2, 6 counterbalanced trials, the in-process path (with and without GPU noise) releases bit-identical gradient arrays and gives identical trial records (`trial_id`, `truth_member`, `score`, `batch_pair_seed`, `alignment_terms`, …) to the existing `VictimClient` path driven through Flower's serialization (the simulation is replaced by a direct driver, without Ray), with no defense and with clipping.
+3. **The grounded job opts in to both** (`grounded_job.OBSERVATION`), and each causal direction records `"observation": {"in_process": true, "noise_on_device": true}` in `result.json`.
+
+**Not done.** "Two clients training at once" was okayed by the researcher but advised against (two full-model clients of about 9 GB each will not fit or speed up on the 20 GB vGPU slice); it waits for the researcher's re-confirmation. Batched answer generation was rejected (it changes the answers).
+
+**Next.** A fifth timing launch (`timing-5`) on `8b031bbfdcc1` measures the saving before Stage 2 is costed. The scoring step (`alignment_terms`, NumPy over about 0.6 billion values) still runs on the CPU, unchanged, so it is part of what `timing-5` measures.
+
+**Server steps for `timing-5`** (the researcher runs these in tmux, in `/home/calc08/projects/LLMPrivacy/fl_grounded_stage0`, env `LLMPrivacy`, with `G=/home/calc08/projects/LLMPrivacy/fl_llm_m_attack_experiments/outputs/grounded-fl-20260930`):
+1. `git pull --ff-only` on `feat/grounded-fl-stage0`, then confirm the core fingerprint prints `8b031bbfdcc1`.
+2. `prepare timing "$G/timing-5" --study "$G/build/study.json" --gate "$G/gate.json"`, then `resolve`, `run --gpu 0 --max-jobs 2` and `check`.
+3. The per-trial split (read-only; prints timings only, never an AUC or score):
+
+```bash
+python - <<'PY'
+import json, os, glob, statistics as st
+G = os.environ['G']
+for f in sorted(glob.glob(G + '/timing-5/results/*/result.json')):
+    r = json.load(open(f))
+    print(r['arm'], r['epsilon_budget'], r['implementation_fingerprint'],
+          {k: round(v) for k, v in r['timings'].items()})
+    for d, p in r.get('causal', {}).items():
+        for name in ('plain', 'release_noise'):
+            if name in p:
+                t = p[name]['trials']
+                print(' ', d, name, 'wall s/trial', round(p[name]['seconds'] / len(t), 1),
+                      'victim s/trial', round(st.mean(x['response_seconds'] for x in t), 1),
+                      'observation', p.get('observation'))
+PY
+```
+
+Do not pull later commits until `timing-5` has finished and `check` has run: a launch refuses to run or be checked once the study tool or core code changes.
 
 ## Stage 1 pilot (V, seeds 8000–8099; tuning data, never evidence)
 
@@ -326,6 +370,9 @@ The executor keeps the collector's guarantees without changing `collect_guard_tr
 - **Pilot projections.** Wired into the pilot `analyze` (2026-10-04). They use a normal approximation, which is optimistic for the utility terms.
 - **Stage 2.** No Stage 2 `prepare` exists, because its protocol is finalized after the pilot. `hypotheses()` is implemented and tested on synthetic data.
 - **Timing.** Timing is a separate launch: one full paired RG job at ε = ∞ and one at ε = 16, on the V timing target.
+- **Observation speed-ups (2026-10-06).** Neither changes what is released or how it is scored, so no measurement definition changes. Two implementation differences are recorded:
+  - GPU release noise uses torch's generator instead of NumPy's. The noise has the same distribution (Gaussian, std σ_obs × C, freshly seeded per release), but the two paths can never produce the same draw, so release-noise trials from `8b031bbfdcc1` and from earlier fingerprints are not draw-for-draw comparable (they never were: both draw from fresh seeds).
+  - In-process trials skip the Flower/Ray transport. The simulated server still sees only the released arrays; the threat model is unchanged.
 
 ## Server steps (Stage 0; the researcher runs these)
 

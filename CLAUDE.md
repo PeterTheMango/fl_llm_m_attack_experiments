@@ -20,43 +20,43 @@ Every code or protocol change for this study must be recorded in the same commit
 2. **Update the "Current state" section below** so the next session starts from the right place.
 3. **Ask the researcher first** about any change to a frozen definition, threshold or procedure. Record their decision in `status.md`.
 
-## Current state (2026-10-05)
+## Current state (2026-10-06)
 
 - **Branch.** Stage 0 code lives on `feat/grounded-fl-stage0`, which is stacked on `proposal/retrieval-grounded-fl`, which is stacked on `analysis/matched-reference-controls`. `main` does **not** contain the grounded code yet.
-- **Core fingerprint.** `4a001c5eb678` (pilot); the 3- and 6-epoch controls ran on `714ec988b38b`.
+- **Core fingerprint.** `8b031bbfdcc1` (2026-10-06, the two observation speed-ups). The pilot ran on `4a001c5eb678`; the 3- and 6-epoch controls on `714ec988b38b`.
 - **Stage 0 complete on the server:**
   - build (study sha `d7eac161…`);
   - gate calibration (τ 0.45);
   - P0 datastore check passes for both scorers;
   - the 6-epoch positive control passes (10 of 12 learned, retention r 0.142 [0.066, 0.225]), so **H4 is primary**;
-  - timings: a paired job takes about 1.2 h at ε = ∞ and 1.6 h at ε = 16 after the victim-only observation fix.
+  - timings (`timing-4`): a paired job takes about 1.2 h at ε = ∞ and 1.6 h at ε = 16.
 - **Stage 1 pilot done (2026-10-05).**
   - Attacker choices are fixed: RG uses record/template/F1, CB-AO template/template/F1, CB-LM record/record/F1.
-  - The projections show the AUC endpoints (H1, H3, H6's leakage) far too imprecise at option (b): about 0.15–0.24 against a 0.05 margin. H2 is at the causal-AUC ceiling.
-  - **Descriptive:** RG beats CB-AO by about 0.27 F1 at ε = ∞, and RG-public is about RG. At ε = 64 and 16, the DP models land at about P0's utility (DP erases the fine-tuning effect), so H6 compares near-pretrained models.
-  - **Next:** the researcher reviews `stage2_design_memo.md` and decides the Stage 2 design. The memo recommends S2: 40 targets at ε = ∞, H6 at ε = 16 with 10 targets, no ε = 64 and no release-noise pass, about 56 GPU-h. Pilot release-noise causal AUC at ε = ∞: RG 0.744, CB-AO 0.621 (off the ceiling). **Decision C = C2** (2026-10-05): the release-noise pass becomes H2's primary ✱, so the noise pass is kept (D1). A (target count) and B (DP arms) are still open.
-- **Next session (agreed 2026-10-05):**
-  1. **Implement two opt-in speed-ups for the grounded causal passes,** each with tests:
-     - draw the release noise on the GPU instead of as float64 NumPy on the CPU (the same Gaussian σ·C; about 15 s per noisy trial now);
-     - run the observation trials in-process instead of through Flower/Ray messaging. About 9 of 12 s per trial is moving 2 GB arrays. A test must show the in-process released gradient equals the Flower path's.
-     The researcher also okayed "two clients training at once", but it was advised against: on the server's GPU (one vGPU slice `A100D-1-20C`, about 1/7 of an A100's compute, 20 GB) two full-model clients won't fit or speed up. **Confirm with the researcher before doing it.** Batched answer generation was rejected (it changes the answers).
-  2. **The researcher runs one timing launch** to measure the saving.
-  3. **Fix decisions A and B,** then write the Stage 2 `protocol.json` (the C2 pre-registration notes are in `status.md`) and add `prepare final` and the confirmation `analyze`.
+  - The projections show the AUC endpoints (H1, H3, H6's leakage) far too imprecise at option (b): about 0.15–0.24 against a 0.05 margin.
+  - **Descriptive:** RG beats CB-AO by about 0.27 F1 at ε = ∞, and RG-public is about RG. At ε = 64 and 16, the DP models land at about P0's utility.
+  - **Decision C = C2** (2026-10-05): the release-noise causal pass (σ_obs 1.0, template direction) becomes H2's primary ✱, a new pre-registration; so the noise pass is kept (D1). Pilot release-noise causal AUC at ε = ∞: RG 0.744, CB-AO 0.621.
+- **Done 2026-10-06: two opt-in observation speed-ups** (status.md, "Observation speed-ups"): release noise drawn on the GPU (`defenses.protect_observation_on_device`) and in-process observation trials (`amia.observe_in_process`); the grounded job opts in to both (`grounded_job.OBSERVATION`). Tests show bit-identical releases and trial records against the Flower `VictimClient` path, and the configured noise std. "Two clients training at once" is not done: it waits for the researcher's re-confirmation (advised against).
+- **Next:**
+  1. The researcher runs `timing-5` on `8b031bbfdcc1` (commands in status.md) and pastes the per-trial split.
+  2. Re-cost the Stage 2 scenarios in `stage2_design_memo.md` with the measured times.
+  3. The researcher decides A (targets at ε = ∞) and B (DP arms); then write `stage2_protocol.json` (with the C2 notes from status.md) and add `prepare final` and the confirmation `analyze`, and make sure `check` never shows endpoint values.
   - Do not touch the frozen guard files or `causal_attack_validation.py`; keep changes opt-in so the guard studies' paths are unchanged; record every fingerprint change in `status.md`. Nothing in Stage 2 is prepared yet, and margins and rules may only be tightened.
 - **Decisions already made:**
   - accept GPU training non-determinism;
   - pool attacker choices over budgets;
   - max_length 512;
-  - pilot budget about 37 GPU-h accepted.
+  - C2 and D1 (above);
+  - batched answer generation rejected (it changes the answers).
 - **Open questions:**
-  - the Stage 2 design (target counts or restructuring);
+  - decisions A and B of the Stage 2 design;
+  - "two clients training at once" (needs re-confirmation; advised against);
   - the structured related-work search (Stage 0 item 1) is not done.
 
 ## Commands
 
 The environment is `conda env create -f environment.yml` (env `peter_experiments_fl`). On a shared server env, use `pip install --user -r requirements.txt` instead, and drop the `torch` line if a CUDA torch is already installed. torch, transformers and `flwr[simulation]` are imported function-locally, so the toy path runs without them.
 
-Run the tests on the Mac with the project env. The base anaconda `python` lacks torch, and the grounded tests need it. On 2026-10-04 the suite gave 781 passed and 2 skipped.
+Run the tests on the Mac with the project env. The base anaconda `python` lacks torch, and the grounded tests need it. On 2026-10-06 the suite gave 789 passed and 2 skipped.
 
 ```bash
 /opt/anaconda3/envs/peter_experiments_fl/bin/python -m pytest tests -q
