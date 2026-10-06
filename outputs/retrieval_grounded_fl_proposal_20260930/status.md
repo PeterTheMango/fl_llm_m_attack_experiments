@@ -64,6 +64,33 @@
   - This also fits the slow DP-world measurements, which match P0's long generations.
 - **Implication.** As designed, H6 and the DP frontier would compare two nearly pretrained models.
 
+**Stage 2 design memo (2026-10-05, for the researcher's review).** See [`stage2_design_memo.md`](stage2_design_memo.md). It recommends S2:
+- 40 targets at ε = ∞;
+- H6 kept at ε = 16 with 10 targets;
+- ε = 64 and the release-noise pass dropped (both secondary);
+- H2 kept with a ceiling caveat.
+
+S2 costs about 56 GPU-h with no primary definition changed. **Nothing in Stage 2 is decided or prepared.**
+
+**Next server step (read-only, for decision C in the memo).** This prints the pilot's mean causal AUC per arm, budget, direction and pass, without and with release noise:
+
+```bash
+python - <<'PY'
+import json, os, glob, statistics as st
+G = os.environ['G']; rows = {}
+for f in glob.glob(G + '/pilot/results/*/result.json'):
+    r = json.load(open(f))
+    if r['kind'] != 'paired':
+        continue
+    for d, p in r['causal'].items():
+        for name in ('plain', 'release_noise'):
+            if name in p:
+                rows.setdefault((r['arm'], str(r['epsilon_budget']), d, name), []).append(p[name]['auc'])
+for k in sorted(rows):
+    print(k, round(st.mean(rows[k]), 3), [round(x, 3) for x in rows[k]])
+PY
+```
+
 ## Stage 0 results so far (validation data on V; not evidence)
 
 **Build (server, fingerprint `714ec988b38b`).** Study sha256 `d7eac161d178b6e855979fc879752a5d511516674e913788e590194d4dbecd92`.
