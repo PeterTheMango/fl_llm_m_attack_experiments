@@ -34,7 +34,15 @@ Every code or protocol change for this study must be recorded in the same commit
   - Attacker choices are fixed: RG uses record/template/F1, CB-AO template/template/F1, CB-LM record/record/F1.
   - The projections show the AUC endpoints (H1, H3, H6's leakage) far too imprecise at option (b): about 0.15–0.24 against a 0.05 margin. H2 is at the causal-AUC ceiling.
   - **Descriptive:** RG beats CB-AO by about 0.27 F1 at ε = ∞, and RG-public is about RG. At ε = 64 and 16, the DP models land at about P0's utility (DP erases the fine-tuning effect), so H6 compares near-pretrained models.
-  - **Next:** the researcher reviews `stage2_design_memo.md` and decides the Stage 2 design. The memo recommends S2: 40 targets at ε = ∞, H6 at ε = 16 with 10 targets, no ε = 64 and no release-noise pass, about 56 GPU-h. Pilot release-noise causal AUC at ε = ∞: RG 0.744, CB-AO 0.621 (off the ceiling). **Decision C = C2** (2026-10-05): the release-noise pass becomes H2's primary ✱, so the noise pass is kept (D1). A (target count) and B (DP arms) are still open; speed-ups are under discussion. Nothing in Stage 2 is prepared yet, and margins and rules may only be tightened.
+  - **Next:** the researcher reviews `stage2_design_memo.md` and decides the Stage 2 design. The memo recommends S2: 40 targets at ε = ∞, H6 at ε = 16 with 10 targets, no ε = 64 and no release-noise pass, about 56 GPU-h. Pilot release-noise causal AUC at ε = ∞: RG 0.744, CB-AO 0.621 (off the ceiling). **Decision C = C2** (2026-10-05): the release-noise pass becomes H2's primary ✱, so the noise pass is kept (D1). A (target count) and B (DP arms) are still open.
+- **Next session (agreed 2026-10-05):**
+  1. **Implement two opt-in speed-ups for the grounded causal passes,** each with tests:
+     - draw the release noise on the GPU instead of as float64 NumPy on the CPU (the same Gaussian σ·C; about 15 s per noisy trial now);
+     - run the observation trials in-process instead of through Flower/Ray messaging. About 9 of 12 s per trial is moving 2 GB arrays. A test must show the in-process released gradient equals the Flower path's.
+     The researcher also okayed "two clients training at once", but it was advised against: on the server's GPU (one vGPU slice `A100D-1-20C`, about 1/7 of an A100's compute, 20 GB) two full-model clients won't fit or speed up. **Confirm with the researcher before doing it.** Batched answer generation was rejected (it changes the answers).
+  2. **The researcher runs one timing launch** to measure the saving.
+  3. **Fix decisions A and B,** then write the Stage 2 `protocol.json` (the C2 pre-registration notes are in `status.md`) and add `prepare final` and the confirmation `analyze`.
+  - Do not touch the frozen guard files or `causal_attack_validation.py`; keep changes opt-in so the guard studies' paths are unchanged; record every fingerprint change in `status.md`. Nothing in Stage 2 is prepared yet, and margins and rules may only be tightened.
 - **Decisions already made:**
   - accept GPU training non-determinism;
   - pool attacker choices over budgets;
