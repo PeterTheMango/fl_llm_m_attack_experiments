@@ -1,6 +1,6 @@
 {
  "schema": "grounded_fl_stage2_protocol_v1",
- "status": "draft 2026-10-06: decisions A (targets at epsilon inf) and B (DP arms) are pending; prepare final refuses this file until its status starts with 'frozen'",
+ "status": "frozen 2026-10-06 with the researcher's decisions A (60 targets at epsilon inf) and B2 (epsilon 16 only, 10 targets); governs Stage 2 (confirmation). Definitions may be tightened, never loosened; any other change needs a new pre-registration.",
  "proposal": "outputs/retrieval_grounded_fl_proposal_20260930/proposal.md (revision 4)",
  "stage01_protocol": "outputs/retrieval_grounded_fl_proposal_20260930/stage01_protocol.json",
  "stage01_protocol_sha256": "3833cc6d9190ea8c943edaa17003d9793bac8592b7188510c0f64757d37a6159",
@@ -13,9 +13,9 @@
    9099
   ],
   "targets": {
-   "inf": null,
+   "inf": 60,
    "dp": {
-    "16": null
+    "16": 10
    }
   },
   "target_rule": "fresh final targets in the study's eligible order: the first n at epsilon inf; each DP arm takes the first n_eps of those (paired: every DP target also runs at epsilon inf); seed = 9000 + target index",
@@ -34,7 +34,7 @@
    9098,
    9099
   ],
-  "not_run": "CB-LM (Stage 1 bridge only)",
+  "not_run": "CB-LM (Stage 1 bridge only); epsilon 64 (decision B2; secondary in revision 4)",
   "measurements": "all pre-registered measurements in every paired job: Reference (both forms recorded; the frozen form decides), retention, utility, the 3-query natural-question pass (both scorers recorded; the frozen scorer decides), 16 N documents, and the causal attack in the arm's frozen direction only",
   "release_noise": true,
   "causal": {
@@ -62,7 +62,8 @@
    "steps": 51,
    "accountant": "defenses.privacy_bound as implemented (Stage 0/1)"
   },
-  "training_nondeterminism": "accepted (2026-10-04): GPU training is not bit-reproducible; each world is one random draw carried by the target bootstrap"
+  "training_nondeterminism": "accepted (2026-10-04): GPU training is not bit-reproducible; each world is one random draw carried by the target bootstrap",
+  "jobs": "146: 60 targets x {RG, CB-AO} at epsilon inf, 10 of those targets x {RG, CB-AO} at epsilon 16, 5 RG-public seeds, 1 P0"
  },
  "attacker_choices": {
   "RG": {
@@ -119,8 +120,8 @@
   "analysis": "grounded_fl_study analyze on the completed final launch, once"
  },
  "decisions": {
-  "A_targets_at_epsilon_inf": null,
-  "B_dp_arms": null,
+  "A_targets_at_epsilon_inf": "60 (the researcher, 2026-10-06; option A3)",
+  "B_dp_arms": "B2 (the researcher, 2026-10-06): H6 at epsilon 16 with 10 targets; the epsilon 64 jobs are dropped (a secondary of revision 4). H6 and every primary definition are unchanged.",
   "C_h2": "C2 (2026-10-05): the release-noise pass is H2's primary (above)",
   "D_release_noise_pass": "D1 (2026-10-05): kept",
   "attacker_choice_pooling": "over budgets (2026-10-04)",
@@ -128,5 +129,13 @@
   "two_clients_at_once": "dropped (2026-10-06)",
   "batched_answer_generation": "rejected: it changes the answers"
  },
- "budget_gpu_hours": null
+ "budget_gpu_hours": {
+  "estimate": 76,
+  "approved_range_option_b": [
+   40,
+   80
+  ],
+  "basis": "timing-5 (core 8b031bbfdcc1): 0.48 h per epsilon-inf paired job and 0.85 h per epsilon-16 job with one causal direction; P0 and RG-public about 1.6 h",
+  "note": "about 4 GPU-h of headroom; reruns of failed jobs may exceed the range"
+ }
 }

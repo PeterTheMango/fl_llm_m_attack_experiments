@@ -533,9 +533,10 @@ def test_the_committed_stage2_protocol_records_the_decisions_and_stays_refused_u
     notes = " ".join(h2["notes"])
     assert "after seeing the Stage 1 pilot" in notes and "secondary" in notes and "noise-protected" in notes
     assert protocol["h4_primary"] is True and protocol["statistics"]["primaries"] == 7
-    if not protocol["status"].startswith("frozen"):
-        with pytest.raises(ValueError, match="not frozen"):
-            gs.stage2_protocol()
+    # Decisions A (60 targets) and B2 (epsilon 16 only, 10 targets), frozen 2026-10-06.
+    assert gs.stage2_protocol()["design"]["targets"] == {"inf": 60, "dp": {"16": 10}}
+    assert protocol["decisions"]["A_targets_at_epsilon_inf"].startswith("60")
+    assert protocol["decisions"]["B_dp_arms"].startswith("B2")
 
 
 def final_protocol(tmp_path, monkeypatch, **changes):

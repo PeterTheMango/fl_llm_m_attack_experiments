@@ -9,7 +9,7 @@ Research code for privacy in federated-learning (FL) fine-tuned LLMs that answer
 **The current focus is the grounded federated RAG study.** Its working title is "Does Retrieval Grounding Keep Private Facts Out of the Model?" (revision 4, approved with corrections for Stage 0/1 on 2026-09-30). These files in `outputs/retrieval_grounded_fl_proposal_20260930/` are authoritative:
 
 - `proposal.md` is the design: arms RG / CB-AO / RG-public / P0 / CB-LM, H1–H7, the four-cell design, §9 statistics. It is a frozen review record, so its "Nothing is implemented or run" line is historical.
-- `stage01_protocol.json` freezes the Stage 0/1 procedures. The tool refuses to run unless its `status` starts with `frozen`. Stage 2 has its own `stage2_protocol.json` (a draft until decisions A and B; `prepare final` refuses it until it is frozen). Definitions may be tightened, never loosened.
+- `stage01_protocol.json` freezes the Stage 0/1 procedures. The tool refuses to run unless its `status` starts with `frozen`. Stage 2 has its own `stage2_protocol.json` (frozen 2026-10-06; `prepare final` refuses it unless it is frozen). Definitions may be tightened, never loosened.
 - `status.md` is **the living record of the repo's state**: what is built, every server result, decisions, deviations and the next server steps.
 
 ## Keep the status documented (required on every change)
@@ -36,11 +36,12 @@ Every code or protocol change for this study must be recorded in the same commit
   - **Descriptive:** RG beats CB-AO by about 0.27 F1 at ε = ∞, and RG-public is about RG. At ε = 64 and 16, the DP models land at about P0's utility.
   - **Decision C = C2** (2026-10-05): the release-noise causal pass (σ_obs 1.0, template direction) becomes H2's primary ✱, a new pre-registration; so the noise pass is kept (D1). Pilot release-noise causal AUC at ε = ∞: RG 0.744, CB-AO 0.621.
 - **Done 2026-10-06: two opt-in observation speed-ups** (status.md, "Observation speed-ups"): release noise drawn on the GPU (`defenses.protect_observation_on_device`) and in-process observation trials (`amia.observe_in_process`); the grounded job opts in to both (`grounded_job.OBSERVATION`). Tests show bit-identical releases and trial records against the Flower `VictimClient` path, and the configured noise std. "Two clients training at once" is not done: it waits for the researcher's re-confirmation (advised against).
-- **Done 2026-10-06: Stage 2 tooling** (tool only): a draft `stage2_protocol.json` with every decision so far (A and B are `null`), `prepare final` (refuses a draft or any loosened rule), the confirmation `analyze` (H2 on the release-noise pass, no-noise as secondary) and an allowlist `check`. "Two clients at once" was dropped by the researcher.
+- **Done 2026-10-06: Stage 2 tooling** (tool only): `prepare final` (refuses a draft or any loosened rule), the confirmation `analyze` (H2 on the release-noise pass, no-noise as secondary) and an allowlist `check`. "Two clients at once" was dropped by the researcher.
+- **`timing-5` (2026-10-06):** about 5 s per causal trial in both passes (was 12 s / 26 s); jobs 0.59 h at ε = ∞ and 0.97 h at ε = 16 with both directions.
+- **Stage 2 protocol frozen (2026-10-06):** A = 60 targets at ε = ∞, B2 (ε = 16 only, 10 targets), 146 jobs, about 76 GPU-h.
 - **Next:**
-  1. The researcher runs `timing-5` on `8b031bbfdcc1` (commands in status.md) and pastes the per-trial split. The server must not pull the Stage 2 tooling commit until `timing-5` is checked (the tool hash changed).
-  2. Re-cost the Stage 2 scenarios in `stage2_design_memo.md` with the measured times.
-  3. The researcher decides A (targets at ε = ∞) and B (DP arms); fill `targets` and the budget in `stage2_protocol.json`, set its status to `frozen <date>`, and record the decisions in status.md.
+  1. The researcher reviews `stage2_protocol.json`, then runs `prepare final`, `resolve`, `run` (all 146 jobs) and `check` (commands in status.md).
+  2. Once all jobs are complete, `analyze` runs once. Optionally, before then, add the remaining descriptive secondaries to the confirmation analysis (status.md, "Deviations and gaps").
   - Do not touch the frozen guard files or `causal_attack_validation.py`; keep changes opt-in so the guard studies' paths are unchanged; record every fingerprint change in `status.md`. Nothing in Stage 2 is prepared yet, and margins and rules may only be tightened.
 - **Decisions already made:**
   - accept GPU training non-determinism;
@@ -48,9 +49,9 @@ Every code or protocol change for this study must be recorded in the same commit
   - max_length 512;
   - C2 and D1 (above);
   - batched answer generation rejected (it changes the answers);
-  - two clients training at once dropped (2026-10-06).
+  - two clients training at once dropped (2026-10-06);
+  - A = 60 targets at ε = ∞ and B2 (ε = 16 only), 2026-10-06.
 - **Open questions:**
-  - decisions A and B of the Stage 2 design;
   - the structured related-work search (Stage 0 item 1) is not done.
 
 ## Commands

@@ -102,7 +102,31 @@ The approved Stage 2 budget was 40–80 (option (b), provisional). S2, S3 and S5
 
 **Data for decision C:** read on 2026-10-05; see §3 C.
 
-## 5. My recommendation
+### 4.1 Re-costed with `timing-5` (2026-10-06, core `8b031bbfdcc1`)
+
+`timing-5` measured the two observation speed-ups. Every causal trial now takes about 5 s of wall time (about 2.1 s of victim compute), for the plain pass and the release-noise pass alike; `timing-4` took 12 s and 26 s.
+
+| | ε = ∞ | ε = 16 |
+|---|---:|---:|
+| Measured job, both directions (`timing-5`) | 2128 s (0.59 h) | 3486 s (0.97 h) |
+| Causal attack, both directions with both passes | 818 s | 831 s |
+| **Per Stage 2 job, the chosen direction only** | **≈ 0.48 h** | **≈ 0.85 h** |
+
+- ε = 64 is not timed; it is assumed to cost as much as ε = 16. P0 and RG-public stay at about 1.6 h.
+- W0's measurements took 428 s at ε = ∞ (304 s in `timing-4`), so the ε = ∞ figure is on the cautious side; answer lengths vary with training non-determinism.
+
+| Targets at ε = ∞ | B1: ε = 64 + 16 (10 each) | B2: ε = 16 only (10) |
+|---:|---:|---:|
+| 20 | ≈ 55 GPU-h | ≈ 38 GPU-h |
+| 30 | ≈ 64 | ≈ 47 |
+| 40 | ≈ 74 | ≈ 57 |
+| 60 | ≈ 93 | **≈ 76** |
+
+All scenarios keep the release-noise pass (C2 needs it). H2's release-noise D would have a 99.3% half-width of about 0.043 at 60 targets.
+
+**Decisions (the researcher, 2026-10-06): A = 60 targets at ε = ∞ (A3) and B2 (ε = 16 only, 10 targets).** About 76 GPU-h, inside the approved 40–80 with about 4 h of headroom. They are frozen in `stage2_protocol.json`.
+
+## 5. My recommendation (2026-10-05, before C and the re-cost)
 
 It depends on decision C.
 

@@ -1,9 +1,40 @@
 # Grounded federated RAG study: status
 
-**2026-10-06.** Stage 0 is complete and the Stage 1 pilot has run (33 jobs, core fingerprint `4a001c5eb678`). Decision C is C2 (below). **The Stage 2 protocol and budget are not finalized:** decisions A and B are open, and a fifth timing launch measures the two observation speed-ups first. Everything on V is tuning or validation data, never evidence.
+**2026-10-06.** Stage 0 is complete and the Stage 1 pilot has run (33 jobs, core fingerprint `4a001c5eb678`). **The Stage 2 protocol is frozen** (`stage2_protocol.json`): C2, D1, A = 60 targets at ε = ∞, B2 (ε = 16 only, 10 targets), about 76 GPU-h. Nothing in Stage 2 is prepared or run yet. Everything on V is tuning or validation data, never evidence.
 
 - **Core fingerprint:** `8b031bbfdcc1` (2026-10-06, the two observation speed-ups). The pilot ran on `4a001c5eb678`; the 3- and 6-epoch controls on `714ec988b38b`. Earlier results keep theirs.
-- **Tests:** 809 passed, 2 skipped (previously 789; 781 before the speed-ups). The frozen guard files and `causal_attack_validation.py` are byte-identical, and a test pins each.
+- **Tests:** 809 passed, 2 skipped (previously 789; 781 before the speed-ups).
+
+## Decisions A and B; Stage 2 protocol frozen (2026-10-06)
+
+**Fifth timing launch `timing-5` (core `8b031bbfdcc1`, both speed-ups; all checks verified).**
+
+| | ε = ∞ | ε = 16 (accounted 16.0096 per world) |
+|---|---:|---:|
+| FL training, per world | 300 s / 299 s | 320 s / 314 s |
+| Measurements, per world (W1 / W0) | 273 s / 428 s | 976 s / 1034 s |
+| Causal: 2 directions × (plain + release noise), 160 trials | 818 s (was 3074 s) | 831 s (was 3037 s) |
+| **Total** | **0.59 h** (was 1.18 h) | **0.97 h** (was 1.60 h) |
+
+- **Per trial:** about 5.0 s of wall time (2.0–2.3 s of victim compute) in every pass, with or without release noise. `timing-4` took 12 s (plain) and 26 s (noise). The remaining ~3 s is the CPU scoring (`alignment_terms`) and moving the gradient off the GPU.
+- **Every result records** `observation: {in_process: true, noise_on_device: true}`.
+- **W0's ε = ∞ measurements took 428 s** (304 s in `timing-4`). This is probably run-to-run variation in answer length (training non-determinism, accepted 2026-10-04); it is not explained further.
+
+**Re-costed Stage 2** (memo §4.1): about 0.48 h per ε = ∞ job and 0.85 h per ε = 16 job with one causal direction; ε = 64 assumed equal to ε = 16; P0 and RG-public about 1.6 h.
+
+**Decisions (the researcher, 2026-10-06).**
+- **A = 60 targets at ε = ∞** (option A3).
+- **B2:** H6 at ε = 16 with 10 targets (the first 10 of the 60); the ε = 64 jobs are dropped. ε = 64 is a secondary of revision 4, so no primary definition changes.
+- Budget about 76 GPU-h, inside the approved 40–80 (about 4 h of headroom; reruns may exceed it).
+
+**`stage2_protocol.json` is frozen** with these decisions: 146 jobs (60 × {RG, CB-AO} at ε = ∞, 10 × {RG, CB-AO} at ε = 16, 5 RG-public seeds 9095–9099, 1 P0), all on fresh final targets (seeds 9000 + target index, so 9000–9059). The study has 124 eligible final targets.
+
+**Server steps for Stage 2** (the researcher runs these in tmux, in `/home/calc08/projects/LLMPrivacy/fl_grounded_stage0`, env `LLMPrivacy`, with `G` as below), after reviewing `stage2_protocol.json`:
+1. `git pull --ff-only` on `feat/grounded-fl-stage0`; confirm the core fingerprint is still `8b031bbfdcc1`.
+2. `prepare final "$G/final" --study "$G/build/study.json" --gate "$G/gate.json"`, then `resolve`.
+3. `run --gpu 0 --max-jobs N` repeatedly until all 146 jobs are complete; `check` at any time (integrity and timings only).
+4. `analyze "$G/final" "$G/final-analysis.json"` once, after the last job.
+ The frozen guard files and `causal_attack_validation.py` are byte-identical, and a test pins each.
 
 ## Observation speed-ups (2026-10-06; core fingerprint `4a001c5eb678` → `8b031bbfdcc1`)
 
@@ -53,7 +84,7 @@ Do not pull later commits until `timing-5` has finished and `check` has run: a l
 
 Built while `timing-5` runs, so that the protocol can be frozen as soon as decisions A and B are made. **Nothing in Stage 2 is prepared or run.**
 
-- **`stage2_protocol.json` (draft).** It records everything decided so far:
+- **`stage2_protocol.json`** (a draft at this commit; frozen later on 2026-10-06, above). It records everything decided so far:
   - the final cohort, seed band 9000–9099 and fresh final targets only (the first n in eligible order at ε = ∞; each DP arm takes the first n_ε of those; seed 9000 + target index); RG-public on seeds 9095–9099 and P0, both scored on the final F;
   - the frozen attacker choices (RG record/template/F1, CB-AO template/template/F1; CB-LM is not run);
   - C2 with its pre-registration notes (below), D1, H4 primary (seven primaries, 99.3%), margins 0.05, max_length 512, the gate (τ 0.45, 3-grams), accepted non-determinism, pooled choices, two clients dropped, batched generation rejected.
@@ -128,7 +159,7 @@ Built while `timing-5` runs, so that the protocol can be frozen as soon as decis
 - ε = 64 and the release-noise pass dropped (both secondary);
 - H2 kept with a ceiling caveat.
 
-S2 costs about 56 GPU-h with no primary definition changed. **Nothing in Stage 2 is decided or prepared.**
+S2 costs about 56 GPU-h with no primary definition changed. (Superseded: C2 on 2026-10-05; A = 60 and B2 on 2026-10-06, above.)
 
 **Pilot causal AUCs with release noise (read 2026-10-05; tuning data).** Chosen template direction, ε = ∞:
 
@@ -146,7 +177,7 @@ S2 costs about 56 GPU-h with no primary definition changed. **Nothing in Stage 2
 - keep the no-noise H2 as a reported secondary;
 - state that H2 now measures leakage through noise-protected releases, not raw updates.
 
-Stage 2 uses fresh final targets only. C2 implies D1 (the noise pass is kept). Decisions A and B are still open.
+Stage 2 uses fresh final targets only. C2 implies D1 (the noise pass is kept). Decisions A and B followed on 2026-10-06 (above).
 
 **The command used (read-only, for decision C in the memo).** This prints the pilot's mean causal AUC per arm, budget, direction and pass, without and with release noise:
 
@@ -382,7 +413,9 @@ The executor keeps the collector's guarantees without changing `collect_guard_tr
 - **Sequence length 512, not 384 (2026-09-30).** The first server `build` refused because an RG training record (SQuAD question `57063fcb52bb8914006899b6`) needs 405 tokens. The researcher chose to raise `max_length` to 512 rather than skip long passages or tighten the word cap. The word range and the no-truncation rule are unchanged. The protocol's timing item "sequence length 384" is now measured at 512.
 - **Related-work search.** The structured related-work search (Stage 0 item 1 in §8) is not part of this change.
 - **Pilot projections.** Wired into the pilot `analyze` (2026-10-04). They use a normal approximation, which is optimistic for the utility terms.
-- **Stage 2.** `prepare final` and the confirmation `analyze` exist and are tested on synthetic data (2026-10-06). `stage2_protocol.json` is a draft until decisions A and B; `prepare final` refuses it until then.
+- **Stage 2.** `prepare final` and the confirmation `analyze` exist and are tested on synthetic data (2026-10-06). `stage2_protocol.json` is frozen (2026-10-06).
+- **ε = 64 dropped from Stage 2 (decision B2, 2026-10-06).** The pre-registered frontier included ε = 64 as a secondary; Stage 2 runs only ε = ∞ and ε = 16. H5's secondary is reported against ε = 16 only.
+- **60 targets, not 20, at ε = ∞ (decision A, 2026-10-06).** More targets than option (b) planned; this only narrows the intervals.
 - **H2's primary changed after the pilot (C2, 2026-10-05).** The release-noise causal pass is H2's primary; the no-noise pass is a reported secondary. This is a post-pilot definition change and a new pre-registration, stated openly in `stage2_protocol.json`; it is not a tightening.
 - **Confirmation analysis scope.** The confirmation `analyze` reports H1–H7, the cross-channel rule, H2's no-noise secondary and H5's DP secondaries. The other descriptive secondaries (the ε = 64 frontier, the gate, the "both" cell, refusal-excluded sensitivity, the standard AUC against N, public-library and no-context F1, per-client results) are not yet in it; they are descriptive and can be added before the final launch completes.
 - **DP jobs keep the causal passes.** Each DP paired job also runs the frozen-direction causal attack with release noise (secondary, the frontier), as the memo's cost estimates assumed.
