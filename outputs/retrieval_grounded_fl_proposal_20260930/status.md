@@ -1,9 +1,45 @@
 # Grounded federated RAG study: status
 
-**2026-09-30.** Stage 0 tooling is built and tested on the Mac (branch `feat/grounded-fl-stage0`, stacked on `proposal/retrieval-grounded-fl` at ce4b286). **No GPU job has run and no result exists.** The GPU code paths are covered by CPU tests with tiny models and fakes, but they have never run against Qwen on the server. The first Stage 0 jobs therefore double as their smoke test.
+**2026-10-05.** Stage 0 is complete and the Stage 1 pilot has run (33 jobs, core fingerprint `4a001c5eb678`). **The Stage 2 protocol and budget are not finalized:** the pilot's precision projections (below) need the researcher's decision first. Everything on V is tuning or validation data, never evidence.
 
 - **Core fingerprint:** `714ec988b38b` (it was `5c53eaa5b4a3`; `86eacb02a66f` at 62ebf0f, before the 512 change). Earlier results keep theirs.
 - **Tests:** 777 passed, 2 skipped (previously 703 passed). The frozen guard files and `causal_attack_validation.py` are byte-identical, and a test pins each.
+
+## Stage 1 pilot (V, seeds 8000–8099; tuning data, never evidence)
+
+**Run.** 33 jobs: 4 targets × {RG, CB-AO} × ε {∞, 64, 16}, 4 CB-LM, and 5 RG-public seeds. P0 utility comes from the datastore launch. Accounted ε per world: ∞, 63.84 and 16.01, matched across arms. H4 is primary (from the 6-epoch control).
+
+**Attacker choices (rule: per arm, pooling all budgets; the highest pooled tuning AUC wins, ties go to the standard form or F1).**
+
+| Arm | Reference form (tuning AUC record / template) | Causal direction (record / template) | NQ scorer (F1 / entailment) |
+|---|---|---|---|
+| RG | **record** (0.611 / 0.611, a tie, so the standard form) | **template** (0.493 / 0.978) | **F1** (0.899 / 0.688) |
+| CB-AO | **template** (0.458 / 0.597) | **template** (0.682 / 0.989) | **F1** (0.819 / 0.701) |
+| CB-LM | **record** (1.000 / 0.563) | **record** (0.981; record only) | **F1** (0.844 / 0.813) |
+
+**Projected decision half-widths for option (b)** (99.3% intervals; 20 targets at ε = ∞ and 10 for H6; normal approximation from 4 pilot targets, very rough).
+
+| Endpoint | Pilot half-width | Projected | Margin |
+|---|---:|---:|---:|
+| H1 Reference AUC difference | 0.50 | 0.24 | 0.05 AUC |
+| H1 utility (RG − CB-AO) | 0.098 | 0.043 | 0.05 F1 |
+| H2 causal AUC difference | 0.00 | 0.00 (see below) | 0.05 AUC |
+| H3 NQ AUC difference | 0.25 | 0.15 | 0.05 AUC |
+| H4 R_RG | 0.10 | 0.052 | 0.05 F1 |
+| H4 D_H4 | 0.17 | 0.087 | 0.05 F1 |
+| H5 F1(RG-public) − F1(RG) | 0.116 | 0.054 | 0.05 F1 |
+| H6 utility at ε = 16 | 0.007 | 0.004 | 0.05 F1 |
+| H6 Reference AUC at ε = 16 | 0.25 | 0.17 | 0.05 AUC |
+| H7 F1(P0) − F1(RG) | 0.074 | 0.033 | 0.05 F1 |
+
+**Readings (for the Stage 2 decision; descriptive only).**
+- **The AUC endpoints are far too imprecise at option (b).** Projected half-widths are 0.15–0.24 against a 0.05 margin, so H1, H3 and H6's leakage condition would almost surely be inconclusive.
+  - Scaling the rough projections, a ±0.05 decision interval would need about 450 targets for H1, about 170 for H3 and about 110 for H6's AUC.
+- **H2 is at the ceiling.** The zero spread means the template-direction causal AUC is identical in both arms on every pilot target. The other causal values (pooled about 0.98–0.99, saturated) suggest it is at or near 1. The projection cannot estimate precision there, and H2 would read "no meaningful change" or be degenerate.
+- **The Reference attack is weak under answer-only training.** Tuning AUCs are about 0.46–0.61 for RG and CB-AO, against 1.0 for the full-LM CB-LM bridge.
+- **The utility endpoints are close to the margin** (H1 utility, H5, H7: 0.03–0.054) and optimistic, because cluster and seed variance does not shrink with targets.
+  - H6's utility spread (0.004) is suspiciously small; check the descriptive differences.
+- **The causal attack stays effective at every budget.** DP-SGD's ε does not cover the crafted-request releases (§7), and the pooled tuning AUCs stay at about 0.98.
 
 ## Stage 0 results so far (validation data on V; not evidence)
 
