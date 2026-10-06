@@ -83,6 +83,13 @@ S2 costs about 56 GPU-h with no primary definition changed. **Nothing in Stage 2
 - **Inverted record direction.** RG's record direction is inverted at ε = ∞ (no-noise AUC 0.31).
 - **Memo §3 C** is updated with the full table, option C2 (✱, a selection-risk caution) and scenario S5 (30 targets with the noise pass, about 71 GPU-h).
 
+**Decision C (2026-10-05, the researcher): C2.** H2's primary endpoint becomes the release-noise causal pass (σ_obs 1.0, the chosen template direction). This is a definition change made after seeing the pilot, so the Stage 2 pre-registration must:
+- say openly that the choice was made from pilot data;
+- keep the no-noise H2 as a reported secondary;
+- state that H2 now measures leakage through noise-protected releases, not raw updates.
+
+Stage 2 uses fresh final targets only. C2 implies D1 (the noise pass is kept). Decisions A and B are still open.
+
 **The command used (read-only, for decision C in the memo).** This prints the pilot's mean causal AUC per arm, budget, direction and pass, without and with release noise:
 
 ```bash
