@@ -41,6 +41,29 @@
   - H6's utility spread (0.004) is suspiciously small; check the descriptive differences.
 - **The causal attack stays effective at every budget.** DP-SGD's ε does not cover the crafted-request releases (§7), and the pooled tuning AUCs stay at about 0.98.
 
+**Descriptive pilot differences** (estimate [95% CI]; 4 targets per arm and budget; tuning data, never evidence; §8: RG-vs-P0 changes nothing).
+
+| Quantity | Estimate |
+|---|---|
+| H1 Reference AUC, CB-AO − RG (ε = ∞) | 0.19 [0.00, 0.75] |
+| H1 utility, RG − CB-AO (ε = ∞) | **+0.27 F1 [0.20, 0.34]** |
+| H2 causal AUC, CB-AO − RG | 0.00 [0.00, 0.00] (both at the ceiling) |
+| H3 NQ AUC, RG − CB-AO | 0.19 [0.00, 0.47] |
+| H4 R_RG / D_H4 | 0.05 [0.00, 0.15] / 0.08 [0.00, 0.25] |
+| H5 RG-public − RG (ε = ∞) | −0.02 [−0.11, 0.07] |
+| H5 secondary: RG-public − RG at ε = 64 / 16 | +0.19 [0.10, 0.28] / +0.20 [0.11, 0.29] |
+| H6 utility, RG − CB-AO (ε = 16) | 0.001 [−0.003, 0.007] |
+| H6 Reference AUC, CB-AO − RG (ε = 16) | −0.06 [−0.25, 0.19] |
+| H7 P0 − RG (ε = ∞) | −0.23 [−0.28, −0.18] |
+
+**Readings (design input only).**
+- **Grounded training's utility gain at ε = ∞ is large and precise.** It is about +0.27 F1 over CB-AO and about +0.23 over P0.
+- **RG-public is close to RG at ε = ∞.** The gain may come from learning the grounded answering format rather than private facts.
+- **At the conservative accountant's ε = 64 and 16, the DP-trained models land at about P0's utility.** RG-public − RG(ε) ≈ +0.19–0.20, while RG-public ≈ RG(∞) ≈ P0 + 0.23. RG and CB-AO are then equal (H6 utility ≈ 0).
+  - So DP-SGD at these σ (1.91, 5.45) erases the fine-tuning effect.
+  - This also fits the slow DP-world measurements, which match P0's long generations.
+- **Implication.** As designed, H6 and the DP frontier would compare two nearly pretrained models.
+
 ## Stage 0 results so far (validation data on V; not evidence)
 
 **Build (server, fingerprint `714ec988b38b`).** Study sha256 `d7eac161d178b6e855979fc879752a5d511516674e913788e590194d4dbecd92`.

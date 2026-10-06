@@ -33,6 +33,7 @@ Every code or protocol change for this study must be recorded in the same commit
 - **Stage 1 pilot done (2026-10-05).**
   - Attacker choices are fixed: RG uses record/template/F1, CB-AO template/template/F1, CB-LM record/record/F1.
   - The projections show the AUC endpoints (H1, H3, H6's leakage) far too imprecise at option (b): about 0.15–0.24 against a 0.05 margin. H2 is at the causal-AUC ceiling.
+  - **Descriptive:** RG beats CB-AO by about 0.27 F1 at ε = ∞, and RG-public is about RG. At ε = 64 and 16, the DP models land at about P0's utility (DP erases the fine-tuning effect), so H6 compares near-pretrained models.
   - **Next:** the researcher decides the Stage 2 design and budget. Nothing in Stage 2 is prepared yet, and margins and rules may only be tightened.
 - **Decisions already made:**
   - accept GPU training non-determinism;
