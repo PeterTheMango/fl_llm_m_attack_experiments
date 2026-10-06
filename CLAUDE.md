@@ -6,10 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Research code for privacy in federated-learning (FL) fine-tuned LLMs that answer with RAG. It covers membership-inference attacks, DP defenses and RAG audits. Everything runs through the `master_script` package. Experiments run on the researcher's GPU server; the Mac is used to write code and run CPU tests.
 
-**The current focus is the grounded federated RAG study.** Its working title is "Does Retrieval Grounding Keep Private Facts Out of the Model?" (revision 4, approved with corrections for Stage 0/1 on 2026-09-30). These three files in `outputs/retrieval_grounded_fl_proposal_20260930/` are authoritative:
+**The current focus is the grounded federated RAG study.** Its working title is "Does Retrieval Grounding Keep Private Facts Out of the Model?" (revision 4, approved with corrections for Stage 0/1 on 2026-09-30). These files in `outputs/retrieval_grounded_fl_proposal_20260930/` are authoritative:
 
 - `proposal.md` is the design: arms RG / CB-AO / RG-public / P0 / CB-LM, H1–H7, the four-cell design, §9 statistics. It is a frozen review record, so its "Nothing is implemented or run" line is historical.
-- `stage01_protocol.json` freezes the Stage 0/1 procedures. The tool refuses to run unless its `status` starts with `frozen`. Stage 2 gets its own protocol after the pilot. Definitions may be tightened, never loosened.
+- `stage01_protocol.json` freezes the Stage 0/1 procedures. The tool refuses to run unless its `status` starts with `frozen`. Stage 2 has its own `stage2_protocol.json` (a draft until decisions A and B; `prepare final` refuses it until it is frozen). Definitions may be tightened, never loosened.
 - `status.md` is **the living record of the repo's state**: what is built, every server result, decisions, deviations and the next server steps.
 
 ## Keep the status documented (required on every change)
@@ -36,27 +36,28 @@ Every code or protocol change for this study must be recorded in the same commit
   - **Descriptive:** RG beats CB-AO by about 0.27 F1 at ε = ∞, and RG-public is about RG. At ε = 64 and 16, the DP models land at about P0's utility.
   - **Decision C = C2** (2026-10-05): the release-noise causal pass (σ_obs 1.0, template direction) becomes H2's primary ✱, a new pre-registration; so the noise pass is kept (D1). Pilot release-noise causal AUC at ε = ∞: RG 0.744, CB-AO 0.621.
 - **Done 2026-10-06: two opt-in observation speed-ups** (status.md, "Observation speed-ups"): release noise drawn on the GPU (`defenses.protect_observation_on_device`) and in-process observation trials (`amia.observe_in_process`); the grounded job opts in to both (`grounded_job.OBSERVATION`). Tests show bit-identical releases and trial records against the Flower `VictimClient` path, and the configured noise std. "Two clients training at once" is not done: it waits for the researcher's re-confirmation (advised against).
+- **Done 2026-10-06: Stage 2 tooling** (tool only): a draft `stage2_protocol.json` with every decision so far (A and B are `null`), `prepare final` (refuses a draft or any loosened rule), the confirmation `analyze` (H2 on the release-noise pass, no-noise as secondary) and an allowlist `check`. "Two clients at once" was dropped by the researcher.
 - **Next:**
-  1. The researcher runs `timing-5` on `8b031bbfdcc1` (commands in status.md) and pastes the per-trial split.
+  1. The researcher runs `timing-5` on `8b031bbfdcc1` (commands in status.md) and pastes the per-trial split. The server must not pull the Stage 2 tooling commit until `timing-5` is checked (the tool hash changed).
   2. Re-cost the Stage 2 scenarios in `stage2_design_memo.md` with the measured times.
-  3. The researcher decides A (targets at ε = ∞) and B (DP arms); then write `stage2_protocol.json` (with the C2 notes from status.md) and add `prepare final` and the confirmation `analyze`, and make sure `check` never shows endpoint values.
+  3. The researcher decides A (targets at ε = ∞) and B (DP arms); fill `targets` and the budget in `stage2_protocol.json`, set its status to `frozen <date>`, and record the decisions in status.md.
   - Do not touch the frozen guard files or `causal_attack_validation.py`; keep changes opt-in so the guard studies' paths are unchanged; record every fingerprint change in `status.md`. Nothing in Stage 2 is prepared yet, and margins and rules may only be tightened.
 - **Decisions already made:**
   - accept GPU training non-determinism;
   - pool attacker choices over budgets;
   - max_length 512;
   - C2 and D1 (above);
-  - batched answer generation rejected (it changes the answers).
+  - batched answer generation rejected (it changes the answers);
+  - two clients training at once dropped (2026-10-06).
 - **Open questions:**
   - decisions A and B of the Stage 2 design;
-  - "two clients training at once" (needs re-confirmation; advised against);
   - the structured related-work search (Stage 0 item 1) is not done.
 
 ## Commands
 
 The environment is `conda env create -f environment.yml` (env `peter_experiments_fl`). On a shared server env, use `pip install --user -r requirements.txt` instead, and drop the `torch` line if a CUDA torch is already installed. torch, transformers and `flwr[simulation]` are imported function-locally, so the toy path runs without them.
 
-Run the tests on the Mac with the project env. The base anaconda `python` lacks torch, and the grounded tests need it. On 2026-10-06 the suite gave 789 passed and 2 skipped.
+Run the tests on the Mac with the project env. The base anaconda `python` lacks torch, and the grounded tests need it. On 2026-10-06 the suite gave 809 passed and 2 skipped.
 
 ```bash
 /opt/anaconda3/envs/peter_experiments_fl/bin/python -m pytest tests -q
@@ -72,7 +73,7 @@ The grounded study tool runs one subcommand per stage step:
 python -m master_script.tools.grounded_fl_study --help
 ```
 
-Its subcommands are `build`, `calibrate-gate`, `prepare {datastore|control|timing|pilot}`, `resolve`, `run --gpu N [--max-jobs N]`, `job`, `check` and `analyze`.
+Its subcommands are `build`, `calibrate-gate`, `prepare {datastore|control|timing|pilot|final}`, `resolve`, `run --gpu N [--max-jobs N]`, `job`, `check` and `analyze`.
 
 This is the toy smoke run of the older attack runner: no GPU, model download or credentials.
 

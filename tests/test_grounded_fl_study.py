@@ -517,3 +517,206 @@ def test_pilot_analysis_fixes_choices_and_projects_precision():
     assert report["projections"]["H6.utility"]["planned_targets"] == 10
     assert report["accounted_epsilon"]["inf"] == "inf" and abs(report["accounted_epsilon"]["16"] - 16) < 0.05
     assert "H7" in report["descriptive_pilot_differences"]
+
+
+# ------------------------------------------------------- Stage 2 (final)
+
+def test_the_committed_stage2_protocol_records_the_decisions_and_stays_refused_until_frozen():
+    protocol = json.loads(gs.STAGE2_PROTOCOL.read_bytes())
+    assert protocol["stage01_protocol_sha256"] == gs.digest(gs.PROTOCOL)
+    assert protocol["design"]["seed_band"] == [9000, 9099] and protocol["design"]["cohort"] == "final"
+    assert {a: tuple(protocol["attacker_choices"][a][k] for k in ("reference_form", "causal_direction", "nq_scorer"))
+            for a in ("RG", "CB-AO", "CB-LM")} == {"RG": ("record", "template", "f1"), "CB-AO": ("template", "template", "f1"),
+                                                   "CB-LM": ("record", "record", "f1")}
+    h2 = protocol["hypotheses"]["H2"]
+    assert h2["primary_pass"] == "release_noise" and protocol["design"]["release_noise"] is True
+    notes = " ".join(h2["notes"])
+    assert "after seeing the Stage 1 pilot" in notes and "secondary" in notes and "noise-protected" in notes
+    assert protocol["h4_primary"] is True and protocol["statistics"]["primaries"] == 7
+    if not protocol["status"].startswith("frozen"):
+        with pytest.raises(ValueError, match="not frozen"):
+            gs.stage2_protocol()
+
+
+def final_protocol(tmp_path, monkeypatch, **changes):
+    """The committed protocol, frozen with small test target counts."""
+    protocol = json.loads(gs.STAGE2_PROTOCOL.read_bytes())
+    protocol["status"] = "frozen 2026-10-06 (test)"
+    protocol["design"]["targets"] = {"inf": 4, "dp": {"16": 2}}
+    for key, value in changes.items():
+        section, _, name = key.partition("__")
+        if name:
+            protocol[section][name] = value
+        else:
+            protocol[section] = value
+    path = tmp_path / "stage2_protocol.json"
+    path.write_text(json.dumps(protocol))
+    monkeypatch.setattr(gs, "STAGE2_PROTOCOL", path)
+    monkeypatch.setattr(gs, "MIN_FINAL_TARGETS", 4)
+    monkeypatch.setattr(gs, "MIN_DP_TARGETS", 2)
+    return path
+
+
+@pytest.mark.parametrize("changes, message", [
+    ({"design__targets": {"inf": 3, "dp": {"16": 2}}}, "at least 4 targets"),
+    ({"design__targets": {"inf": 4, "dp": {"64": 2}}}, "H6 is always kept"),
+    ({"design__targets": {"inf": 4, "dp": {"16": 2, "32": 2}}}, "H6 is always kept"),
+    ({"design__targets": {"inf": 4, "dp": {"16": 1}}}, "2 or more"),
+    ({"design__targets": {"inf": 4, "dp": {"16": 5}}}, "2 or more"),
+    ({"design__seed_band": [8000, 8099]}, "fresh final targets"),
+    ({"design__cohort": "V"}, "fresh final targets"),
+    ({"design__public_seeds": [9001, 9096, 9097, 9098, 9099]}, "above every target seed"),
+    ({"design__release_noise": False}, "release-noise primary"),
+    ({"statistics__margins": {"auc": 0.06, "f1": 0.05}}, "margins"),
+    ({"statistics__primaries": 6}, "margins"),
+    ({"h4_primary": False, "statistics__primaries": 6, "statistics__decision_level": 1 - 0.05 / 6}, "H4 is primary"),
+    ({"stage01_protocol_sha256": "0" * 64}, "another Stage 0/1"),
+    ({"status": "draft"}, "not frozen"),
+])
+def test_stage2_protocol_rules_may_only_be_tightened(tmp_path, monkeypatch, changes, message):
+    final_protocol(tmp_path, monkeypatch, **changes)
+    with pytest.raises(ValueError, match=message):
+        gs.stage2_protocol()
+
+
+def test_stage2_protocol_accepts_more_targets_and_the_epsilon_64_arm(tmp_path, monkeypatch):
+    final_protocol(tmp_path, monkeypatch, design__targets={"inf": 6, "dp": {"64": 2, "16": 3}})
+    assert gs.stage2_protocol()["design"]["targets"]["inf"] == 6
+
+
+def gate_file(tmp_path, study_path, threshold=0.45):
+    study = json.loads(Path(study_path).read_bytes())
+    path = tmp_path / f"gate-{threshold}.json"
+    path.write_text(json.dumps({"schema": "grounded_gate_v1", "ngram": 3, "threshold": threshold,
+                                "study_sha256": grounded.study_sha256(study)}))
+    return path
+
+
+def test_prepare_final_freezes_fresh_final_targets_with_the_frozen_choices(built, tmp_path, monkeypatch):
+    study_path, _ = built
+    final_protocol(tmp_path, monkeypatch)
+    with pytest.raises(ValueError, match="gate"):
+        gs.prepare("final", tmp_path / "no-gate", study_path)
+    with pytest.raises(ValueError, match="gate differs"):
+        gs.prepare("final", tmp_path / "other-gate", study_path, gate_file(tmp_path, study_path, 0.5))
+    root = tmp_path / "final"
+    launch = gs.prepare("final", root, study_path, gate_file(tmp_path, study_path))
+    study = json.loads(study_path.read_bytes())
+    jobs = [json.loads((root / e["file"]).read_bytes()) for e in launch["jobs"]]
+    assert launch["stage"] == 2 and launch["role"] == "confirmation" and launch["kind"] == "final"
+    assert (root / "protocol.json").read_bytes() == gs.STAGE2_PROTOCOL.read_bytes()
+    assert (root / "stage01_protocol.json").read_bytes() == gs.PROTOCOL.read_bytes()
+    order = [t["index"] for t in study["cohorts"]["final"]["targets"]]
+    assert launch["allocation"] == {"inf": order[:4], "16": order[:2]}
+    assert all(j["cohort"] == "final" and 9000 <= j["config"]["seed"] <= 9099 for j in jobs)
+    paired = [j for j in jobs if j["kind"] == "paired"]
+    assert sorted((j["arm"], str(j["epsilon"])) for j in paired) == sorted(
+        [(a, "inf") for a in ("RG", "CB-AO") for _ in range(4)] + [(a, "16") for a in ("RG", "CB-AO") for _ in range(2)])
+    assert all(j["config"]["seed"] == 9000 + j["target_index"] for j in paired)
+    assert all(j["measurements"]["causal_directions"] == ["template"] and j["measurements"]["release_noise"] for j in paired)
+    assert all(j["measurements"]["reference"] and j["measurements"]["nq"] and j["measurements"]["retention"] for j in paired)
+    assert all(j["gate"]["threshold"] == 0.45 for j in jobs)
+    assert sorted(j["config"]["seed"] for j in jobs if j["kind"] == "public") == [9095, 9096, 9097, 9098, 9099]
+    assert [j["kind"] for j in jobs].count("p0") == 1 and next(j for j in jobs if j["kind"] == "p0")["measurements"] == {"utility": True}
+    gs.execute(root / "launch.json", resolve_only=True, tokenizer=WordTokenizer(), model_config=MODEL_CONFIG)
+    # The committed protocol may not change under a prepared launch.
+    gs.STAGE2_PROTOCOL.write_text(gs.STAGE2_PROTOCOL.read_text().replace("(test)", "(edited)"))
+    with pytest.raises(ValueError, match="committed stage2_protocol.json"):
+        gs.check(root)
+
+
+def final_body(study, job, target):
+    """A synthetic final result: RG leaks more through noisy releases; no-noise causal at the ceiling."""
+    rng = np.random.default_rng(job["config"]["seed"] * 7 + len(job["arm"]))
+    ids = [q["id"] for q in study["cohorts"]["final"]["F"]]
+    util = lambda level: {"F": [{"query_id": i, "f1": float(np.clip(level + rng.normal(0, .05), 0, 1))} for i in ids], "F_P": []}
+    if job["kind"] == "p0":
+        return {"worlds": {"P0": {"utility": util(0.4)}}}
+    if job["kind"] == "public":
+        return {"privacy": {"public": {"epsilon": "inf"}}, "worlds": {"public": {"utility": util(0.65)}}}
+    eps = job["epsilon"]
+    privacy = {"epsilon": "inf"} if eps == "inf" else {"epsilon": gs.expected_epsilon(eps)[1], "steps": gs.expected_epsilon(eps)[0]}
+    rg = job["arm"] == "RG"
+    cell = lambda v: probes(float(np.clip(v + rng.normal(0, .05), 0, 1)))
+    noise = (0.75 if rg else 0.55) + rng.normal(0, .02)
+    return {"privacy": {"W1": privacy, "W0": privacy}, "sequence_lengths": {"max_tokens": 300, "mean_tokens": 200.0},
+            "worlds": {"W1": {"reference": {"record": 1 + rng.normal(0, .1), "template": 1 + rng.normal(0, .1)},
+                              "retention": {"f1": 0.3 if rg else 0.1, "probes": []}, "utility": util(0.7 if rg else 0.45),
+                              "natural_questions": {"both": cell(.9), "training_only": cell(.5)}},
+                       "W0": {"reference": {"record": 1 + rng.normal(0, .1), "template": 1 + rng.normal(0, .1)},
+                              "retention": {"f1": 0.1, "probes": []}, "utility": util(0.7 if rg else 0.45),
+                              "natural_questions": {"library_only": cell(.8), "neither": cell(.2)}}},
+            "causal": {"template": {"plain": {"auc": 1.0, "seconds": 10.0, "trials": [{}] * 40},
+                                    "release_noise": {"auc": float(noise), "seconds": 20.0, "trials": [{}] * 40}}}}
+
+
+def test_final_launch_runs_checks_without_endpoints_and_confirms_h2_on_the_release_noise_pass(built, tmp_path, monkeypatch):
+    study_path, _ = built
+    final_protocol(tmp_path, monkeypatch)
+    root = tmp_path / "final"
+    gs.prepare("final", root, study_path, gate_file(tmp_path, study_path))
+    gs.execute(root / "launch.json", resolve_only=True, tokenizer=WordTokenizer(), model_config=MODEL_CONFIG)
+    study = json.loads(study_path.read_bytes())
+
+    def body(job, target):
+        out = final_body(study, job, target)
+        # Endpoint-like values smuggled into the fields check reads must never be shown.
+        out["timings"] = {"total_seconds": 2.0, "auc": 0.987654, "W1_training_seconds": 1.5, "score_seconds": "0.876543"}
+        if "sequence_lengths" in out:
+            out["sequence_lengths"]["f1"] = 0.765432
+        return out
+    install_runner(monkeypatch, root, body)
+    gs.execute(root / "launch.json", gpu="0", max_jobs=3, scratch_root=tmp_path)
+    with pytest.raises(ValueError, match="not complete"):
+        gs.analyze(root, tmp_path / "early.json")
+    gs.execute(root / "launch.json", gpu="0", max_jobs=50, scratch_root=tmp_path)
+    report = gs.check(root)
+    text = json.dumps(report)
+    assert report["completed"] == report["planned"] == 18
+    for forbidden in ("auc", "0.98765", "0.87654", "0.76543", "f1", "score", "entailment", "refused", "nll"):
+        assert forbidden not in text, forbidden
+    paired = next(j for j in report["jobs"] if j["kind"] == "paired")
+    assert paired["timings"] == {"total_seconds": 2.0, "W1_training_seconds": 1.5}
+    assert paired["causal_seconds"] == {"template_plain": 10.0, "template_release_noise": 20.0}
+    analysis = gs.analyze(root, tmp_path / "final-analysis.json")
+    assert analysis["schema"] == "grounded_final_analysis_v1" and analysis["h2_primary_pass"] == "release_noise"
+    assert analysis["targets"] == {"inf": 4, "16": 2}
+    h2 = analysis["hypotheses"]["H2"]
+    assert h2["pass"] == "release_noise" and h2["reading"] == "RG increases"
+    assert h2["D"]["estimate"] == pytest.approx(-0.2, abs=0.05)
+    assert h2["secondary_no_noise"]["reading"] == "no meaningful change" and h2["secondary_no_noise"]["D"]["estimate"] == 0.0
+    assert analysis["hypotheses"]["decision_level"] == pytest.approx(1 - 0.05 / 7)
+    assert analysis["attacker_choices"]["CB-AO"]["reference_form"] == "template"
+    assert "H7" in analysis["hypotheses"] and analysis["hypotheses"]["H7"]["data"] == "final data only"
+
+
+def test_final_analysis_refuses_a_launch_that_differs_from_the_protocol(built, tmp_path, monkeypatch):
+    study_path, _ = built
+    final_protocol(tmp_path, monkeypatch)
+    study = json.loads(study_path.read_bytes())
+    protocol = gs.stage2_protocol()
+    jobs, slices = gs.plan("final", study, {"threshold": 0.45, "ngram": 3, "sha256": "g"}, protocol=protocol)
+    rows = [{"result": fake_result(j, study["cohorts"]["final"]["targets"][j["target_index"]]["target_sha256"]
+                                   if j["kind"] == "paired" else None, final_body(study, j, None))} for j in jobs]
+    launch = {"allocation": slices}
+    assert gs.analyze_final(rows, study, protocol, launch)["hypotheses"]["H2"]["pass"] == "release_noise"
+    with pytest.raises(ValueError, match="differ from the protocol"):
+        gs.analyze_final(rows[:-1], study, protocol, launch)
+    with pytest.raises(ValueError, match="5 RG-public seeds"):
+        gs.analyze_final([r for r in rows if r["result"]["kind"] != "p0"], study, protocol, launch)
+    swapped = {"allocation": {"inf": slices["inf"], "16": slices["inf"][2:4]}}
+    with pytest.raises(ValueError, match="declared final targets"):
+        gs.analyze_final(rows, study, protocol, swapped)
+
+
+def test_hypotheses_default_to_the_no_noise_h2_pass():
+    rows = cohort()
+    for r in rows:
+        for d in r["causal"].values():
+            d["release_noise"] = 0.5 if r["arm"] == "RG" else 0.9
+    plain = run_hypotheses(rows)
+    assert plain["H2"]["pass"] == "plain" and "secondary_no_noise" not in plain["H2"]
+    public = [list(np.full(QUESTIONS, 0.7) + 0.01 * s) for s in range(5)]
+    noisy = gs.hypotheses(rows, public, list(np.full(QUESTIONS, 0.7)), CHOICES, True, CLUSTERS, h2_pass="release_noise")
+    assert noisy["H2"]["reading"] == "RG reduces" and noisy["H2"]["secondary_no_noise"]["D"] == plain["H2"]["D"]
+    assert {k: v for k, v in noisy.items() if k != "H2"} == {k: v for k, v in plain.items() if k != "H2"}

@@ -3,7 +3,7 @@
 **2026-10-06.** Stage 0 is complete and the Stage 1 pilot has run (33 jobs, core fingerprint `4a001c5eb678`). Decision C is C2 (below). **The Stage 2 protocol and budget are not finalized:** decisions A and B are open, and a fifth timing launch measures the two observation speed-ups first. Everything on V is tuning or validation data, never evidence.
 
 - **Core fingerprint:** `8b031bbfdcc1` (2026-10-06, the two observation speed-ups). The pilot ran on `4a001c5eb678`; the 3- and 6-epoch controls on `714ec988b38b`. Earlier results keep theirs.
-- **Tests:** 789 passed, 2 skipped (previously 781). The frozen guard files and `causal_attack_validation.py` are byte-identical, and a test pins each.
+- **Tests:** 809 passed, 2 skipped (previously 789; 781 before the speed-ups). The frozen guard files and `causal_attack_validation.py` are byte-identical, and a test pins each.
 
 ## Observation speed-ups (2026-10-06; core fingerprint `4a001c5eb678` → `8b031bbfdcc1`)
 
@@ -20,7 +20,7 @@
    - Test: on a tiny GPT-2, 6 counterbalanced trials, the in-process path (with and without GPU noise) releases bit-identical gradient arrays and gives identical trial records (`trial_id`, `truth_member`, `score`, `batch_pair_seed`, `alignment_terms`, …) to the existing `VictimClient` path driven through Flower's serialization (the simulation is replaced by a direct driver, without Ray), with no defense and with clipping.
 3. **The grounded job opts in to both** (`grounded_job.OBSERVATION`), and each causal direction records `"observation": {"in_process": true, "noise_on_device": true}` in `result.json`.
 
-**Not done.** "Two clients training at once" was okayed by the researcher but advised against (two full-model clients of about 9 GB each will not fit or speed up on the 20 GB vGPU slice); it waits for the researcher's re-confirmation. Batched answer generation was rejected (it changes the answers).
+**Not done.** "Two clients training at once" was okayed earlier but advised against (two full-model clients of about 9 GB each will not fit or speed up on the 20 GB vGPU slice). **Decision (2026-10-06, the researcher): dropped.** Batched answer generation was rejected (it changes the answers).
 
 **Next.** A fifth timing launch (`timing-5`) on `8b031bbfdcc1` measures the saving before Stage 2 is costed. The scoring step (`alignment_terms`, NumPy over about 0.6 billion values) still runs on the CPU, unchanged, so it is part of what `timing-5` measures.
 
@@ -48,6 +48,20 @@ PY
 ```
 
 Do not pull later commits until `timing-5` has finished and `check` has run: a launch refuses to run or be checked once the study tool or core code changes.
+
+## Stage 2 tooling (2026-10-06; tool only, core unchanged at `8b031bbfdcc1`)
+
+Built while `timing-5` runs, so that the protocol can be frozen as soon as decisions A and B are made. **Nothing in Stage 2 is prepared or run.**
+
+- **`stage2_protocol.json` (draft).** It records everything decided so far:
+  - the final cohort, seed band 9000–9099 and fresh final targets only (the first n in eligible order at ε = ∞; each DP arm takes the first n_ε of those; seed 9000 + target index); RG-public on seeds 9095–9099 and P0, both scored on the final F;
+  - the frozen attacker choices (RG record/template/F1, CB-AO template/template/F1; CB-LM is not run);
+  - C2 with its pre-registration notes (below), D1, H4 primary (seven primaries, 99.3%), margins 0.05, max_length 512, the gate (τ 0.45, 3-grams), accepted non-determinism, pooled choices, two clients dropped, batched generation rejected.
+  - **Open in the file:** `targets.inf` (decision A), `targets.dp` (decision B) and the budget. Its status is `draft`, and `prepare final` refuses it until the status starts with `frozen`.
+- **`prepare final`** reads the frozen protocol and checks every rule it may only tighten: at least 20 targets at ε = ∞; ε = 16 always present (H6) with at least 10 targets; only ε 64 and 16; DP targets a subset of the ε = ∞ targets; the final cohort and its seed band; 5 RG-public seeds above every target seed; the release-noise pass present when H2's primary uses it; H4 primary; margins and the Bonferroni level unchanged; the protocol names the committed Stage 0/1 protocol. Each paired job measures everything pre-registered, with the causal attack in the arm's frozen direction only (plain and release noise). The launch keeps copies of both protocols, and `resolve`, `run`, `check` and `analyze` refuse if either committed protocol changes.
+- **Confirmation `analyze`** (launch kind `final`) runs the tested `hypotheses()` once, with the frozen choices, H2 on the release-noise pass (`h2_pass="release_noise"`; the no-noise D, interval and reading are reported as `secondary_no_noise` from the same target draws), utility clusters from the final F articles, and P0 and RG-public from the final launch. It refuses if the paired jobs, targets, seeds or utility questions differ from the protocol and the launch's declaration. `hypotheses()` keeps its default (`plain`), so the pilot analysis is unchanged (a test shows every other hypothesis is identical).
+- **`check` never shows endpoint values.** It now builds every field from an allowlist: timings only from `*_seconds` numeric entries, sequence lengths only `max_tokens`/`mean_tokens`, per-pass causal seconds and row counts. A test smuggles AUC-, F1- and score-like values into a result's timings and sequence lengths and shows none reach the report.
+- **Tool hash changed.** `timing-5` must finish and be checked before the server pulls this commit.
 
 ## Stage 1 pilot (V, seeds 8000–8099; tuning data, never evidence)
 
@@ -368,7 +382,10 @@ The executor keeps the collector's guarantees without changing `collect_guard_tr
 - **Sequence length 512, not 384 (2026-09-30).** The first server `build` refused because an RG training record (SQuAD question `57063fcb52bb8914006899b6`) needs 405 tokens. The researcher chose to raise `max_length` to 512 rather than skip long passages or tighten the word cap. The word range and the no-truncation rule are unchanged. The protocol's timing item "sequence length 384" is now measured at 512.
 - **Related-work search.** The structured related-work search (Stage 0 item 1 in §8) is not part of this change.
 - **Pilot projections.** Wired into the pilot `analyze` (2026-10-04). They use a normal approximation, which is optimistic for the utility terms.
-- **Stage 2.** No Stage 2 `prepare` exists, because its protocol is finalized after the pilot. `hypotheses()` is implemented and tested on synthetic data.
+- **Stage 2.** `prepare final` and the confirmation `analyze` exist and are tested on synthetic data (2026-10-06). `stage2_protocol.json` is a draft until decisions A and B; `prepare final` refuses it until then.
+- **H2's primary changed after the pilot (C2, 2026-10-05).** The release-noise causal pass is H2's primary; the no-noise pass is a reported secondary. This is a post-pilot definition change and a new pre-registration, stated openly in `stage2_protocol.json`; it is not a tightening.
+- **Confirmation analysis scope.** The confirmation `analyze` reports H1–H7, the cross-channel rule, H2's no-noise secondary and H5's DP secondaries. The other descriptive secondaries (the ε = 64 frontier, the gate, the "both" cell, refusal-excluded sensitivity, the standard AUC against N, public-library and no-context F1, per-client results) are not yet in it; they are descriptive and can be added before the final launch completes.
+- **DP jobs keep the causal passes.** Each DP paired job also runs the frozen-direction causal attack with release noise (secondary, the frontier), as the memo's cost estimates assumed.
 - **Timing.** Timing is a separate launch: one full paired RG job at ε = ∞ and one at ε = 16, on the V timing target.
 - **Observation speed-ups (2026-10-06).** Neither changes what is released or how it is scored, so no measurement definition changes. Two implementation differences are recorded:
   - GPU release noise uses torch's generator instead of NumPy's. The noise has the same distribution (Gaussian, std σ_obs × C, freshly seeded per release), but the two paths can never produce the same draw, so release-noise trials from `8b031bbfdcc1` and from earlier fingerprints are not draw-for-draw comparable (they never were: both draw from fresh seeds).

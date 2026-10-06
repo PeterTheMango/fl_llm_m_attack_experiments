@@ -4,14 +4,15 @@ build           article-disjoint SQuAD splits, targets, probes, libraries and F,
                 every earlier target question excluded by recomputed old record hashes
 calibrate-gate  CPU calibration of the verbatim-overlap library gate on V
 prepare KIND    a frozen launch: datastore (P0 check), control (positive control),
-                timing (full paired jobs), pilot (Stage 1). Nothing is resolved or run.
+                timing (full paired jobs), pilot (Stage 1), final (Stage 2 confirmation,
+                from the frozen stage2_protocol.json). Nothing is resolved or run.
 resolve         CPU checks before any GPU work: targets, worlds, tokens, exclusions
 run             one job at a time in its own process; weights retire after verification
 job             execute one job (called by run)
 check           integrity and timing of completed jobs; never an endpoint value
-analyze         the fixed validation rules or the §9 analysis
+analyze         the fixed validation rules, the pilot analysis or the §9 confirmation
 
-See outputs/retrieval_grounded_fl_proposal_20260930/{proposal.md,stage01_protocol.json,status.md}.
+See outputs/retrieval_grounded_fl_proposal_20260930/{proposal.md,stage01_protocol.json,stage2_protocol.json,status.md}.
 Attack effectiveness is measured here; no defense or privacy claim is made.
 """
 import argparse
@@ -39,9 +40,11 @@ from master_script.tools.causal_attack_validation import BASE as CAUSAL_BASE, DE
 from master_script.tools.collect_guard_traces import SMOKE_TARGET, require_headroom
 
 PROTOCOL = ROOT.parents[1] / "outputs/retrieval_grounded_fl_proposal_20260930/stage01_protocol.json"
+STAGE2_PROTOCOL = PROTOCOL.with_name("stage2_protocol.json")
+STAGE2_SCHEMA = "grounded_fl_stage2_protocol_v1"
 STUDY = "grounded_fl"
 LAUNCH_SCHEMA, COHORT_SCHEMA = "grounded_launch_v1", "grounded_cohort_v1"
-KINDS = ("datastore", "control", "timing", "pilot")
+KINDS = ("datastore", "control", "timing", "pilot", "final")
 V_SEED_BAND, FINAL_SEED_BAND = (8000, 8099), (9000, 9099)
 PUBLIC_SEEDS = (8095, 8096, 8097, 8098, 8099)
 DATASTORE_TARGETS, CONTROL_TARGETS, PILOT_TARGETS, BRIDGE_TARGETS = 60, 12, 4, 4
@@ -77,6 +80,65 @@ def _protocol():
     if protocol.get("schema") != "grounded_fl_stage01_protocol_v1" or not protocol["status"].startswith("frozen"):
         raise ValueError("The Stage 0/1 protocol is missing or not frozen")
     return protocol
+
+
+def protocol_path(kind):
+    return STAGE2_PROTOCOL if kind == "final" else PROTOCOL
+
+
+ARMS2, DP_BUDGETS = ("RG", "CB-AO"), (64, 16)
+MIN_FINAL_TARGETS, MIN_DP_TARGETS = 20, 10  # option (b): the floors Stage 2 may raise, never lower
+
+
+def stage2_protocol(path=None):
+    """The frozen Stage 2 protocol, checked against every rule it may only tighten."""
+    _protocol()
+    path = Path(path or STAGE2_PROTOCOL)
+    if not path.exists():
+        raise ValueError("No Stage 2 protocol: stage2_protocol.json is written after decisions A and B")
+    protocol = json.loads(path.read_bytes())
+    if protocol.get("schema") != STAGE2_SCHEMA or not str(protocol.get("status", "")).startswith("frozen"):
+        raise ValueError("The Stage 2 protocol is missing or not frozen; prepare final refuses a draft")
+    if protocol.get("stage01_protocol_sha256") != digest(PROTOCOL):
+        raise ValueError("The Stage 2 protocol names another Stage 0/1 protocol")
+    design = protocol["design"]
+    if design["cohort"] != "final" or design["seed_band"] != list(FINAL_SEED_BAND):
+        raise ValueError("Stage 2 uses fresh final targets in the seed band 9000-9099")
+    targets = design["targets"]
+    dp = {int(k): v for k, v in targets["dp"].items()}
+    if not isinstance(targets["inf"], int) or targets["inf"] < MIN_FINAL_TARGETS:
+        raise ValueError(f"Stage 2 needs at least {MIN_FINAL_TARGETS} targets at epsilon inf (option (b))")
+    if set(dp) - set(DP_BUDGETS) or not isinstance(dp.get(16), int):
+        raise ValueError("H6 is always kept at epsilon 16; only 64 and 16 are pre-registered budgets")
+    if any(not isinstance(n, int) or not MIN_DP_TARGETS <= n <= targets["inf"] for n in dp.values()):
+        raise ValueError(f"Each DP arm takes {MIN_DP_TARGETS} or more of the epsilon-inf targets")
+    seeds = design["public_seeds"]
+    if len(seeds) != 5 or len(set(seeds)) != 5 or any(not FINAL_SEED_BAND[0] <= x <= FINAL_SEED_BAND[1] for x in seeds) \
+            or FINAL_SEED_BAND[0] + targets["inf"] > min(seeds):
+        raise ValueError("RG-public takes 5 final-band seeds above every target seed")
+    choices = protocol["attacker_choices"]
+    for arm in ARMS2:
+        c = choices[arm]
+        if c["reference_form"] not in FORMS or c["causal_direction"] not in ("record", "template") or c["nq_scorer"] not in NQ_SCORERS:
+            raise ValueError(f"Attacker choices for {arm} are incomplete")
+    h2 = protocol["hypotheses"]["H2"]
+    if h2["primary_pass"] not in ("plain", "release_noise") or not design["release_noise"] and h2["primary_pass"] == "release_noise":
+        raise ValueError("H2's release-noise primary needs the release-noise pass")
+    if protocol["h4_primary"] is not True:
+        raise ValueError("The 6-epoch positive control passed: H4 is primary (seven primaries, 99.3%)")
+    stats = protocol["statistics"]
+    if stats["margins"] != {"auc": MARGIN, "f1": MARGIN} or stats["primaries"] != (7 if protocol["h4_primary"] else 6) \
+            or abs(stats["decision_level"] - decision_level(protocol["h4_primary"])) > 1e-12:
+        raise ValueError("Stage 2 statistics differ from the pre-registered margins and Bonferroni level")
+    if protocol["design"]["gate"]["ngram"] < 1:
+        raise ValueError("The library gate must be declared")
+    return protocol
+
+
+def final_measurements(arm, protocol):
+    """Every pre-registered measurement; the causal attack in the arm's frozen direction only."""
+    return {**FULL, "causal_directions": [protocol["attacker_choices"][arm]["causal_direction"]],
+            "release_noise": bool(protocol["design"]["release_noise"])}
 
 
 # ------------------------------------------------------------------- build
@@ -251,7 +313,34 @@ def expected_epsilon(epsilon, sizes=None, config=None):
     return steps, privacy_bound(steps, SIGMA[epsilon], DELTA)["epsilon"]
 
 
-def plan(kind, study, gate=None, previous=None):
+def final_allocation(study, protocol):
+    """Fresh final targets in eligible order: the first n at epsilon inf, the first n_eps of those per DP arm."""
+    order = [t["index"] for t in study["cohorts"]["final"]["targets"]]
+    targets = protocol["design"]["targets"]
+    if len(order) < targets["inf"]:
+        raise ValueError(f"The final cohort has {len(order)} eligible targets; the protocol needs {targets['inf']}")
+    chosen = order[:targets["inf"]]
+    return {"inf": chosen, **{str(eps): chosen[:n] for eps, n in targets["dp"].items()}}
+
+
+def plan(kind, study, gate=None, previous=None, protocol=None):
+    if kind == "final":
+        if gate is None:
+            raise ValueError("The final launch records the calibrated library gate")
+        if (gate["threshold"], gate["ngram"]) != (protocol["design"]["gate"]["threshold"], protocol["design"]["gate"]["ngram"]):
+            raise ValueError("The gate differs from the one the Stage 2 protocol names")
+        slices = final_allocation(study, protocol)
+        jobs = [job_document(study, "p0", "P0", "final", measurements={"utility": True}, gate=gate)]
+        jobs += [job_document(study, "public", "RG-public", "final", seed=seed, measurements={"utility": True}, gate=gate)
+                 for seed in protocol["design"]["public_seeds"]]
+        budgets = ["inf"] + [eps for eps in DP_BUDGETS if str(eps) in slices]
+        for index in slices["inf"]:
+            for epsilon in budgets:
+                if index in slices[str(epsilon)]:
+                    for arm in ARMS2:
+                        jobs.append(job_document(study, "paired", arm, "final", epsilon, index,
+                                                 measurements=final_measurements(arm, protocol), gate=gate))
+        return jobs, slices
     slices = allocation(study)
     jobs = []
     if kind == "datastore":
@@ -286,6 +375,7 @@ def plan(kind, study, gate=None, previous=None):
 def prepare(kind, output, study_path, gate_path=None, previous=None):
     """Write jobs and a frozen launch; nothing is resolved or run."""
     _protocol()  # refuses unless the Stage 0/1 protocol is present and frozen
+    protocol = stage2_protocol() if kind == "final" else None
     study = json.loads(Path(study_path).read_bytes())
     if study.get("schema") != grounded.SCHEMA:
         raise ValueError("Not a grounded study file")
@@ -300,11 +390,13 @@ def prepare(kind, output, study_path, gate_path=None, previous=None):
         if gate.get("schema") != "grounded_gate_v1" or gate.get("study_sha256") != grounded.study_sha256(study):
             raise ValueError("Gate calibration belongs to another study")
     prior = json.loads(Path(previous).read_bytes()) if previous else None
-    jobs, slices = plan(kind, study, gate, prior)
+    jobs, slices = plan(kind, study, gate, prior, protocol)
     output = Path(output).resolve()
     output.mkdir(parents=True, exist_ok=False)
     shutil.copyfile(study_path, output / "study.json")
-    (output / "protocol.json").write_bytes(PROTOCOL.read_bytes())
+    (output / "protocol.json").write_bytes(protocol_path(kind).read_bytes())
+    if kind == "final":
+        (output / "stage01_protocol.json").write_bytes(PROTOCOL.read_bytes())
     if gate_path is not None:
         shutil.copyfile(gate_path, output / "gate.json")
     entries = []
@@ -314,9 +406,10 @@ def prepare(kind, output, study_path, gate_path=None, previous=None):
         entries.append({"file": name, "sha256": digest(output / name), "kind": job["kind"], "arm": job["arm"],
                         "epsilon": job["epsilon"], "cohort": job["cohort"], "target_index": job["target_index"],
                         "seed": job["config"]["seed"]})
-    launch = {"schema": LAUNCH_SCHEMA, "study": STUDY, "kind": kind, "stage": 1 if kind == "pilot" else 0,
+    launch = {"schema": LAUNCH_SCHEMA, "study": STUDY, "kind": kind, "stage": {"pilot": 1, "final": 2}.get(kind, 0),
               "created_unix": time.time(), "implementation_fingerprint": implementation_fingerprint(),
-              "study_tool_sha256": tool_digest(), "protocol_file": "protocol.json", "protocol_sha256": digest(PROTOCOL),
+              "study_tool_sha256": tool_digest(), "protocol_file": "protocol.json", "protocol_sha256": digest(protocol_path(kind)),
+              **({"stage01_protocol_sha256": digest(PROTOCOL)} if kind == "final" else {}),
               "study_file": "study.json", "study_sha256": grounded.study_sha256(study),
               "study_file_sha256": digest(output / "study.json"),
               "gate": None if gate is None else {"file": "gate.json", "sha256": gate["sha256"]},
@@ -340,8 +433,12 @@ def _load_launch(root):
         raise ValueError("Core code changed since the launch was prepared; prepare a new frozen launch")
     if launch["study_tool_sha256"] != tool_digest():
         raise ValueError("Study tool changed since the launch was prepared; prepare a new frozen launch")
-    if digest(root / "protocol.json") != launch["protocol_sha256"] or digest(PROTOCOL) != launch["protocol_sha256"]:
-        raise ValueError("Launch protocol differs from the committed Stage 0/1 protocol")
+    committed = protocol_path(launch["kind"])
+    if digest(root / "protocol.json") != launch["protocol_sha256"] or digest(committed) != launch["protocol_sha256"]:
+        raise ValueError(f"Launch protocol differs from the committed {committed.name}")
+    if launch["kind"] == "final" and (digest(root / "stage01_protocol.json") != launch["stage01_protocol_sha256"]
+                                      or digest(PROTOCOL) != launch["stage01_protocol_sha256"]):
+        raise ValueError("Launch protocol differs from the committed stage01_protocol.json")
     if digest(root / "study.json") != launch["study_file_sha256"]:
         raise ValueError("Study data changed after declaration")
     if launch["gate"] is not None and digest(root / "gate.json") != launch["gate"]["sha256"]:
@@ -558,17 +655,27 @@ def _structure(result):
     return counts
 
 
+def _seconds(timings):
+    """Only wall-clock entries, so no value can reach check through the timings."""
+    return {k: float(v) for k, v in timings.items() if k.endswith("_seconds") and isinstance(v, (int, float))}
+
+
 def check(root):
-    """Integrity, epsilon records and timing so far. No score, AUC, F1, refusal or learning value."""
+    """Integrity, epsilon records and timing so far. No score, AUC, F1, refusal or learning value:
+    every field is chosen explicitly (an allowlist), never copied from a result wholesale."""
     launch, state, _, rows = completed(root, partial=True)
     report = []
     for row in rows:
         result = row["result"]
+        lengths = result.get("sequence_lengths") or {}
         report.append({"job": row["index"], "kind": result["kind"], "arm": result["arm"],
                        "epsilon_budget": result["epsilon_budget"], "seed": result["seed"],
                        "target_sha256": (result.get("target_sha256") or "")[:12] or None,
                        "accounted_epsilon": {w: p["epsilon"] for w, p in result.get("privacy", {}).items()},
-                       "timings": result["timings"], "sequence_lengths": result.get("sequence_lengths"),
+                       "timings": _seconds(result["timings"]),
+                       "sequence_lengths": {k: lengths[k] for k in ("max_tokens", "mean_tokens") if k in lengths} or None,
+                       "causal_seconds": {f"{d}_{name}": passes[name]["seconds"] for d, passes in result.get("causal", {}).items()
+                                          for name in ("plain", "release_noise") if name in passes},
                        "rows": _structure(result), "integrity": "verified"})
     return {"kind": launch["kind"], "completed": len(rows), "planned": len(launch["jobs"]),
             "active_job": state.get("active_job"), "jobs": report,
@@ -858,10 +965,12 @@ def projection(draws, n_pilot, n_plan, level):
 
 # ------------------------------------------------------------ hypotheses
 
-def hypotheses(paired, public, p0, choices, h4_primary=True, clusters=None, sink=None):
+def hypotheses(paired, public, p0, choices, h4_primary=True, clusters=None, sink=None, h2_pass="plain"):
     """H1-H7 and the cross-channel rule on final data (§9). paired: per-target records;
     public: RG-public per-seed F1 vectors; p0: the P0 F1 vector; clusters: F article per question.
-    sink, when given, receives each difference's bootstrap draws (pilot precision projections)."""
+    sink, when given, receives each difference's bootstrap draws (pilot precision projections).
+    h2_pass names H2's primary causal pass; "release_noise" is the Stage 2 primary (decision C2),
+    and the no-noise pass is then reported as a secondary with the same target draws."""
     import numpy as np
     level = decision_level(h4_primary)
 
@@ -900,11 +1009,15 @@ def hypotheses(paired, public, p0, choices, h4_primary=True, clusters=None, sink
     u["acceptable"] = u["decision_interval"][0] > -MARGIN
     out["H1"] = {"D": d, "utility_RG_minus_CBAO": u, "claimed": d["classification"]["supported"] and u["acceptable"]}
     # H2: client updates, two-sided.
-    causal = lambda rows, arm: np.array([r["causal"][choices[arm]["causal_direction"]]["plain"] for r in rows])
-    rg_c, cb_c = causal(arms["RG"], "RG"), causal(arms["CB-AO"], "CB-AO")
-    d = summarize(cb_c.mean() - rg_c.mean(), cb_c[idx].mean(axis=1) - rg_c[idx].mean(axis=1), level, "H2.D")
-    d["classification"] = classify(*d["decision_interval"])
-    out["H2"] = {"D": d, "reading": h2_reading(d["classification"])}
+    def h2(name, label):
+        causal = lambda rows, arm: np.array([r["causal"][choices[arm]["causal_direction"]][name] for r in rows])
+        rg_c, cb_c = causal(arms["RG"], "RG"), causal(arms["CB-AO"], "CB-AO")
+        d = summarize(cb_c.mean() - rg_c.mean(), cb_c[idx].mean(axis=1) - rg_c[idx].mean(axis=1), level, label)
+        d["classification"] = classify(*d["decision_interval"])
+        return {"D": d, "reading": h2_reading(d["classification"]), "pass": name}
+    out["H2"] = h2(h2_pass, "H2.D")
+    if h2_pass != "plain":
+        out["H2"]["secondary_no_noise"] = {**h2("plain", None), "role": "secondary (reported, never decides H2)"}
     # H3: datastore.
     if all(choices[a]["nq_scorer"] for a in ("RG", "CB-AO")):
         def nq(rows, arm):
@@ -1002,10 +1115,56 @@ def analyze_pilot(rows, study, datastore, control, p0_rows):
                          "total_seconds": r["result"]["timings"]["total_seconds"]} for r in rows]}
 
 
+def analyze_final(rows, study, protocol, launch=None):
+    """Stage 2 confirmation: H1-H7 and the cross-channel rule once, with the frozen attacker
+    choices, H2 on the pre-registered pass, and utility clusters from the final F articles."""
+    records = [paired_record(r["result"]) for r in rows if r["result"]["kind"] == "paired"]
+    targets = protocol["design"]["targets"]
+    expected = {("inf", arm): targets["inf"] for arm in ARMS2}
+    expected.update({(str(eps), arm): n for eps, n in targets["dp"].items() for arm in ARMS2})
+    found = Counter((str(r["epsilon_budget"]), r["arm"]) for r in records)
+    if dict(found) != expected:
+        raise ValueError(f"Final paired jobs {dict(found)} differ from the protocol's {expected}")
+    if launch is not None:
+        declared = {str(eps): sorted(study["cohorts"]["final"]["targets"][i]["target_sha256"] for i in indices)
+                    for eps, indices in launch["allocation"].items()}
+        for eps, hashes in declared.items():
+            for arm in ARMS2:
+                if sorted(r["target"] for r in records if r["arm"] == arm and str(r["epsilon_budget"]) == eps) != hashes:
+                    raise ValueError(f"{arm} at epsilon {eps} did not run on the declared final targets")
+    public_rows = [r["result"] for r in rows if r["result"]["kind"] == "public"]
+    p0_rows = [r["result"] for r in rows if r["result"]["kind"] == "p0"]
+    if sorted(r["seed"] for r in public_rows) != sorted(protocol["design"]["public_seeds"]) or len(p0_rows) != 1:
+        raise ValueError("The final launch needs the 5 RG-public seeds and one P0 model")
+    if any(r["cohort"] != "final" for r in public_rows + p0_rows):
+        raise ValueError("RG-public and P0 must be scored on the final F")
+    ids = next(r["utility_ids"] for r in records)
+    vectors = [r["worlds"]["public"]["utility"]["F"] for r in public_rows] + [p0_rows[0]["worlds"]["P0"]["utility"]["F"]]
+    if any([q["query_id"] for q in v] != ids for v in vectors):
+        raise ValueError("Utility questions differ across models")
+    public = [[q["f1"] for q in v] for v in vectors[:-1]]
+    p0 = [q["f1"] for q in vectors[-1]]
+    article = {q["id"]: q["article"] for q in study["cohorts"]["final"]["F"]}
+    choices = {arm: dict(protocol["attacker_choices"][arm]) for arm in ARMS2}
+    h2_pass = protocol["hypotheses"]["H2"]["primary_pass"]
+    result = hypotheses(records, public, p0, choices, bool(protocol["h4_primary"]), [article[i] for i in ids], h2_pass=h2_pass)
+    return {"schema": "grounded_final_analysis_v1", "role": "confirmation (Stage 2, final targets)",
+            "protocol_status": protocol["status"], "attacker_choices": choices, "h2_primary_pass": h2_pass,
+            "h2_preregistration_note": protocol["hypotheses"]["H2"].get("notes"),
+            "targets": {eps: len(v) for eps, v in (launch or {}).get("allocation", {}).items()},
+            "accounted_epsilon": require_matched_epsilon(records), "hypotheses": result,
+            "method": {"bootstrap": BOOTSTRAP, "rng_seed": RNG_SEED, "unit": "target (paired across arms)",
+                       "utility_bootstrap": "crossed: models x final F article clusters"},
+            "timings": [{"kind": r["result"]["kind"], "arm": r["result"]["arm"], "epsilon_budget": r["result"]["epsilon_budget"],
+                         "total_seconds": r["result"]["timings"]["total_seconds"]} for r in rows]}
+
+
 def analyze(root, output, datastore=None, control=None, p0_launch=None):
     launch, _, study, rows = completed(root)
     datastore = json.loads(Path(datastore).read_bytes()) if datastore else None
-    if launch["kind"] == "datastore":
+    if launch["kind"] == "final":
+        report = analyze_final(rows, study, stage2_protocol(Path(root) / "protocol.json"), launch)
+    elif launch["kind"] == "datastore":
         report = analyze_datastore(rows)
     elif launch["kind"] == "control":
         report = analyze_control(rows, datastore)
@@ -1057,6 +1216,7 @@ def main(argv=None):
     a = sub.add_parser("analyze", help="validation rules or analysis"); a.add_argument("root"); a.add_argument("output")
     a.add_argument("--datastore-analysis"); a.add_argument("--control-analysis")
     a.add_argument("--p0-launch", help="the P0 datastore launch folder (pilot analysis: P0 utility on V)")
+    # The final confirmation needs no extra arguments: its launch holds P0, RG-public and the frozen protocol.
     args = p.parse_args(argv)
     if args.action == "build":
         report = build(args.output, args.exclude_manifest)

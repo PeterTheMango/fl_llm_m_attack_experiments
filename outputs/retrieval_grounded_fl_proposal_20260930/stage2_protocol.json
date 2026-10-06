@@ -1,0 +1,132 @@
+{
+ "schema": "grounded_fl_stage2_protocol_v1",
+ "status": "draft 2026-10-06: decisions A (targets at epsilon inf) and B (DP arms) are pending; prepare final refuses this file until its status starts with 'frozen'",
+ "proposal": "outputs/retrieval_grounded_fl_proposal_20260930/proposal.md (revision 4)",
+ "stage01_protocol": "outputs/retrieval_grounded_fl_proposal_20260930/stage01_protocol.json",
+ "stage01_protocol_sha256": "3833cc6d9190ea8c943edaa17003d9793bac8592b7188510c0f64757d37a6159",
+ "inherits": "Every Stage 0/1 definition (data, arms, measurements, statistics, classification, H1-H7 rules, the cross-channel rule) applies unchanged unless this file tightens it or records a pre-registered change. Nothing is loosened.",
+ "role": "confirmation on fresh final targets; V, pilot, control, datastore and timing data are never evidence",
+ "design": {
+  "cohort": "final",
+  "seed_band": [
+   9000,
+   9099
+  ],
+  "targets": {
+   "inf": null,
+   "dp": {
+    "16": null
+   }
+  },
+  "target_rule": "fresh final targets in the study's eligible order: the first n at epsilon inf; each DP arm takes the first n_eps of those (paired: every DP target also runs at epsilon inf); seed = 9000 + target index",
+  "per_target_arms": [
+   "RG",
+   "CB-AO"
+  ],
+  "shared_models": {
+   "RG-public": "5 seeds on the final cohort (U records), scored on the final F",
+   "P0": "one pretrained model scored on the final F"
+  },
+  "public_seeds": [
+   9095,
+   9096,
+   9097,
+   9098,
+   9099
+  ],
+  "not_run": "CB-LM (Stage 1 bridge only)",
+  "measurements": "all pre-registered measurements in every paired job: Reference (both forms recorded; the frozen form decides), retention, utility, the 3-query natural-question pass (both scorers recorded; the frozen scorer decides), 16 N documents, and the causal attack in the arm's frozen direction only",
+  "release_noise": true,
+  "causal": {
+   "config": "validated: cosine, probe_epochs 12, probe_lr 0.005, 40 counterbalanced trials",
+   "release_noise": {
+    "sigma_obs": 1.0,
+    "clip_norm": 1.0,
+    "trials": 40,
+    "accounting": "its own per-release zCDP record; never merged with the training epsilon"
+   }
+  },
+  "observation_path": "in-process observation trials and release noise drawn on the GPU (core 8b031bbfdcc1 or later): the same releases and scores as the Flower VictimClient path (tested)",
+  "gate": {
+   "threshold": 0.45,
+   "ngram": 3,
+   "calibration": "V (Stage 0); recorded at retrieval level only"
+  },
+  "max_length": 512,
+  "dp": {
+   "sigma": {
+    "64": 1.91,
+    "16": 5.45
+   },
+   "delta": 1e-05,
+   "steps": 51,
+   "accountant": "defenses.privacy_bound as implemented (Stage 0/1)"
+  },
+  "training_nondeterminism": "accepted (2026-10-04): GPU training is not bit-reproducible; each world is one random draw carried by the target bootstrap"
+ },
+ "attacker_choices": {
+  "RG": {
+   "reference_form": "record",
+   "causal_direction": "template",
+   "nq_scorer": "f1"
+  },
+  "CB-AO": {
+   "reference_form": "template",
+   "causal_direction": "template",
+   "nq_scorer": "f1"
+  },
+  "CB-LM": {
+   "reference_form": "record",
+   "causal_direction": "record",
+   "nq_scorer": "f1",
+   "note": "Stage 1 bridge only; not run in Stage 2"
+  }
+ },
+ "attacker_choice_source": "Stage 1 pilot (V, seeds 8000-8099, core 4a001c5eb678): per arm, pooling its pilot jobs over all three budgets (decided 2026-10-04); highest pooled tuning AUC, ties to the standard form or the F1 scorer",
+ "h4_primary": true,
+ "h4_basis": "6-epoch positive control passed: 10 of 12 learned; retention r 0.142, 95% CI [0.066, 0.225], lower bound > 0.05",
+ "hypotheses": {
+  "H1": "as proposal §9.2, at epsilon inf, Reference AUC in the frozen form",
+  "H2": {
+   "primary_pass": "release_noise",
+   "primary_endpoint": "D = AUC_causal(CB-AO) - AUC_causal(RG) at epsilon inf, mean per-target AUC of the 40-trial release-noise pass (sigma_obs 1.0, C 1.0) in the frozen (template) direction; two-sided, as proposal §9.2",
+   "secondary": "the same D on the no-noise pass, reported with its interval and reading; it never decides H2",
+   "decision": "C2 (the researcher, 2026-10-05)",
+   "notes": [
+    "This endpoint was chosen after seeing the Stage 1 pilot: with no noise both arms sat at the causal-AUC ceiling (about 1.0), while the release-noise pass gave RG 0.744 and CB-AO 0.621 at epsilon inf. It is a post-pilot definition change and a new pre-registration.",
+    "The no-noise H2 of revision 4 is kept as a reported secondary.",
+    "H2 now measures leakage through noise-protected client releases (sigma_obs 1.0), not through raw updates.",
+    "Stage 2 uses fresh final targets only, so no pilot target contributes to H2."
+   ]
+  },
+  "H3": "as proposal §9.2, natural-question pooled AUC with the frozen scorer (F1 for both arms)",
+  "H4": "primary; both R_RG and D_H4 must be supported",
+  "H5": "F1(RG-public) - F1(RG, epsilon inf); secondary against each DP budget that is run",
+  "H6": "at epsilon 16 (always kept): utility supported and Reference AUC difference lower bound > -0.05",
+  "H7": "F1(P0) - F1(RG, epsilon inf) on final data; non-inferiority readings as proposal §9.2"
+ },
+ "statistics": {
+  "unit": "target; paired target bootstrap with all arms together; 10,000 resamples; numpy default_rng(20260930)",
+  "utility_bootstrap": "crossed: models (targets or seeds) x final F article clusters, siblings kept together",
+  "primaries": 7,
+  "decision_level": 0.9928571428571429,
+  "margins": {
+   "auc": 0.05,
+   "f1": 0.05
+  },
+  "classification": "first match, six outcomes, as stage01_protocol.json",
+  "cross_channel": "H1 supported and (H2 'RG increases' or H3 supported); H4 never counts",
+  "analysis": "grounded_fl_study analyze on the completed final launch, once"
+ },
+ "decisions": {
+  "A_targets_at_epsilon_inf": null,
+  "B_dp_arms": null,
+  "C_h2": "C2 (2026-10-05): the release-noise pass is H2's primary (above)",
+  "D_release_noise_pass": "D1 (2026-10-05): kept",
+  "attacker_choice_pooling": "over budgets (2026-10-04)",
+  "max_length": "512 (2026-09-30)",
+  "two_clients_at_once": "dropped (2026-10-06)",
+  "batched_answer_generation": "rejected: it changes the answers"
+ },
+ "budget_gpu_hours": null
+}
