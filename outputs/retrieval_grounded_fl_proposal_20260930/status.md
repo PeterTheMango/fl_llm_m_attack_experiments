@@ -1,9 +1,48 @@
 # Grounded federated RAG study: status
 
-**2026-10-06.** Stage 0 is complete and the Stage 1 pilot has run (33 jobs, core fingerprint `4a001c5eb678`). **The Stage 2 protocol is frozen** (`stage2_protocol.json`): C2, D1, A = 60 targets at ε = ∞, B2 (ε = 16 only, 10 targets), about 76 GPU-h. Nothing in Stage 2 is prepared or run yet. Everything on V is tuning or validation data, never evidence.
+**2026-10-10.** **Stage 2 (confirmation) is complete and analysed once** (146 jobs on fresh final targets, core `8b031bbfdcc1`, frozen `stage2_protocol.json`). Results are below. Stage 0 and the Stage 1 pilot are complete; everything on V is tuning or validation data, never evidence.
 
 - **Core fingerprint:** `8b031bbfdcc1` (2026-10-06, the two observation speed-ups). The pilot ran on `4a001c5eb678`; the 3- and 6-epoch controls on `714ec988b38b`. Earlier results keep theirs.
 - **Tests:** 809 passed, 2 skipped (previously 789; 781 before the speed-ups).
+
+## Stage 2 confirmation results (2026-10-10)
+
+**Provenance.** Launch `$G/final` (launch sha256 `c2a1b6f1e9b638cdf1cd42c40ccd369113f2429b52e58a81d72583141b3f3b91`), protocol sha256 `967ff26f…` (the committed `stage2_protocol.json`), study tool sha256 `3921ed6a…` (commit `748378d`), core fingerprint `8b031bbfdcc1`, study sha256 `d7eac161…`. 146 of 146 jobs complete and verified; `analyze` was run once and written to `$G/final-analysis.json` (sha256 `39bbd7803d59d9656e6ad5f05ccc3b7a1ce8a122da7433cdef048f963df7e8a6`). Accounted ε: ∞ and 16.0096 (matched in every pair). About 67 GPU-h (estimate 76): about 0.45 h per RG job and 0.38 h per CB-AO job at ε = ∞, about 0.87 h and 0.81 h at ε = 16.
+
+**Primary results** (60 targets at ε = ∞, 10 at ε = 16; 99.3% decision intervals, seven primaries; margins 0.05).
+
+| | Difference (oriented as the hypothesis) | Estimate | 99.3% interval | Outcome | Claimed |
+|---|---|---:|---|---|---|
+| **H1** weights, record membership | Reference AUC, CB-AO − RG | 0.280 | [0.176, 0.368] | meaningful improvement | **yes** |
+| | utility, RG − CB-AO (needs lo > −0.05) | +0.292 F1 | [0.237, 0.350] | acceptable | |
+| **H2** client updates (primary: release-noise pass, C2) | causal AUC, CB-AO − RG | −0.052 | [−0.110, 0.006] | inconclusive | reading: inconclusive |
+| | secondary: no-noise pass | +0.002 | [−0.007, 0.017] | equivalent | (never decides H2) |
+| **H3** datastore | NQ AUC, RG − CB-AO | 0.350 | [0.230, 0.461] | meaningful improvement | **yes** |
+| **H4** passage-fact retention | R_RG | +0.006 F1 | [−0.022, 0.036] | equivalent | no |
+| | D_H4 = R_RG − R_CB-AO | +0.001 F1 | [−0.046, 0.047] | equivalent | |
+| **H5** is private training needed? | F1(RG-public) − F1(RG, ε = ∞), needs lo > −0.05 | −0.096 | [−0.227, 0.025] | not acceptable | no |
+| | secondary vs RG at ε = 16 (95%) | +0.110 | [0.014, 0.209] | | |
+| **H6** utility at ε = 16 | F1, RG − CB-AO | +0.001 | [−0.006, 0.012] | equivalent (not supported) | no |
+| | Reference AUC, CB-AO − RG (needs lo > −0.05) | −0.10 | [−0.56, 0.33] | not shown no-worse | |
+| **H7** is fine-tuning needed? | F1(P0) − F1(RG, ε = ∞) | −0.211 | [−0.274, −0.144] | RG is meaningfully better | |
+| **Cross-channel** | H1 and (H2 "RG increases" or H3) | | | H1 and H3 | **yes** |
+
+**Readings (plain terms; measurement results under these attacks, not privacy guarantees).**
+- **H1, weights.** Under each arm's pre-registered Reference attack, grounded training (RG) reveals much less about which records were trained on than closed-book answer-only training (CB-AO), and answers about 0.29 F1 better.
+- **H3, datastore.** RG makes library documents meaningfully *easier* to detect with natural questions: the RG model uses retrieved passages more, so whether a passage is in the library shows more in its answers.
+- **Cross-channel claim holds (H1 and H3):** with grounded training, record-membership leakage moves out of the weights and into the datastore channel.
+- **H2, client updates: inconclusive.** The point estimate says RG leaks somewhat more through noise-protected releases (the 95% interval [−0.094, −0.010] excludes 0, the 99.3% decision interval does not). With no noise both arms sit at the ceiling and are equivalent. The primary endpoint was chosen after the pilot (C2), which the protocol states.
+- **H4, retention: equivalent, not claimed.** Neither the within-RG retention nor the difference against CB-AO exceeds the ±0.05 F1 margin. The probes are sensitive (the 6-epoch positive control detected r = 0.142), so this is evidence that grounded training does not store the passage's other facts in the weights by more than 0.05 F1 in this setting.
+- **H5: not acceptable.** Public-only grounded training is about 0.10 F1 worse than private RG (lower end −0.23), so acceptability cannot be shown; private data helps answer quality here. (The pilot's −0.02 was tuning data.)
+- **H6: not claimed.** At ε = 16 both arms land at the same utility, as the pilot predicted (DP-SGD at σ 5.45 erases fine-tuning); the Reference AUC interval at 10 targets is very wide.
+- **H7: fine-tuning helps.** RG at ε = ∞ beats the pretrained model by about 0.21 F1.
+
+**Caveats to carry into any write-up.**
+- **H1 compares each arm's own frozen attack form:** RG's Reference attack uses the record form (a pilot tie at 0.611, broken to the standard form by rule), CB-AO's the template form. This is the pre-registered rule; both forms were recorded in every job, so the other forms can be reported as a labelled descriptive sensitivity.
+- **H2's primary was chosen after seeing the pilot (C2).** It measures leakage through releases protected by σ_obs 1.0 noise, not raw updates.
+- **ε covers only the accounted training releases** (§7), not the crafted-request releases, the RAG outputs or the library.
+- **Narrow setting:** one model (Qwen2.5-0.5B-Instruct), SQuAD, one FL setting; the datastore attacks are adaptations validated for sensitivity only.
+- **The other descriptive secondaries are not computed yet** (deviations and gaps). A tool change makes `check` and `analyze` refuse this launch (tool hash), so any descriptive extras must read the results through `frozen_results`, never re-run `analyze`.
 
 ## Decisions A and B; Stage 2 protocol frozen (2026-10-06)
 
@@ -417,6 +456,7 @@ The executor keeps the collector's guarantees without changing `collect_guard_tr
 - **ε = 64 dropped from Stage 2 (decision B2, 2026-10-06).** The pre-registered frontier included ε = 64 as a secondary; Stage 2 runs only ε = ∞ and ε = 16. H5's secondary is reported against ε = 16 only.
 - **60 targets, not 20, at ε = ∞ (decision A, 2026-10-06).** More targets than option (b) planned; this only narrows the intervals.
 - **H2's primary changed after the pilot (C2, 2026-10-05).** The release-noise causal pass is H2's primary; the no-noise pass is a reported secondary. This is a post-pilot definition change and a new pre-registration, stated openly in `stage2_protocol.json`; it is not a tightening.
+- **Stage 2 is analysed (2026-10-10).** The confirmation `analyze` ran once; its result is final. Nothing may be re-run or re-analysed to change an outcome.
 - **Confirmation analysis scope.** The confirmation `analyze` reports H1–H7, the cross-channel rule, H2's no-noise secondary and H5's DP secondaries. The other descriptive secondaries (the ε = 64 frontier, the gate, the "both" cell, refusal-excluded sensitivity, the standard AUC against N, public-library and no-context F1, per-client results) are not yet in it; they are descriptive and can be added before the final launch completes.
 - **DP jobs keep the causal passes.** Each DP paired job also runs the frozen-direction causal attack with release noise (secondary, the frontier), as the memo's cost estimates assumed.
 - **Timing.** Timing is a separate launch: one full paired RG job at ε = ∞ and one at ε = 16, on the V timing target.
