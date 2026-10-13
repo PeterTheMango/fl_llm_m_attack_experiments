@@ -43,6 +43,7 @@ Every code or protocol change for this study must be recorded in the same commit
 - **Never re-run or re-analyse the final launch.** A tool change makes `check`/`analyze` refuse it (tool hash); descriptive extras must read results via `frozen_results`.
 - **Next (the researcher's choice):** descriptive secondaries (e.g. RG's template-form Reference AUC as a labelled sensitivity for H1, refusal rates, the gate, the "both" cell, the standard AUC against N); the structured related-work search; the write-up. A defense sized by these findings would be a follow-up study.
   - Do not touch the frozen guard files or `causal_attack_validation.py`; keep changes opt-in so the guard studies' paths are unchanged; record every fingerprint change in `status.md`. Nothing in Stage 2 is prepared yet, and margins and rules may only be tightened.
+- **Generalization follow-up (2026-10-12):** proposal draft 1 in `outputs/grounded_generalization_proposal_20261012/` (model size, families, data, non-IID clients, LiRA). It awaits the researcher's decisions (proposal §12); nothing is implemented.
 - **Decisions already made:**
   - accept GPU training non-determinism;
   - pool attacker choices over budgets;
