@@ -721,3 +721,161 @@ def test_hypotheses_default_to_the_no_noise_h2_pass():
     noisy = gs.hypotheses(rows, public, list(np.full(QUESTIONS, 0.7)), CHOICES, True, CLUSTERS, h2_pass="release_noise")
     assert noisy["H2"]["reading"] == "RG reduces" and noisy["H2"]["secondary_no_noise"]["D"] == plain["H2"]["D"]
     assert {k: v for k, v in noisy.items() if k != "H2"} == {k: v for k, v in plain.items() if k != "H2"}
+
+
+# ------------------------------------------- descriptive secondaries (describe)
+
+def rich_body(study, job, target):
+    """final_body plus every field the descriptive secondaries read, with known refusals and gate decisions."""
+    out = final_body(study, job, target)
+    final = study["cohorts"]["final"]
+    first_f = final["F"][0]["id"]
+
+    def utility(body):
+        level = float(np.mean([q["f1"] for q in body["utility"]["F"]]))
+        for q in body["utility"]["F"]:
+            q.update(em=float(q["f1"] > 0.9), refused=False, gold_retrieved=True, no_context_f1=level / 2,
+                     no_context_em=0.0, answer_nll=2.0 - level,
+                     gate={"withheld_top": q["query_id"] == first_f, "overlap": 0.1})
+        body["utility"]["F_P"] = [{"query_id": q["id"], "f1": level, "em": 0.0, "refused": False} for q in final["F_P"]]
+    if job["kind"] != "paired":
+        utility(next(iter(out["worlds"].values())))
+        return out
+    rg, rng = job["arm"] == "RG", np.random.default_rng(job["config"]["seed"])
+    for world in ("W1", "W0"):
+        w = out["worlds"][world]
+        utility(w)
+        for name, cell in w["natural_questions"].items():
+            for p in cell["probes"]:
+                p["gate"] = {"withheld_top": False, "overlap": 0.0}
+            cell["verbatim"].update(refused=False, gate={"withheld_top": True, "overlap": 1.0})
+            if rg and name == "neither":
+                cell["probes"][0].update(refused=True, f1=0.0, entailment=0.0)
+        w["retention"]["probes"] = [{"refused": not rg and i == 0, "f1": 0.0} for i in range(3)]
+    out["worlds"]["W0"]["never_documents"] = [probes(float(np.clip(0.2 + rng.normal(0, .05), 0, 1))) for _ in range(4)]
+    for d in out["worlds"]["W0"]["never_documents"]:
+        for p in d["probes"]:
+            p["gate"] = None
+    if not rg and job["config"]["seed"] == 9000 + final["targets"][0]["index"]:
+        out["worlds"]["W0"]["natural_questions"]["neither"]["verbatim"]["score"] = None
+    return out
+
+
+@pytest.fixture
+def finished_final(built, tmp_path, monkeypatch):
+    study_path, _ = built
+    final_protocol(tmp_path, monkeypatch)
+    root = tmp_path / "final"
+    gs.prepare("final", root, study_path, gate_file(tmp_path, study_path))
+    gs.execute(root / "launch.json", resolve_only=True, tokenizer=WordTokenizer(), model_config=MODEL_CONFIG)
+    study = json.loads(study_path.read_bytes())
+    install_runner(monkeypatch, root, lambda job, target: rich_body(study, job, target))
+    gs.execute(root / "launch.json", gpu="0", max_jobs=50, scratch_root=tmp_path)
+    analysis = gs.analyze(root, tmp_path / "final-analysis.json")
+    return root, study, analysis
+
+
+def test_describe_reads_the_finished_final_launch_after_the_tool_changes(finished_final, tmp_path, monkeypatch, capsys):
+    root, study, analysis = finished_final
+    before = {p: p.read_bytes() for p in root.rglob("*") if p.is_file()}
+    # Any tool change makes check and analyze refuse the finished launch; describe still reads it.
+    monkeypatch.setattr(gs, "tool_digest", lambda: "changed-tool")
+    with pytest.raises(ValueError, match="Study tool changed"):
+        gs.check(root)
+    with pytest.raises(ValueError, match="Study tool changed"):
+        gs.analyze(root, tmp_path / "again.json")
+    report = gs.describe(root, tmp_path / "descriptives.json", tmp_path / "final-analysis.json")
+    assert {p: p.read_bytes() for p in root.rglob("*") if p.is_file()} == before
+    assert json.loads((tmp_path / "descriptives.json").read_bytes()) == json.loads(json.dumps(report))
+    assert report["label"] == gs.DESCRIPTIVE == "descriptive secondary; does not change any primary outcome"
+    assert report["describe_tool_sha256"] == "changed-tool" and report["launch_study_tool_sha256"] != "changed-tool"
+    # The primary values reproduce exactly with the same seeded draws, and nothing is classified or decided.
+    assert report["consistency_with_final_analysis"] == {k: True for k in report["reproduced_primary_values"]}
+    text = json.dumps(report)
+    for forbidden in ("classification", "claimed", "reading", "supported", "outcome", "decision_interval"):
+        assert f'"{forbidden}"' not in text, forbidden
+    for section in ("reference", "causal", "natural_questions", "verbatim_baseline", "retention", "refusal_rates",
+                    "gate_rates", "utility"):
+        assert all(report["budgets"][eps][section]["label"] == gs.DESCRIPTIVE for eps in ("inf", "16"))
+    with pytest.raises(ValueError, match="already exist"):
+        gs.describe(root, tmp_path / "descriptives.json")
+    with pytest.raises(ValueError, match="outside the launch"):
+        gs.describe(root, root / "descriptives.json")
+    gs.main(["describe", str(root), str(tmp_path / "d2.json")])
+    printed = capsys.readouterr().out
+    assert printed.startswith(gs.DESCRIPTIVE.upper()) and "budgets.inf.reference.auc.RG.template:" in printed
+    assert "consistency_with_final_analysis" not in json.loads((tmp_path / "d2.json").read_bytes())
+
+
+def test_describe_reports_every_descriptive_secondary(finished_final, tmp_path):
+    root, study, analysis = finished_final
+    report = gs.describe(root, tmp_path / "descriptives.json")
+    inf = report["budgets"]["inf"]
+    n = report["targets"]["inf"]
+    assert report["targets"] == {"inf": 4, "16": 2}
+    # H1 sensitivity: both forms per arm and every pairing; only CB-AO template vs RG record is frozen.
+    assert set(inf["reference"]["auc"]["RG"]) == {"record", "template"}
+    frozen = [k for k, v in inf["reference"]["CBAO_minus_RG"].items() if v["frozen_pairing"]]
+    assert frozen == ["CB-AO_template__RG_record"] and len(inf["reference"]["CBAO_minus_RG"]) == 4
+    assert inf["reference"]["CBAO_minus_RG"][frozen[0]]["estimate"] == analysis["hypotheses"]["H1"]["D"]["estimate"]
+    # Causal AUCs per pass and budget, including epsilon 16.
+    for eps in ("inf", "16"):
+        causal = report["budgets"][eps]["causal"]
+        assert causal["plain"]["CBAO_minus_RG"]["estimate"] == 0.0
+        assert causal["release_noise"]["CBAO_minus_RG"]["estimate"] == pytest.approx(-0.2, abs=0.05)
+    # Refusal rates per arm and cell, and the refusal-excluded H3 contrast.
+    rates = inf["refusal_rates"]
+    assert rates["RG"]["nq_neither"]["estimate"] == pytest.approx(1 / 3) and rates["CB-AO"]["nq_neither"]["estimate"] == 0
+    assert rates["CB-AO"]["retention_W1"]["estimate"] == pytest.approx(1 / 3) and rates["RG"]["retention_W1"]["estimate"] == 0
+    f1 = inf["natural_questions"]["f1"]
+    assert f1["library_only_vs_neither_refusals_excluded"]["RG"]["targets"] == n
+    h3 = analysis["hypotheses"]["H3"]["D"]
+    assert f1["library_only_vs_neither"]["RG_minus_CBAO"] == {"estimate": h3["estimate"], "ci95": h3["ci95"]}
+    excluded = f1["library_only_vs_neither_refusals_excluded"]
+    assert excluded["RG"]["estimate"] <= f1["library_only_vs_neither"]["auc"]["RG"]["estimate"]
+    # The "both" and training-only cells, the entailment scorer and the 16 N documents.
+    for scorer in gs.NQ_SCORERS:
+        nq = inf["natural_questions"][scorer]
+        assert set(gs.NQ_CONTRASTS) <= set(nq) and set(nq["training_only_vs_neither"]["auc"]) == {"RG", "CB-AO"}
+        assert nq["library_only_vs_never_documents"]["documents_per_target"] == 4
+        assert nq["library_only_vs_never_documents"]["auc"]["RG"]["estimate"] > 0.9
+    # The gate: verbatim probes always withheld, natural questions never, one utility question in F.
+    gate = inf["gate_rates"]["RG"]
+    assert gate["verbatim_library_only"]["estimate"] == 1.0 and gate["nq_both"]["estimate"] == 0.0
+    assert gate["nq_never_documents"] is None
+    assert gate["utility_F_W1"]["estimate"] == pytest.approx(1 / len(study["cohorts"]["final"]["F"]))
+    assert report["shared_models"]["P0"]["gate_rates"]["utility_F"] == pytest.approx(1 / len(study["cohorts"]["final"]["F"]))
+    # The verbatim baseline counts only decided answers.
+    verbatim = inf["verbatim_baseline"]["library_only_vs_neither"]
+    assert verbatim["RG"]["targets_with_decisions"] == n and verbatim["CB-AO"]["targets_with_decisions"] == n - 1
+    assert verbatim["RG"]["estimate"] == 1.0
+    # Public-library, no-context F1 and answer NLL per arm; R_CB-AO; P0 against every arm.
+    util = inf["utility"]["W1"]
+    assert set(util) == set(gs.UTILITY_METRICS) | {"public_f1", "public_em"}
+    assert util["no_context_f1"]["RG"]["estimate"] > util["no_context_f1"]["CB-AO"]["estimate"]
+    assert util["answer_nll"]["RG_minus_CBAO"]["estimate"] < 0
+    assert inf["retention"]["R"]["CB-AO"]["estimate"] == pytest.approx(0.0)
+    shared = report["shared_models"]
+    assert set(shared["P0_minus_arm_rag_f1"]) == {"RG-public", "RG_epsinf", "CB-AO_epsinf", "RG_eps16", "CB-AO_eps16"}
+    assert shared["P0_minus_arm_rag_f1"]["RG_epsinf"]["estimate"] == pytest.approx(analysis["hypotheses"]["H7"]["D"]["estimate"])
+    assert shared["RG-public"]["public_f1"]["estimate"] == pytest.approx(0.65, abs=0.05)
+
+
+def test_describe_refuses_anything_but_a_finished_final_launch(built, tmp_path, finished_final):
+    root, study, _ = finished_final
+    other = tmp_path / "pilot"
+    other.mkdir()
+    launch = json.loads((root / "launch.json").read_bytes())
+    (other / "launch.json").write_text(json.dumps(dict(launch, kind="pilot")))
+    with pytest.raises(ValueError, match="final"):
+        gs.describe(other, tmp_path / "x.json")
+    analysis = json.loads((tmp_path / "final-analysis.json").read_bytes())
+    wrong = tmp_path / "wrong-analysis.json"
+    wrong.write_text(json.dumps(dict(analysis, launch_sha256="0" * 64)))
+    with pytest.raises(ValueError, match="confirmation analysis"):
+        gs.describe(root, tmp_path / "y.json", wrong)
+    progress = json.loads((root / "progress.json").read_bytes())
+    (root / "progress.json").write_text(json.dumps(dict(progress, completed=progress["completed"][:-1])))
+    with pytest.raises(ValueError, match="changed or incomplete"):
+        gs.describe(root, tmp_path / "z.json")
+

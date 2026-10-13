@@ -3,7 +3,8 @@
 **2026-10-10.** **Stage 2 (confirmation) is complete and analysed once** (146 jobs on fresh final targets, core `8b031bbfdcc1`, frozen `stage2_protocol.json`). Results are below. Stage 0 and the Stage 1 pilot are complete; everything on V is tuning or validation data, never evidence.
 
 - **Core fingerprint:** `8b031bbfdcc1` (2026-10-06, the two observation speed-ups). The pilot ran on `4a001c5eb678`; the 3- and 6-epoch controls on `714ec988b38b`. Earlier results keep theirs.
-- **Tests:** 809 passed, 2 skipped (previously 789; 781 before the speed-ups).
+- **Tests:** 812 passed, 2 skipped (809 before `describe`; 789 before the Stage 2 tooling).
+- **2026-10-12:** a read-only `describe` subcommand for the descriptive secondaries (tool only; below). Its results are pending the server run.
 
 ## Stage 2 confirmation results (2026-10-10)
 
@@ -42,7 +43,52 @@
 - **H2's primary was chosen after seeing the pilot (C2).** It measures leakage through releases protected by σ_obs 1.0 noise, not raw updates.
 - **ε covers only the accounted training releases** (§7), not the crafted-request releases, the RAG outputs or the library.
 - **Narrow setting:** one model (Qwen2.5-0.5B-Instruct), SQuAD, one FL setting; the datastore attacks are adaptations validated for sensitivity only.
-- **The other descriptive secondaries are not computed yet** (deviations and gaps). A tool change makes `check` and `analyze` refuse this launch (tool hash), so any descriptive extras must read the results through `frozen_results`, never re-run `analyze`.
+- **The other descriptive secondaries** are computed by the read-only `describe` (2026-10-12, below; results pending the server run). A tool change makes `check` and `analyze` refuse this launch (tool hash), so descriptive extras read the results through `frozen_results` and never re-run `analyze`.
+
+## Descriptive secondaries: the `describe` tool (2026-10-12; tool only, core unchanged at `8b031bbfdcc1`)
+
+**Why.** The confirmation `analyze` computed only H1–H7, the cross-channel rule, H2's no-noise secondary and H5's ε = 16 secondary. The other descriptive secondaries of proposal §9.2 were never computed (see "Deviations and gaps"). They need no GPU: every result JSON already keeps both Reference forms, both NQ scorers, refusal flags, gate records, F_P and no-context utility, answer NLL, the never-document scores and the per-pass causal AUCs.
+
+**What `describe` does.** `python -m master_script.tools.grounded_fl_study describe ROOT OUTPUT [--final-analysis FILE]`.
+- **Read-only.** It reads the finished final launch through `frozen_results` and never calls `completed()`, `check` or `analyze`. It checks each result against the launch's own completion record, its declared job file and the frozen cohort, and checks the launch's study and protocol copies against `launch.json`. It never checks today's tool hash, so it still reads the launch after the tool changed. Nothing is re-run.
+- **Never decides anything.** It classifies no hypothesis and writes no outcome, reading or "claimed" field. Every section carries the label "descriptive secondary; does not change any primary outcome". Intervals are 95% only.
+- **Writes a new file.** It refuses to overwrite and refuses to write inside the launch directory.
+- **The same seeded draws as the confirmation analysis:** `default_rng(20260930)`, target draws at ε = ∞ and then at ε = 16, F article clusters, RG-public seeds; then F_P article clusters. Subsets (refusal-excluded, decided verbatim answers) draw their own from the same seed.
+- **A built-in check.** With `--final-analysis`, it records that its recomputed primary values (H1 D and utility, H2 D and the no-noise D, H3 D, H4 R_RG and D_H4, H6 utility and Reference AUC, H7 D) equal the confirmation analysis's estimates and 95% intervals (`consistency_with_final_analysis`). It only reproduces them and never re-classifies them. A `false` would mean a reading bug, not a new result.
+
+**What it reports, per budget (ε = ∞ with 60 targets, ε = 16 with 10).**
+
+| Quantity | Construction |
+|---|---|
+| H1 sensitivity | Reference AUC of each arm in both forms (record, template), and CB-AO − RG for all four pairings of forms. The frozen pairing (CB-AO template, RG record) is marked; RG's record form was a pilot tie (0.611 vs 0.611) broken to the standard form |
+| Causal AUCs | Mean per-target AUC per arm and pass (no noise, release noise) in the frozen (template) direction, and CB-AO − RG, at both budgets; plus the release-noise pass's own per-release privacy record |
+| NQ cells, both scorers | Mean document score per cell, and pooled AUCs (with RG − CB-AO) for library-only vs neither (H3's contrast), training-only vs neither (the §6.4 secondary), both vs neither, both vs library-only, and both vs training-only |
+| Entailment scorer | The same NQ table with the entailment scorer (F1 is the frozen scorer) |
+| Refusal-excluded H3 | Library-only vs neither with refused probes dropped from each document score; targets kept only when both cells keep a scored probe (count reported) |
+| Standard AUC against N | Each target's inserted passage (W0, library on) against the 16 never-inserted N documents scored by the same target's W0 model; pooled over targets, and a drawn target brings its positive and its 16 negatives |
+| Verbatim baseline | Anderson-style yes/no query: "yes" rate per cell, and the library-only vs neither AUC over targets whose two answers were both decided (count reported) |
+| Refusal rates | Per arm and cell: NQ probes in each cell, verbatim queries, never documents, retention probes (W1, W0), utility on F and F_P (W1, W0) |
+| Gate | Share of queries whose top document the τ 0.45 gate would withhold: NQ probes per cell, verbatim queries per cell, never documents, utility F (W1, W0), P0, RG-public. It depends only on the query and the library, never on the model |
+| Secondary utility | Per arm and world: RAG F1 and EM on F, no-context F1 and EM, answer NLL, public-library F1 and EM on F_P (crossed models × article clusters), with RG − CB-AO; the same for P0 and RG-public |
+| Retention | R per arm (R_CB-AO is the §6.4 secondary) and RG − CB-AO |
+| P0 against every arm | RAG F1, P0 minus each arm and budget and minus RG-public (oriented as H7) |
+
+**Not covered:** the ε = 64 frontier (not run, decision B2), CB-LM (not run in Stage 2) and per-client results (the result files keep none).
+
+**Tests (3 new; 812 passed, 2 skipped).** On a synthetic final launch run through `prepare`, `resolve`, `run` and `analyze`, with known refusals, gate decisions and an undecided verbatim answer:
+- after a tool change, `check` and `analyze` refuse the launch and `describe` still reads it, leaving every launch file byte-identical;
+- every recomputed primary value equals the confirmation analysis exactly, and no classification, reading or "claimed" field appears;
+- the injected refusal rates, gate rates and decided-answer counts come back as built;
+- it refuses an existing output, an output inside the launch, a non-final launch, another launch's analysis and an incomplete launch.
+
+**Tool hash changed.** `check` and `analyze` will now refuse `$G/final` once the server pulls this commit. This is expected and harmless: the launch's files are untouched, and `final-analysis.json` stays the one confirmation analysis.
+
+**Server steps** (the researcher runs these in tmux, in `/home/calc08/projects/LLMPrivacy/fl_grounded_stage0`, env `LLMPrivacy`, with `G` as above). CPU only, a few minutes.
+1. `git pull --ff-only` on `feat/grounded-fl-stage0`; confirm the core fingerprint still prints `8b031bbfdcc1` and `final-analysis.json` still has sha256 `39bbd780…`.
+2. `describe "$G/final" "$G/final-descriptives.json" --final-analysis "$G/final-analysis.json" | tee "$G/final-descriptives.txt"`.
+3. Paste the printed lines back; they are recorded here as descriptive results.
+
+**Results:** pending the server run.
 
 ## Decisions A and B; Stage 2 protocol frozen (2026-10-06)
 
@@ -457,7 +503,13 @@ The executor keeps the collector's guarantees without changing `collect_guard_tr
 - **60 targets, not 20, at ε = ∞ (decision A, 2026-10-06).** More targets than option (b) planned; this only narrows the intervals.
 - **H2's primary changed after the pilot (C2, 2026-10-05).** The release-noise causal pass is H2's primary; the no-noise pass is a reported secondary. This is a post-pilot definition change and a new pre-registration, stated openly in `stage2_protocol.json`; it is not a tightening.
 - **Stage 2 is analysed (2026-10-10).** The confirmation `analyze` ran once; its result is final. Nothing may be re-run or re-analysed to change an outcome.
-- **Confirmation analysis scope.** The confirmation `analyze` reports H1–H7, the cross-channel rule, H2's no-noise secondary and H5's DP secondaries. The other descriptive secondaries (the ε = 64 frontier, the gate, the "both" cell, refusal-excluded sensitivity, the standard AUC against N, public-library and no-context F1, per-client results) are not yet in it; they are descriptive and can be added before the final launch completes.
+- **Confirmation analysis scope.** The confirmation `analyze` reports H1–H7, the cross-channel rule, H2's no-noise secondary and H5's DP secondaries. The other descriptive secondaries were not in it. **2026-10-12:** they are computed by the read-only `describe` subcommand from the finished launch (results pending the server run), after the confirmation analysis, so they are post hoc descriptive reports and change no primary outcome. The ε = 64 frontier (not run) and per-client results (not recorded) stay unavailable.
+- **Descriptive constructions chosen in `describe` (2026-10-12).** The proposal names these secondaries but not their exact construction, so these are implementation choices, not pre-registered definitions:
+  - the "both" cell is reported through three contrasts (both vs neither, vs library-only, vs training-only);
+  - the standard AUC against N pools each target's 16 N documents as negatives, scored by that target's W0 model;
+  - the refusal-excluded H3 contrast and the verbatim baseline keep only targets whose two document scores or answers exist, with their own draws from the same seed;
+  - the gate rate is the share of queries whose top-ranked document the gate would withhold.
+- **H1 sensitivity is post hoc.** RG's template-form and CB-AO's record-form Reference AUCs are reported as a labelled sensitivity. H1's decision stays on the frozen forms.
 - **DP jobs keep the causal passes.** Each DP paired job also runs the frozen-direction causal attack with release noise (secondary, the frontier), as the memo's cost estimates assumed.
 - **Timing.** Timing is a separate launch: one full paired RG job at ε = ∞ and one at ε = 16, on the V timing target.
 - **Observation speed-ups (2026-10-06).** Neither changes what is released or how it is scored, so no measurement definition changes. Two implementation differences are recorded:

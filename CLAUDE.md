@@ -20,7 +20,7 @@ Every code or protocol change for this study must be recorded in the same commit
 2. **Update the "Current state" section below** so the next session starts from the right place.
 3. **Ask the researcher first** about any change to a frozen definition, threshold or procedure. Record their decision in `status.md`.
 
-## Current state (2026-10-10)
+## Current state (2026-10-12)
 
 - **Branch.** Stage 0 code lives on `feat/grounded-fl-stage0`, which is stacked on `proposal/retrieval-grounded-fl`, which is stacked on `analysis/matched-reference-controls`. `main` does **not** contain the grounded code yet.
 - **Core fingerprint.** `8b031bbfdcc1` (2026-10-06, the two observation speed-ups). The pilot ran on `4a001c5eb678`; the 3- and 6-epoch controls on `714ec988b38b`.
@@ -41,8 +41,9 @@ Every code or protocol change for this study must be recorded in the same commit
 - **Stage 2 protocol frozen (2026-10-06):** A = 60 targets at ε = ∞, B2 (ε = 16 only, 10 targets), 146 jobs, about 76 GPU-h.
 - **Stage 2 complete and analysed once (2026-10-10)** — results in status.md, "Stage 2 confirmation results". H1 claimed (Reference AUC CB-AO − RG 0.28 [0.18, 0.37], utility +0.29 F1); H3 claimed (NQ AUC RG − CB-AO 0.35 [0.23, 0.46]); cross-channel claimed (H1 and H3); H2 inconclusive (−0.052 [−0.110, 0.006]); H4 equivalent (no retention beyond ±0.05 F1), not claimed; H5 not acceptable (−0.10); H6 not claimed (DP erases fine-tuning); H7 RG meaningfully better than P0 (−0.21).
 - **Never re-run or re-analyse the final launch.** A tool change makes `check`/`analyze` refuse it (tool hash); descriptive extras must read results via `frozen_results`.
-- **Next (the researcher's choice):** descriptive secondaries (e.g. RG's template-form Reference AUC as a labelled sensitivity for H1, refusal rates, the gate, the "both" cell, the standard AUC against N); the structured related-work search; the write-up. A defense sized by these findings would be a follow-up study.
-  - Do not touch the frozen guard files or `causal_attack_validation.py`; keep changes opt-in so the guard studies' paths are unchanged; record every fingerprint change in `status.md`. Nothing in Stage 2 is prepared yet, and margins and rules may only be tightened.
+- **Done 2026-10-12 (tool only, core unchanged): `describe`**, a read-only subcommand for the §9.2 descriptive secondaries of `$G/final` (H1 form sensitivity, refusal rates and refusal-excluded H3, the "both" and training-only cells, the standard AUC against N, the entailment scorer, the gate, F_P / no-context F1 / NLL, R_CB-AO, causal AUCs at both budgets, the verbatim baseline). It reads through `frozen_results`, classifies nothing, labels every section "descriptive secondary; does not change any primary outcome", and with `--final-analysis` shows the primary values reproduce exactly. The tool hash changed, so `check`/`analyze` now refuse `$G/final` (expected). **Its results are pending the server run** (status.md, "Descriptive secondaries"); record the pasted output there.
+- **Next (the researcher's choice):** record the `describe` output; the structured related-work search; the write-up. A defense sized by these findings would be a follow-up study.
+  - Do not touch the frozen guard files or `causal_attack_validation.py`; keep changes opt-in so the guard studies' paths are unchanged; record every fingerprint change in `status.md`. Margins and rules may only be tightened.
 - **Decisions already made:**
   - accept GPU training non-determinism;
   - pool attacker choices over budgets;
@@ -58,7 +59,7 @@ Every code or protocol change for this study must be recorded in the same commit
 
 The environment is `conda env create -f environment.yml` (env `peter_experiments_fl`). On a shared server env, use `pip install --user -r requirements.txt` instead, and drop the `torch` line if a CUDA torch is already installed. torch, transformers and `flwr[simulation]` are imported function-locally, so the toy path runs without them.
 
-Run the tests on the Mac with the project env. The base anaconda `python` lacks torch, and the grounded tests need it. On 2026-10-06 the suite gave 809 passed and 2 skipped.
+Run the tests on the Mac with the project env. The base anaconda `python` lacks torch, and the grounded tests need it. On 2026-10-12 the suite gave 812 passed and 2 skipped.
 
 ```bash
 /opt/anaconda3/envs/peter_experiments_fl/bin/python -m pytest tests -q
@@ -74,7 +75,7 @@ The grounded study tool runs one subcommand per stage step:
 python -m master_script.tools.grounded_fl_study --help
 ```
 
-Its subcommands are `build`, `calibrate-gate`, `prepare {datastore|control|timing|pilot|final}`, `resolve`, `run --gpu N [--max-jobs N]`, `job`, `check` and `analyze`.
+Its subcommands are `build`, `calibrate-gate`, `prepare {datastore|control|timing|pilot|final}`, `resolve`, `run --gpu N [--max-jobs N]`, `job`, `check`, `analyze` and `describe ROOT OUTPUT [--final-analysis FILE]` (read-only descriptive secondaries of a finished final launch).
 
 This is the toy smoke run of the older attack runner: no GPU, model download or credentials.
 

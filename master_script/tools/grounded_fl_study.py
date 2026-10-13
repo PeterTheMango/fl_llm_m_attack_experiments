@@ -11,6 +11,8 @@ run             one job at a time in its own process; weights retire after verif
 job             execute one job (called by run)
 check           integrity and timing of completed jobs; never an endpoint value
 analyze         the fixed validation rules, the pilot analysis or the §9 confirmation
+describe        the descriptive secondaries (§9.2) of the finished final launch, read-only
+                through frozen_results; never re-runs analyze or changes a primary outcome
 
 See outputs/retrieval_grounded_fl_proposal_20260930/{proposal.md,stage01_protocol.json,stage2_protocol.json,status.md}.
 Attack effectiveness is measured here; no defense or privacy claim is made.
@@ -1188,6 +1190,358 @@ def analyze(root, output, datastore=None, control=None, p0_launch=None):
     return report
 
 
+# -------------------------------------------------------------- describe
+
+DESCRIPTIVE = "descriptive secondary; does not change any primary outcome"
+NQ_CELLS = ("both", "training_only", "library_only", "neither")
+NQ_KEYS = {"both": "both", "training_only": "training_only", "library_only": "d_plus", "neither": "d_minus"}
+NQ_CONTRASTS = {"library_only_vs_neither": ("library_only", "neither"),
+                "training_only_vs_neither": ("training_only", "neither"),
+                "both_vs_neither": ("both", "neither"), "both_vs_library_only": ("both", "library_only"),
+                "both_vs_training_only": ("both", "training_only")}
+UTILITY_METRICS = ("f1", "em", "no_context_f1", "no_context_em", "answer_nll")
+NOT_COVERED = {"epsilon_64_frontier": "not run (decision B2)", "CB-LM": "Stage 1 bridge only; not run in Stage 2",
+               "per_client_results": "the result files keep no per-client measurements"}
+
+
+def _rate(flags):
+    flags = [bool(f) for f in flags if f is not None]
+    return sum(flags) / len(flags) if flags else None
+
+
+def _withheld(rows):
+    """Share of queries whose top document the gate would withhold; None when no gate was recorded."""
+    return _rate(None if r.get("gate") is None else r["gate"]["withheld_top"] for r in rows)
+
+
+def utility_vectors(body):
+    """Per-question secondary utility of one model: F metrics, public-library F1 on F_P, refusals and the gate."""
+    F, P = body["utility"]["F"], body["utility"]["F_P"]
+    out = {m: [q[m] for q in F] for m in UTILITY_METRICS}
+    out.update(public_f1=[q["f1"] for q in P], public_em=[q["em"] for q in P],
+               ids=[q["query_id"] for q in F], public_ids=[q["query_id"] for q in P],
+               refusal={"utility_F": _rate(q["refused"] for q in F), "utility_F_P": _rate(q["refused"] for q in P)},
+               gate={"utility_F": _withheld(F)})
+    return out
+
+
+def descriptive_record(result):
+    """paired_record plus the recorded refusals, gate decisions, verbatim answers and secondary utility."""
+    record = paired_record(result)
+    w1, w0 = result["worlds"]["W1"], result["worlds"]["W0"]
+    cells = {**w1["natural_questions"], **w0["natural_questions"]}
+    never = [p for d in w0.get("never_documents", []) for p in d["probes"]]
+    record["verbatim"] = {c: cells[c]["verbatim"]["score"] for c in NQ_CELLS}
+    record["refusal"] = {**{f"nq_{c}": _rate(p["refused"] for p in cells[c]["probes"]) for c in NQ_CELLS},
+                         **{f"verbatim_{c}": _rate([cells[c]["verbatim"]["refused"]]) for c in NQ_CELLS},
+                         "nq_never_documents": _rate(p["refused"] for p in never),
+                         **{f"retention_{n}": _rate(p["refused"] for p in w["retention"]["probes"])
+                            for n, w in (("W1", w1), ("W0", w0))}}
+    record["gate"] = {**{f"nq_{c}": _withheld(cells[c]["probes"]) for c in NQ_CELLS},
+                      **{f"verbatim_{c}": _withheld([cells[c]["verbatim"]]) for c in NQ_CELLS},
+                      "nq_never_documents": _withheld(never)}
+    record["utility_extra"] = {n: utility_vectors(w) for n, w in (("W1", w1), ("W0", w0))}
+    for n, extra in record["utility_extra"].items():
+        record["refusal"].update({f"{k}_{n}": v for k, v in extra["refusal"].items()})
+        record["gate"].update({f"{k}_{n}": v for k, v in extra["gate"].items()})
+    return record
+
+
+def _ci(point, draws):
+    return {"estimate": float(point), "ci95": interval(draws)}
+
+
+def _mean(values, index):
+    """Mean over targets with its 95% target-bootstrap interval; None when a value was not recorded."""
+    import numpy as np
+    if not len(values) or any(v is None for v in values):
+        return None
+    v = np.asarray(values, float)
+    return v.mean(), v[index].mean(axis=1)
+
+
+def _summary(pair):
+    return None if pair is None else _ci(*pair)
+
+
+def _difference(a, b):
+    return None if a is None or b is None else _ci(a[0] - b[0], a[1] - b[1])
+
+
+def _auc_pair(pos, neg, index):
+    return auc(pos, neg), auc_resampled(pos, neg, index)
+
+
+def pooled_auc_draws(pos, negs, index):
+    """Pooled AUC of each target's positive against every target's negatives, resampling targets
+    (a drawn target brings its positive and all its negatives)."""
+    import numpy as np
+    pos, negs = np.asarray(pos, float), np.asarray(negs, float)
+    out = np.empty(len(index))
+    for k, draw in enumerate(index):
+        neg, p = np.sort(negs[draw].ravel()), pos[draw]
+        lo, hi = np.searchsorted(neg, p, "left"), np.searchsorted(neg, p, "right")
+        out[k] = (lo + 0.5 * (hi - lo)).sum() / (len(p) * len(neg))
+    return out
+
+
+def _kept(pairs):
+    """Targets whose two values were both recorded, with their own seeded target draws."""
+    import numpy as np
+    keep = [i for i, pair in enumerate(pairs) if None not in pair]
+    return keep, (target_indices(len(keep), np.random.default_rng(RNG_SEED)) if keep else None)
+
+
+def _by_arm(arms, value):
+    """value(arm, rows) for each arm, and RG - CB-AO and CB-AO - RG of the paired draws."""
+    out = {arm: value(arm, rows) for arm, rows in arms.items()}
+    return ({arm: _summary(v) for arm, v in out.items()},
+            _difference(out["RG"], out["CB-AO"]), _difference(out["CB-AO"], out["RG"]))
+
+
+def _describe_budget(arms, index, choices, weights, fp_weights):
+    import numpy as np
+    section = {}
+    # H1 sensitivity: every arm in both Reference forms and every pairing of forms.
+    ref = {(arm, form): _auc_pair([r["reference"][form][0] for r in rows], [r["reference"][form][1] for r in rows], index)
+           for arm, rows in arms.items() for form in FORMS}
+    section["reference"] = {
+        "label": DESCRIPTIVE, "auc": {arm: {form: _ci(*ref[(arm, form)]) for form in FORMS} for arm in arms},
+        "CBAO_minus_RG": {f"CB-AO_{cf}__RG_{rf}": {**_difference(ref[("CB-AO", cf)], ref[("RG", rf)]),
+                                                    "frozen_pairing": (cf, rf) == (choices["CB-AO"]["reference_form"],
+                                                                                   choices["RG"]["reference_form"])}
+                          for cf in FORMS for rf in FORMS},
+        "note": "the frozen pairing is H1's (H6's at epsilon 16) primary difference, shown with 95% intervals only"}
+    # Causal AUCs per arm and pass, in each arm's frozen direction.
+    causal = {"label": DESCRIPTIVE, "direction": {arm: choices[arm]["causal_direction"] for arm in arms}}
+    for name in ("plain", "release_noise"):
+        if all(name in r["causal"][choices[arm]["causal_direction"]] for arm, rows in arms.items() for r in rows):
+            per, rg_cb, cb_rg = _by_arm(arms, lambda arm, rows: _mean(
+                [r["causal"][choices[arm]["causal_direction"]][name] for r in rows], index))
+            causal[name] = {"mean_per_target_auc": per, "CBAO_minus_RG": cb_rg}
+    section["causal"] = causal
+    # Natural-question AUCs per cell contrast, both scorers.
+    nq = {"label": DESCRIPTIVE, "frozen_scorer": {arm: choices[arm]["nq_scorer"] for arm in arms}}
+    for scorer in NQ_SCORERS:
+        nq[scorer] = {"mean_document_score": {arm: {c: _summary(_mean([r["nq"][scorer][NQ_KEYS[c]] for r in rows], index))
+                                                    for c in NQ_CELLS} for arm, rows in arms.items()}}
+        for contrast, (pos, neg) in NQ_CONTRASTS.items():
+            per, rg_cb, _ = _by_arm(arms, lambda arm, rows: _auc_pair([r["nq"][scorer][NQ_KEYS[pos]] for r in rows],
+                                                                      [r["nq"][scorer][NQ_KEYS[neg]] for r in rows], index))
+            nq[scorer][contrast] = {"auc": per, "RG_minus_CBAO": rg_cb}
+        # Refusal-excluded sensitivity of the H3 contrast: targets with a scored probe in both cells.
+        pairs = {arm: [(r["nq"][scorer]["d_plus_excl"], r["nq"][scorer]["d_minus_excl"]) for r in rows] for arm, rows in arms.items()}
+        excluded = {}
+        for arm, p in pairs.items():
+            keep, draws = _kept(p)
+            excluded[arm] = {"targets": len(keep), **(_ci(*_auc_pair([p[i][0] for i in keep], [p[i][1] for i in keep], draws))
+                                                      if keep else {})}
+        keep, draws = _kept([(*a, *b) for a, b in zip(pairs["RG"], pairs["CB-AO"])])
+        if keep:
+            a = _auc_pair([pairs["RG"][i][0] for i in keep], [pairs["RG"][i][1] for i in keep], draws)
+            b = _auc_pair([pairs["CB-AO"][i][0] for i in keep], [pairs["CB-AO"][i][1] for i in keep], draws)
+            excluded["RG_minus_CBAO"] = {"targets": len(keep), **_difference(a, b)}
+        nq[scorer]["library_only_vs_neither_refusals_excluded"] = excluded
+        # Standard attack: inserted passages (W0, library on) against the never-inserted N documents.
+        if all(r["never"][scorer] for rows in arms.values() for r in rows):
+            def never(arm, rows):
+                pos, negs = [r["nq"][scorer]["d_plus"] for r in rows], [r["never"][scorer] for r in rows]
+                return auc(pos, np.ravel(negs)), pooled_auc_draws(pos, negs, index)
+            per, rg_cb, _ = _by_arm(arms, never)
+            nq[scorer]["library_only_vs_never_documents"] = {"auc": per, "RG_minus_CBAO": rg_cb,
+                                                             "documents_per_target": len(arms["RG"][0]["never"][scorer])}
+    section["natural_questions"] = nq
+    # The verbatim yes/no baseline (Anderson et al.): library on vs off in W0, decided answers only.
+    verbatim = {"label": DESCRIPTIVE, "yes_rate": {arm: {c: _rate(r["verbatim"][c] for r in rows) for c in NQ_CELLS}
+                                                   for arm, rows in arms.items()}, "library_only_vs_neither": {}}
+    for arm, rows in arms.items():
+        p = [(r["verbatim"]["library_only"], r["verbatim"]["neither"]) for r in rows]
+        keep, draws = _kept(p)
+        verbatim["library_only_vs_neither"][arm] = {"targets_with_decisions": len(keep), **(
+            _ci(*_auc_pair([p[i][0] for i in keep], [p[i][1] for i in keep], draws)) if keep else {})}
+    section["verbatim_baseline"] = verbatim
+    # Closed-book retention per arm (R_CB-AO is the §6.4 secondary).
+    per, rg_cb, _ = _by_arm(arms, lambda arm, rows: _mean([r["retention"] for r in rows], index))
+    section["retention"] = {"label": DESCRIPTIVE, "R": per, "RG_minus_CBAO": rg_cb}
+    # Refusal rates and the gate's would-withhold rates per arm and cell.
+    for name in ("refusal", "gate"):
+        keys = arms["RG"][0][name]
+        section[f"{name}_rates"] = {"label": DESCRIPTIVE, **{arm: {k: _summary(_mean([r[name][k] for r in rows], index))
+                                                                   for k in keys} for arm, rows in arms.items()}}
+    section["gate_rates"]["note"] = "the gate depends only on the query and the library, never on the model"
+    # Secondary utility per arm and world, with the crossed models x article-cluster bootstrap.
+    util = {"label": DESCRIPTIVE}
+    for world in ("W1", "W0"):
+        def metric(m, w):
+            return lambda arm, rows: _utility([r["utility_extra"][world][m] for r in rows], w, index)
+        util[world] = {}
+        for m in UTILITY_METRICS + ("public_f1", "public_em"):
+            per, rg_cb, _ = _by_arm(arms, metric(m, fp_weights if m.startswith("public") else weights))
+            util[world][m] = {**per, "RG_minus_CBAO": rg_cb}
+    section["utility"] = util
+    return section
+
+
+def _utility(vectors, weights, index=None):
+    """Mean over models of each model's mean, with the crossed bootstrap (index None: one model)."""
+    import numpy as np
+    means = model_means(vectors, weights)
+    draws = means[:, 0] if index is None else arm_means(means, index)
+    return np.mean([np.mean(v) for v in vectors]), draws
+
+
+def describe_final(rows, study, protocol):
+    """The pre-registered descriptive secondaries (proposal §9.2) of the finished Stage 2 launch.
+    Nothing is classified, decided or relabelled: the primary outcomes stay those of the one analyze."""
+    import numpy as np
+    records = [descriptive_record(r["result"]) for r in rows if r["result"]["kind"] == "paired"]
+    epsilons = require_matched_epsilon(records)
+    choices = {arm: dict(protocol["attacker_choices"][arm]) for arm in ARMS2}
+    by = lambda arm, eps: [r for r in records if r["arm"] == arm and str(r["epsilon_budget"]) == eps]
+    # The same seeded draws, in the same order, as hypotheses(): targets at inf, at 16, then F clusters, then seeds.
+    rng = np.random.default_rng(RNG_SEED)
+    budgets = ["inf", "16"] + [str(e) for e in DP_BUDGETS if e != 16 and by("RG", str(e))]
+    arms, index = {}, {}
+    for eps in budgets[:2]:
+        _, arms[eps] = aligned({arm: by(arm, eps) for arm in ARMS2})
+        index[eps] = target_indices(len(arms[eps]["RG"]), rng)
+    final = study["cohorts"]["final"]
+    ids = arms["inf"]["RG"][0]["utility_ids"]
+    fp_ids = arms["inf"]["RG"][0]["utility_extra"]["W1"]["public_ids"]
+    models = {"P0": [r["result"]["worlds"]["P0"] for r in rows if r["result"]["kind"] == "p0"],
+              "RG-public": [r["result"]["worlds"]["public"] for r in rows if r["result"]["kind"] == "public"]}
+    models = {name: [utility_vectors(body) for body in bodies] for name, bodies in models.items()}
+    every = [x for rs in arms.values() for rows in rs.values() for r in rows for x in r["utility_extra"].values()]
+    if any(v["ids"] != ids or v["public_ids"] != fp_ids for v in every + models["P0"] + models["RG-public"]):
+        raise ValueError("Utility questions differ across models")
+    if len(models["P0"]) != 1 or not models["RG-public"]:
+        raise ValueError("The final launch needs one P0 model and the RG-public seeds")
+    article = {q["id"]: q["article"] for q in final["F"]}
+    weights = cluster_weights([article[i] for i in ids], rng)
+    seed_idx = target_indices(len(models["RG-public"]), rng)
+    public_article = {q["id"]: q["article"] for q in final["F_P"]}
+    fp_weights = cluster_weights([public_article[i] for i in fp_ids], rng)
+    for eps in budgets[2:]:
+        _, arms[eps] = aligned({arm: by(arm, eps) for arm in ARMS2})
+        index[eps] = target_indices(len(arms[eps]["RG"]), rng)
+    report = {"budgets": {eps: _describe_budget(arms[eps], index[eps], choices, weights, fp_weights) for eps in budgets}}
+    # P0 and RG-public: the same secondary utility, and P0 against every arm (oriented as H7: P0 minus the arm).
+    shared = {}
+    for name, vectors in models.items():
+        draws_index = None if name == "P0" else seed_idx
+        shared[name] = {m: _ci(*_utility([v[m] for v in vectors], fp_weights if m.startswith("public") else weights, draws_index))
+                        for m in UTILITY_METRICS + ("public_f1", "public_em")}
+        shared[name]["refusal_rates"] = {k: float(np.mean([v["refusal"][k] for v in vectors])) for k in ("utility_F", "utility_F_P")}
+        gates = [v["gate"]["utility_F"] for v in vectors]
+        shared[name]["gate_rates"] = {"utility_F": None if None in gates else float(np.mean(gates))}
+    p0 = _utility([models["P0"][0]["f1"]], weights)
+    against = {"RG-public": _difference(p0, _utility([v["f1"] for v in models["RG-public"]], weights, seed_idx))}
+    for eps in budgets:
+        for arm, paired in arms[eps].items():
+            against[f"{arm}_eps{eps}"] = _difference(p0, _utility([r["utility"] for r in paired], weights, index[eps]))
+    report["shared_models"] = {"label": DESCRIPTIVE, **shared, "P0_minus_arm_rag_f1": against,
+                               "note": "P0 is one model (article clusters only); RG-public draws its 5 seeds"}
+    first = next(r["result"] for r in rows if r["result"]["kind"] == "paired")
+    direction = choices[first["arm"]]["causal_direction"]
+    report["release_privacy"] = first["causal"][direction].get("release_noise", {}).get("release_privacy")
+    inf, b16 = report["budgets"]["inf"], report["budgets"]["16"]
+    frozen = f"CB-AO_{choices['CB-AO']['reference_form']}__RG_{choices['RG']['reference_form']}"
+    report["reproduced_primary_values"] = {
+        "H1.D": inf["reference"]["CBAO_minus_RG"][frozen], "H1.utility_RG_minus_CBAO": inf["utility"]["W1"]["f1"]["RG_minus_CBAO"],
+        "H2.D": inf["causal"].get("release_noise", {}).get("CBAO_minus_RG"),
+        "H2.secondary_no_noise.D": inf["causal"]["plain"]["CBAO_minus_RG"],
+        "H3.D": inf["natural_questions"][choices["RG"]["nq_scorer"]]["library_only_vs_neither"]["RG_minus_CBAO"],
+        "H4.R_RG": inf["retention"]["R"]["RG"], "H4.D_H4": inf["retention"]["RG_minus_CBAO"],
+        "H6.utility": b16["utility"]["W1"]["f1"]["RG_minus_CBAO"],
+        "H6.reference_auc_CBAO_minus_RG": b16["reference"]["CBAO_minus_RG"][frozen],
+        "H7.D": against["RG_epsinf"]}
+    return {"accounted_epsilon": epsilons, "attacker_choices": choices,
+            "targets": {eps: len(arms[eps]["RG"]) for eps in budgets}, **report}
+
+
+def frozen_final(root):
+    """The finished final launch, read through frozen_results: every result is checked against its launch's
+    completion record and declared job, never against today's tool or core code, and nothing is re-run."""
+    root = Path(root).resolve()
+    launch = json.loads((root / "launch.json").read_bytes())
+    if launch.get("schema") != LAUNCH_SCHEMA or launch.get("study") != STUDY or launch.get("kind") != "final":
+        raise ValueError("describe reads a finished final (Stage 2) launch only")
+    if digest(root / "study.json") != launch["study_file_sha256"] or digest(root / "protocol.json") != launch["protocol_sha256"]:
+        raise ValueError("The launch's study or protocol copy changed after declaration")
+    study = json.loads((root / "study.json").read_bytes())
+    protocol = json.loads((root / "protocol.json").read_bytes())
+    if protocol.get("schema") != STAGE2_SCHEMA or not str(protocol.get("status", "")).startswith("frozen"):
+        raise ValueError("The launch's protocol is not a frozen Stage 2 protocol")
+    rows = frozen_results(root, study)
+    cohort = json.loads((root / "cohort.json").read_bytes())
+    if cohort["launch_sha256"] != digest(root / "launch.json"):
+        raise ValueError("The frozen cohort belongs to another launch")
+    for row in rows:
+        entry = launch["jobs"][row["index"]]
+        if digest(root / entry["file"]) != entry["sha256"]:
+            raise ValueError("A job file changed after declaration")
+        verify_result(row["result"], launch, json.loads((root / entry["file"]).read_bytes()), cohort["targets"][str(row["index"])])
+    return root, launch, protocol, study, rows
+
+
+def _close(a, b, tolerance=1e-9):
+    return a is not None and b is not None and abs(a["estimate"] - b["estimate"]) <= tolerance \
+        and all(abs(x - y) <= tolerance for x, y in zip(a["ci95"], b["ci95"]))
+
+
+def describe(root, output, final_analysis=None):
+    """Write the descriptive secondaries of the finished final launch to a new file (refuses to overwrite)."""
+    root, launch, protocol, study, rows = frozen_final(root)
+    output = Path(output).resolve()
+    if output.exists():
+        raise ValueError("Descriptive results already exist; write a new file")
+    if root == output.parent or root in output.parents:
+        raise ValueError("Write the descriptive results outside the launch directory")
+    report = {"schema": "grounded_final_descriptives_v1", "label": DESCRIPTIVE,
+              "role": "descriptive secondaries (proposal §9.2) of the Stage 2 confirmation launch",
+              "note": ("Read from the finished launch through frozen_results. No hypothesis is classified, decided or "
+                       "relabelled here; the primary outcomes are those of the one confirmation analyze."),
+              "method": {"bootstrap": BOOTSTRAP, "rng_seed": RNG_SEED, "intervals": "95% only",
+                         "unit": "target (paired across arms); utility crossed models x article clusters (F, or F_P)",
+                         "draws": "the same seeded target and cluster draws as the confirmation analysis; subsets "
+                                  "(refusal-excluded, verbatim decisions) draw their own from the same seed"},
+              "not_covered": NOT_COVERED, **describe_final(rows, study, protocol),
+              "launch_sha256": digest(root / "launch.json"), "launch_study_tool_sha256": launch["study_tool_sha256"],
+              "describe_tool_sha256": tool_digest(), "implementation_fingerprint": launch["implementation_fingerprint"],
+              "protocol_sha256": launch["protocol_sha256"], "study_sha256": launch["study_sha256"],
+              "not_a_privacy_claim": "Attack-effectiveness and validation measurements only"}
+    if final_analysis is not None:
+        analysis = json.loads(Path(final_analysis).read_bytes())
+        if analysis.get("schema") != "grounded_final_analysis_v1" or analysis.get("launch_sha256") != report["launch_sha256"]:
+            raise ValueError("--final-analysis is not this launch's confirmation analysis")
+        h = analysis["hypotheses"]
+        frozen = {"H1.D": h["H1"]["D"], "H1.utility_RG_minus_CBAO": h["H1"]["utility_RG_minus_CBAO"], "H2.D": h["H2"]["D"],
+                  "H2.secondary_no_noise.D": h["H2"].get("secondary_no_noise", {}).get("D"), "H3.D": h["H3"].get("D"),
+                  "H4.R_RG": h["H4"]["R_RG"], "H4.D_H4": h["H4"]["D_H4"], "H6.utility": h["H6"]["utility"],
+                  "H6.reference_auc_CBAO_minus_RG": h["H6"]["reference_auc_CBAO_minus_RG"], "H7.D": h["H7"]["D"]}
+        report["final_analysis_sha256"] = digest(final_analysis)
+        report["consistency_with_final_analysis"] = {
+            name: _close(report["reproduced_primary_values"][name], value) for name, value in frozen.items()}
+    write_json(output, report)
+    return report
+
+
+def describe_lines(report, path=""):
+    """One plain line per reported value, for pasting back."""
+    lines = []
+    if isinstance(report, dict) and "estimate" in report and "ci95" in report:
+        extra = "".join(f" {k}={v}" for k, v in report.items() if k not in ("estimate", "ci95"))
+        return [f"{path}: {report['estimate']:.3f} [{report['ci95'][0]:.3f}, {report['ci95'][1]:.3f}]{extra}"]
+    if isinstance(report, dict):
+        for key, value in report.items():
+            lines += describe_lines(value, f"{path}.{key}" if path else str(key))
+    elif isinstance(report, float):
+        lines.append(f"{path}: {report:.4g}")
+    elif not isinstance(report, list):
+        lines.append(f"{path}: {report}")
+    return lines
+
+
 # ------------------------------------------------------------------ main
 
 def run_single(job_path, output):
@@ -1217,6 +1571,9 @@ def main(argv=None):
     a.add_argument("--datastore-analysis"); a.add_argument("--control-analysis")
     a.add_argument("--p0-launch", help="the P0 datastore launch folder (pilot analysis: P0 utility on V)")
     # The final confirmation needs no extra arguments: its launch holds P0, RG-public and the frozen protocol.
+    d = sub.add_parser("describe", help="descriptive secondaries of the finished final launch (read-only)")
+    d.add_argument("root"); d.add_argument("output")
+    d.add_argument("--final-analysis", help="the launch's one confirmation analysis, to record that the primary values reproduce")
     args = p.parse_args(argv)
     if args.action == "build":
         report = build(args.output, args.exclude_manifest)
@@ -1236,6 +1593,10 @@ def main(argv=None):
         run_single(args.job, args.output)
     elif args.action == "check":
         print(json.dumps(check(args.root), indent=1))
+    elif args.action == "describe":
+        report = describe(args.root, args.output, args.final_analysis)
+        print(f"{DESCRIPTIVE.upper()}. Written to {Path(args.output).resolve()}")
+        print("\n".join(describe_lines({k: v for k, v in report.items() if k not in ("method", "note", "role", "label")})))
     else:
         report = analyze(args.root, args.output, args.datastore_analysis, args.control_analysis, args.p0_launch)
         print(json.dumps({k: v for k, v in report.items() if k not in ("learning_per_target",)}, indent=1, default=str))
