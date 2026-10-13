@@ -5,6 +5,7 @@
 - **Core fingerprint:** `8b031bbfdcc1` (2026-10-06, the two observation speed-ups). The pilot ran on `4a001c5eb678`; the 3- and 6-epoch controls on `714ec988b38b`. Earlier results keep theirs.
 - **Tests:** 812 passed, 2 skipped (809 before `describe`; 789 before the Stage 2 tooling).
 - **2026-10-12:** a read-only `describe` subcommand for the descriptive secondaries (tool only; below). Its results are pending the server run.
+- **2026-10-12:** the structured related-work search is written ([`related_work.md`](related_work.md)); see "Deviations and gaps".
 
 ## Stage 2 confirmation results (2026-10-10)
 
@@ -496,7 +497,10 @@ The executor keeps the collector's guarantees without changing `collect_guard_tr
 ## Deviations and gaps
 
 - **Sequence length 512, not 384 (2026-09-30).** The first server `build` refused because an RG training record (SQuAD question `57063fcb52bb8914006899b6`) needs 405 tokens. The researcher chose to raise `max_length` to 512 rather than skip long passages or tighten the word cap. The word range and the no-truncation rule are unchanged. The protocol's timing item "sequence length 384" is now measured at 512.
-- **Related-work search.** The structured related-work search (Stage 0 item 1 in §8) is not part of this change.
+- **Related-work search: done 2026-10-12, after the confirmation** ([`related_work.md`](related_work.md)). Proposal §8 lists it as Stage 0 item 1; it was done last, so it informed none of the design or analysis choices. It is a documented structured search (queries, sources, criteria, counts), not a PRISMA review. 66 papers are included, each checked against its primary record (62 fully, 4 with the venue only from the arXiv comment or a search listing).
+  - **Verdict:** no prior work found duplicates the three-channel design (grounded vs closed-book training, paired in/out worlds crossed with in/out of the library, weights + client updates + datastore, matched accounted DP). Every component has prior art, so there is still no "first" claim.
+  - **Closest:** Zeng et al. 2024 and Huang et al. 2023 (training-data vs datastore leakage in one system, no FL or training-objective contrast), EPD (Fu et al. 2025), FedRepRAG (Peng et al. 2026) and Flemings et al. 2025.
+  - **Limits:** DBLP and OpenReview forum pages blocked automated access. A manual check of both is advised before submission.
 - **Pilot projections.** Wired into the pilot `analyze` (2026-10-04). They use a normal approximation, which is optimistic for the utility terms.
 - **Stage 2.** `prepare final` and the confirmation `analyze` exist and are tested on synthetic data (2026-10-06). `stage2_protocol.json` is frozen (2026-10-06).
 - **ε = 64 dropped from Stage 2 (decision B2, 2026-10-06).** The pre-registered frontier included ε = 64 as a secondary; Stage 2 runs only ε = ∞ and ε = 16. H5's secondary is reported against ε = 16 only.
