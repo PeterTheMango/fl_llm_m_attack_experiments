@@ -1,0 +1,257 @@
+{
+ "schema": "grounded_generalization_stage0_protocol_v1",
+ "status": "frozen 2026-10-14 with the researcher's decisions (every recommended setting of proposal draft 1, §12); governs Stage 0 (build and validation) and the Stage 1 pilot only. The confirmation protocol and budget are finalized after the pilot and may tighten, never loosen, these definitions.",
+ "proposal": "outputs/grounded_generalization_proposal_20261012/proposal.md (draft 1)",
+ "parent_study": {
+  "folder": "outputs/retrieval_grounded_fl_proposal_20260930/",
+  "stage2": "analysed once 2026-10-10; never re-run or re-analysed",
+  "inherits": "every definition not named here (four cells per target, answer-only loss, chat-template prompt, absent-fact probes, 3 queries per document, refusals score 0, six-outcome classification, margins 0.05, paired target bootstrap, crossed article-cluster utility bootstrap)"
+ },
+ "decisions": {
+  "1_training_method": "LoRA for every new cell, plus the full fine-tuning replication cell A-full",
+  "2_tier": "tier 1: A-full, A-LoRA, Q-1.5B, Q-3B, Llama-1B, Synth, Non-IID; Qwen 7B not run",
+  "3_targets": "30 per cell; the same 30 fresh final SQuAD targets (eligible indices 60-89) in every SQuAD cell",
+  "4_families": "Llama-3.2-1B-Instruct (gated: licence acceptance and a Hugging Face token on the server); Gemma-2-2B and the Granite hybrid are tier 2, not run",
+  "5_data": "self-generated synthetic private records; DuoRC is tier 2, not run",
+  "6_non_iid": "Dirichlet alpha 0.1 over T articles",
+  "7_attacker": "the parent's frozen Reference choices (RG record, CB-AO template, F1 scorer) everywhere, plus online LiRA (16 shared shadows per arm, fixed variance); offline LiRA and RMIA secondary",
+  "8_controls": "positive controls in every cell with a new model, dataset or training method",
+  "9_federation": "in-process FedAvg for LoRA cells, with Flower's aggregation arithmetic; tested bit-identical to the Flower path on full parameters",
+  "10_measurements": "lean: utility on W1 only, without no-context and public-library F1",
+  "11_error_control": "one Bonferroni family per research question",
+  "12_not_repeated": "no causal attack (H2), no DP (H6), no RG-public (H5); P0 descriptive per cell",
+  "decided": "2026-10-14, the researcher: 'Use all the recommended settings'"
+ },
+ "cells": {
+  "A-full": {
+   "model": "qwen2.5-0.5b",
+   "training": "full",
+   "data": "squad",
+   "clients": "iid",
+   "family": "RQ0"
+  },
+  "A-LoRA": {
+   "model": "qwen2.5-0.5b",
+   "training": "lora",
+   "data": "squad",
+   "clients": "iid",
+   "family": "RQ0"
+  },
+  "Q-1.5B": {
+   "model": "qwen2.5-1.5b",
+   "training": "lora",
+   "data": "squad",
+   "clients": "iid",
+   "family": "RQ1"
+  },
+  "Q-3B": {
+   "model": "qwen2.5-3b",
+   "training": "lora",
+   "data": "squad",
+   "clients": "iid",
+   "family": "RQ1"
+  },
+  "Llama-1B": {
+   "model": "llama3.2-1b",
+   "training": "lora",
+   "data": "squad",
+   "clients": "iid",
+   "family": "RQ2"
+  },
+  "Synth": {
+   "model": "qwen2.5-0.5b",
+   "training": "lora",
+   "data": "synth",
+   "clients": "iid",
+   "family": "RQ3"
+  },
+  "Non-IID": {
+   "model": "qwen2.5-0.5b",
+   "training": "lora",
+   "data": "squad",
+   "clients": "dirichlet",
+   "family": "RQ4"
+  }
+ },
+ "models": {
+  "qwen2.5-0.5b": {
+   "model_id": "Qwen/Qwen2.5-0.5B-Instruct",
+   "revision": "7ae557604adf67be50417f59c2c2f167def9a775",
+   "licence": "apache-2.0",
+   "gated": false,
+   "parameters": 494000000
+  },
+  "qwen2.5-1.5b": {
+   "model_id": "Qwen/Qwen2.5-1.5B-Instruct",
+   "revision": "989aa7980e4cf806f80c7fef2b1adb7bc71aa306",
+   "licence": "apache-2.0",
+   "gated": false,
+   "parameters": 1544000000
+  },
+  "qwen2.5-3b": {
+   "model_id": "Qwen/Qwen2.5-3B-Instruct",
+   "revision": "aa8e72537993ba99e69dfaafa59ed015b17504d1",
+   "licence": "qwen-research",
+   "gated": false,
+   "parameters": 3086000000
+  },
+  "llama3.2-1b": {
+   "model_id": "meta-llama/Llama-3.2-1B-Instruct",
+   "revision": "9213176726f574b556790deb65791e0c5aa438b6",
+   "licence": "llama3.2",
+   "gated": true,
+   "parameters": 1236000000,
+   "template_kwargs": {
+    "date_string": "26 Jul 2024"
+   }
+  }
+ },
+ "lora": {
+  "rank": 16,
+  "alpha": 32,
+  "dropout": 0.0,
+  "lr": 0.0002,
+  "escalation_lr": 0.0005,
+  "dtype": "bfloat16",
+  "targets": "every attention and MLP projection (all Linear/Conv1D modules except the LM head)"
+ },
+ "data": {
+  "squad_study_sha256": "d7eac161d178b6e855979fc879752a5d511516674e913788e590194d4dbecd92",
+  "squad": "the parent build, unchanged (library, F, N, P identical to Stage 2)",
+  "synth": {
+   "generator": "master_script.core.generalization.synthetic_rows",
+   "organizations": 600,
+   "people": 8,
+   "seed": 20261012,
+   "revision": "synthetic-v1",
+   "layout": "the parent's LAYOUT and SIZES; passages 24-160 words; every record fits 512 tokens"
+  },
+  "non_iid": {
+   "alpha": 0.1,
+   "construction": "per client, article proportions ~ Dirichlet(alpha); records drawn without replacement client by client; the target or its hold record joins client 0"
+  }
+ },
+ "seeds": {
+  "V_targets": "8100 + the target's slot in the new V slices (control, pilot, smoke)",
+  "V_shadows": "8150 + shadow number (both arms)",
+  "final_targets": "10000 + final target index",
+  "final_shadows": "10150 + shadow number (both arms)",
+  "study": 20261012
+ },
+ "v_slices": "after every slice the parent used: datastore = the parent's first 60 V targets (P0 only); then control 12 (study token count >= 80), pilot 4, smoke 1",
+ "measurements": {
+  "lean": {
+   "reference": "both forms, with raw model and reference NLLs and token counts",
+   "retention": true,
+   "nq": "3 probes per document per cell, F1 and entailment scorers",
+   "utility": "RAG F1 on F, W1 only",
+   "n_documents": 16,
+   "population": "32 U records scored in both forms in every world and shadow"
+  },
+  "reference_model": "full fine-tuning: the pretrained model (fp32); LoRA: the same base with adapters switched off",
+  "lira": {
+   "shadows_per_arm": 16,
+   "pilot_shadows_per_arm": 8,
+   "design": "balanced pairs: each target IN in exactly half the shadows; fill from T excluding every target passage",
+   "statistic": "phi = -(mean NLL x scored tokens) in the frozen form; online LiRA, fixed (pooled) variance",
+   "secondary": [
+    "offline LiRA",
+    "RMIA with OUT shadows as references and U records as population",
+    "TPR at 10% FPR"
+   ]
+  }
+ },
+ "stage0": {
+  "datastore_check": {
+   "cells": [
+    "A-LoRA",
+    "Q-1.5B",
+    "Q-3B",
+    "Llama-1B",
+    "Synth"
+   ],
+   "rule": "the parent's: 60 V targets, P0, library in vs out; a scorer passes if its pooled AUC 95% lower bound >= 0.70; otherwise H3 is not evaluable in that cell"
+  },
+  "datastore_lower_bound": 0.7,
+  "positive_control": {
+   "cells": [
+    "A-LoRA",
+    "Q-1.5B",
+    "Q-3B",
+    "Llama-1B",
+    "Synth"
+   ],
+   "inherited": {
+    "A-full": "the parent's passed 6-epoch control",
+    "Non-IID": "A-LoRA's"
+   },
+   "setup": "12 V targets, paired RG worlds; W1's adapters additionally trained on the passage text (full LM loss), 6 steps at lr 1e-3; one rerun at 12 steps if fewer than 10 learn",
+   "learning_check": "the parent's: passage NLL ratio <= 0.5 and continuation match >= 0.5",
+   "decisive": "mean retention 95% lower bound > 0.05 F1 on learned targets -> H4 primary in the cell; otherwise H4 secondary"
+  },
+  "retention_lower_bound": 0.05,
+  "control_auc_lower_bound": 0.6,
+  "smoke": {
+   "cells": "every tier 1 cell",
+   "jobs": "one V target x {RG, CB-AO} lean paired jobs plus one shadow world per arm",
+   "learning_check": "LoRA cells: RG's mean client loss falls from round 1 to round 3 and RG's V RAG F1 >= P0's V F1 + 0.05; one rerun at lr 5e-4; a second failure drops the cell"
+  },
+  "template": "per model: the rendered prompt is identical on repeated calls (Llama's date pinned) and the assistant turn ends with EOS",
+  "token_fit": "every record of every job fits 512 tokens untruncated under the cell's tokenizer; a refusal stops the cell"
+ },
+ "stage1_pilot": {
+  "cells": [
+   "A-full",
+   "A-LoRA"
+  ],
+  "targets": 4,
+  "shadows_per_arm": 8,
+  "decides": [
+   "LiRA form per arm (record or template; highest pooled tuning AUC, ties to template), applied in every cell",
+   "precision projections",
+   "timings"
+  ],
+  "role": "tuning data; never evidence"
+ },
+ "statistics": {
+  "unit": "target; paired target bootstrap, 10,000 resamples, numpy default_rng(20261012); one index matrix shared by every SQuAD cell",
+  "margins": {
+   "auc": 0.05,
+   "f1": 0.05
+  },
+  "families": {
+   "RQ0+RQ5": [
+    "A-full",
+    "A-LoRA"
+   ],
+   "RQ1": [
+    "Q-1.5B",
+    "Q-3B"
+   ],
+   "RQ2": [
+    "Llama-1B"
+   ],
+   "RQ3": [
+    "Synth"
+   ],
+   "RQ4": [
+    "Non-IID"
+   ]
+  },
+  "primaries_per_cell": [
+   "E1 H1-Ref",
+   "E2 H1-LiRA",
+   "E3 H3",
+   "E4 H4 (only where validated)"
+  ],
+  "decision_level": "1 - 0.05 / (primary tests in the family)",
+  "ceiling_floor": "an AUC endpoint is not informative when both arms' 95% lower bounds >= 0.95 or both upper bounds <= 0.55"
+ },
+ "budget_gpu_hours": {
+  "tier1_total": 190,
+  "stage0": 26,
+  "stage1": 6,
+  "stage2": 158,
+  "note": "rough; re-costed from the smoke timings before Stage 2 is frozen"
+ }
+}

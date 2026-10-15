@@ -2,7 +2,7 @@
 
 *Short title: Grounded FL-RAG, generalization study*
 
-Status: **draft 1 (2026-10-12), for the researcher's review.** Nothing is implemented or run. This is a new study with its own pre-registration. It builds on the grounded federated RAG study (`outputs/retrieval_grounded_fl_proposal_20260930/`, "the parent study"), whose Stage 2 confirmation finished on 2026-10-10.
+Status: **draft 1 (2026-10-12); every recommended setting in §12 approved by the researcher on 2026-10-14.** The Stage 0/1 procedures are frozen in [`stage0_protocol.json`](stage0_protocol.json); Stage 0 code is implemented ([`status.md`](status.md)). The "Nothing is implemented or run" wording below is historical. This is a new study with its own pre-registration. It builds on the grounded federated RAG study (`outputs/retrieval_grounded_fl_proposal_20260930/`, "the parent study"), whose Stage 2 confirmation finished on 2026-10-10.
 
 ---
 
@@ -155,8 +155,8 @@ The reading is then "the attack cannot separate the arms here", never "fails to 
   - With 30 targets this is indices 60–89. **Every SQuAD cell uses the same 30 targets**, so contrasts between cells are paired.
   - Indices 90–123 stay unused, in reserve.
 - **Cohort guard.** The tool refuses any target whose hash is in the parent's Stage 2 cohort (read from that launch's `cohort.json`), in addition to every earlier cohort that the parent build already excludes.
-- **Seed band (new): 10000–10199.** Seed = 10000 + target index. Shadow worlds use 10100 + shadow number. These never overlap the parent's 8000–8099 (V) or 9000–9099 (final).
-- **Pilot and smoke runs** use V targets not used by the parent's pilot, bridge, control or timing slices, with seed band 8100–8199. Everything on V is tuning data, never evidence.
+- **Seed band (new): 10000–10199.** Seed = 10000 + target index. Shadow worlds use 10150 + shadow number (10100 + s would collide with reserve target seeds; fixed at implementation, 2026-10-14). These never overlap the parent's 8000–8099 (V) or 9000–9099 (final).
+- **Pilot and smoke runs** use V targets not used by the parent's pilot, bridge, control or timing slices, with seed band 8100–8199: a target's seed is 8100 + its slot in the new V slices, and V shadow worlds use 8150 + shadow number. Everything on V is tuning data, never evidence.
 
 **New-data cells** (Synth, DuoRC):
 - Each has its own build, with V and final cohorts, the same layout rules and article-disjoint groups (§4.2).
@@ -222,7 +222,7 @@ The absent-fact probes need passages with **at least 4 questions whose answers a
 - **Today (IID).** Each world draws 128 off-target-article T records at random and splits them 32 per client.
 - **Non-IID.** Over the T articles other than the target's (about 15–20 SQuAD articles), each client c draws article proportions p_c ~ Dirichlet(α = 0.1). This is the standard label-skew construction of Hsu et al. (2019), with articles as labels.
   - Records are then drawn **without replacement**: 32 per client, client by client, from that client's proportions, with one question per passage.
-  - At α = 0.1, each client's data come mostly from one or two articles.
+  - At α = 0.1, each client's data concentrate on a few articles. A simulation with 16 articles of 40 records gives about 3.3 effective articles per client, against about 12 near IID (measured 2026-10-14; earlier drafts said "one or two").
 - **Fixed by the seed** (`grounded_noniid:{cohort}:{seed}`), so W1 and W0 share it exactly.
 - **Unchanged.** The target (or its hold record) still joins client 0, and client sizes stay 32 + 1. Client sizes and DP accounting are therefore untouched.
 - **Recorded.** The effective number of articles per client, and the Jensen–Shannon divergence between client article distributions. `check` reports these as structure, never as an endpoint.
@@ -520,7 +520,7 @@ This scales the parent's Stage 2 spread to 30 targets at 99.375%.
 |---|---|
 | LoRA learns less than full fine-tuning, which shrinks the utility gain and the H1 difference | A-full vs A-LoRA measures this (RQ0); the learning check plus one pre-set lr step |
 | Gated models: Llama and Gemma need their licences accepted on Hugging Face and a token on the server | The researcher's action before Stage 0; ungated substitutes named (§5.1) |
-| A newer transformers (≥ 4.56 for Granite) or peft could change the parent's environment | **A separate conda environment** (`LLMPrivacy-gen`) with pinned transformers, peft and kernel versions, in its own server worktree; the parent's environment and worktree stay untouched |
+| A newer transformers (≥ 4.56 for Granite) or peft could change the parent's environment | Tier 1 needs neither: LoRA is implemented in the repository (`core/lora.py`, no peft) and Granite is not run. The study runs in its own server worktree; the parent's worktree stays on its fingerprint |
 | Model-specific template behaviour (date, turn-closer, system prompt) | §5.3 rules, with a CPU test per model that renders and encodes a record twice and checks they are identical |
 | Granite's Mamba kernels fail to build | Descriptive and optional; dropped and recorded if the smoke test fails |
 | Ceiling effects (likely for Synth's datastore attack and for LiRA on CB-AO) | The pre-registered ceiling and floor rule (§2.3) |
@@ -562,7 +562,7 @@ This scales the parent's Stage 2 spread to 30 targets at 99.375%.
    - DuoRC (movie plots, MIT licence) as an optional second real dataset.
    - Natural Questions, TriviaQA and HotpotQA cannot be used: they have about one question per passage, so the absent-fact probes are impossible.
 6. **Non-IID clients.**
-   - **Recommended:** a Dirichlet split over articles with α = 0.1 (strongly skewed: each client sees mostly one or two articles).
+   - **Recommended:** a Dirichlet split over articles with α = 0.1 (strongly skewed: each client's data concentrate on about three articles).
    - The alternative is one topic cluster per client.
 7. **The attacker.**
    - **Recommended:** keep the parent's frozen Reference-attack choices everywhere, and add online LiRA with 16 shared shadow models per arm in every setting. Its form is chosen once on the pilot.

@@ -43,7 +43,10 @@ Every code or protocol change for this study must be recorded in the same commit
 - **Never re-run or re-analyse the final launch.** A tool change makes `check`/`analyze` refuse it (tool hash); descriptive extras must read results via `frozen_results`.
 - **Next (the researcher's choice):** descriptive secondaries (e.g. RG's template-form Reference AUC as a labelled sensitivity for H1, refusal rates, the gate, the "both" cell, the standard AUC against N); the structured related-work search; the write-up. A defense sized by these findings would be a follow-up study.
   - Do not touch the frozen guard files or `causal_attack_validation.py`; keep changes opt-in so the guard studies' paths are unchanged; record every fingerprint change in `status.md`. Nothing in Stage 2 is prepared yet, and margins and rules may only be tightened.
-- **Generalization follow-up (2026-10-12):** proposal draft 1 in `outputs/grounded_generalization_proposal_20261012/` (model size, families, data, non-IID clients, LiRA). It awaits the researcher's decisions (proposal §12); nothing is implemented.
+- **Generalization follow-up (2026-10-14):** `outputs/grounded_generalization_proposal_20261012/` (model size, families, data, non-IID clients, LiRA). The researcher approved every recommended setting (tier 1, LoRA plus an A-full cell, 30 targets, LiRA). `stage0_protocol.json` is frozen. **Stage 0 code is built** on branch `claude/grounded-generalization-5cddaf`: `core/generalization.py`, `core/lora.py`, `core/generalization_job.py` and `tools/grounded_generalization_study.py`, tested in `tests/test_grounded_generalization.py`.
+  - Core fingerprint `a6cd6438f84b` on that branch. The parent's server worktree must stay on `feat/grounded-fl-stage0` (`8b031bbfdcc1`).
+  - Tests: 841 passed, 2 skipped.
+  - Next: the researcher runs the Stage 0 server steps in that folder's `status.md`. Pilot and Stage 2 tooling come after.
 - **Decisions already made:**
   - accept GPU training non-determinism;
   - pool attacker choices over budgets;
@@ -76,6 +79,8 @@ python -m master_script.tools.grounded_fl_study --help
 ```
 
 Its subcommands are `build`, `calibrate-gate`, `prepare {datastore|control|timing|pilot|final}`, `resolve`, `run --gpu N [--max-jobs N]`, `job`, `check` and `analyze`.
+
+The generalization study's tool (`python -m master_script.tools.grounded_generalization_study --help`) has `build-synth`, `calibrate-gate`, `prepare {datastore|control|smoke} --cell CELL`, `resolve`, `run`, `job`, `check` and `analyze`.
 
 This is the toy smoke run of the older attack runner: no GPU, model download or credentials.
 
