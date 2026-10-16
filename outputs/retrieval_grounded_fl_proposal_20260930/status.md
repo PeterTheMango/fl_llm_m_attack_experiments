@@ -4,7 +4,7 @@
 
 - **Core fingerprint:** `8b031bbfdcc1` (2026-10-06, the two observation speed-ups). The pilot ran on `4a001c5eb678`; the 3- and 6-epoch controls on `714ec988b38b`. Earlier results keep theirs.
 - **Tests:** 812 passed, 2 skipped (809 before `describe`; 789 before the Stage 2 tooling).
-- **2026-10-12:** a read-only `describe` subcommand for the descriptive secondaries (tool only; below). **Run on the server 2026-10-16:** results below, with an unexplained W1–W0 utility gap for RG awaiting a read-only check.
+- **2026-10-12:** a read-only `describe` subcommand for the descriptive secondaries (tool only; below). **Run on the server 2026-10-16:** results below. A read-only check then confirmed a systematic W1–W0 world difference at ε = ∞, which bears on H1's validity (see "Deviations and gaps").
 - **2026-10-12:** the structured related-work search is written ([`related_work.md`](related_work.md)); see "Deviations and gaps".
 
 ## Stage 2 confirmation results (2026-10-10)
@@ -197,6 +197,33 @@ PY
 ```
 
 (The DP worlds record no per-round loss, so only the ε = ∞ rows print losses.)
+
+**Result of the W1–W0 check (server, 2026-10-16): the gap is real and systematic.**
+
+| Arm, budget | Targets | Mean W1 − W0 RAG F1 (95% CI) | W1 better | Mean client loss per round, W1 / W0 |
+|---|---:|---|---:|---|
+| RG, ε = ∞ | 60 | **0.057 [0.031, 0.086]** | 43 | 1.519 / 1.516 → 0.929 / 0.951 → **0.509 / 0.580** |
+| CB-AO, ε = ∞ | 60 | 0.003 [−0.008, 0.015] | 28 | 3.830 / 3.817 → 2.700 / 2.720 → **1.813 / 1.862** |
+| RG, ε = 16 | 10 | 0.001 [−0.000, 0.003] | 8 | not recorded (DP) |
+| CB-AO, ε = 16 | 10 | 0.001 [−0.003, 0.005] | 5 | not recorded (DP) |
+
+Correlation of the per-target F1 gap with the round-3 loss gap: −0.54 (RG), −0.31 (CB-AO).
+
+- **What it shows.** In both arms at ε = ∞, the two worlds start level (round 1) and the non-member world W0 then trains to a higher loss (round 3: +0.071 for RG, +0.049 for CB-AO). For RG this carries into answer quality. Worlds that ended at a lower loss answer better.
+- **Why it is unexpected.** The worlds share all 128 base records and the per-client, per-round seeds; they differ only in the target record versus its hold record in client 0. One record is 1/132 of the round's training data, so it cannot shift the mean client loss by 0.07 directly, and the accepted GPU non-determinism has no direction.
+- **What does not explain it (code read, 2026-10-16):**
+  - training seeds (identical per client and round);
+  - model loading (fresh float32 load per client, no cache);
+  - the training device and the Ray backend (fixed by config);
+  - environment variables (only `gpu.py` sets `CUDA_VISIBLE_DEVICES`, before any training);
+  - data shuffling (seeded);
+  - answer generation (greedy).
+  The order of work in a paired job is the leading candidate, but no mechanism is identified: W1 trains first in a fresh process, and W0 trains after the causal passes have run in that process. The ε = 16 worlds train through `private_train` and show no utility gap.
+- **What it can and cannot affect (Stage 2):**
+  - **Unaffected:** H3 and the datastore secondaries (both cells are W0), H2 and the causal secondaries (W1 only), and every utility endpoint (H1's utility, H5, H7 use W1).
+  - **H4:** retention is F1(W1) − F1(W0) closed-book. A world advantage would push R upward, and R is about 0.006, so H4's "equivalent" reading stands.
+  - **H1 (and H6) can be affected.** The Reference score compares the target record under W1 and W0. If W1 is generally better trained, both arms' Reference AUCs are inflated by an unknown amount. Because both arms show the loss gap, the effect on H1's difference is unknown in sign and size. This is a validity question for H1, recorded here; the primary outcome is not changed.
+- **Diagnosing it needs GPU work** (the researcher's decision): for example, a small V launch that trains the two worlds in the reverse order, and one that skips the causal passes between them, comparing round losses and utility. It would be tuning data only, never evidence, and the change to `grounded_job.py` would be opt-in with a new core fingerprint.
 
 ## Decisions A and B; Stage 2 protocol frozen (2026-10-06)
 
@@ -620,7 +647,7 @@ The executor keeps the collector's guarantees without changing `collect_guard_tr
   - the standard AUC against N pools each target's 16 N documents as negatives, scored by that target's W0 model;
   - the refusal-excluded H3 contrast and the verbatim baseline keep only targets whose two document scores or answers exist, with their own draws from the same seed;
   - the gate rate is the share of queries whose top-ranked document the gate would withhold.
-- **Unexplained W1–W0 utility gap for RG (2026-10-16, open).** RG's member worlds score about 0.06 F1 higher than its non-member worlds at ε = ∞ (CB-AO and ε = 16 show none). No code cause was found; a read-only paired check is in "Descriptive secondaries". Until it is run, treat the paired-world comparisons for RG as possibly carrying a world-level difference (it would raise RG's membership AUCs, so it does not favour H1).
+- **Systematic W1–W0 world difference at ε = ∞ (2026-10-16, open).** The read-only check confirms it: RG's member worlds answer 0.057 [0.031, 0.086] F1 better than its non-member worlds, and in both arms W0 ends training at a higher loss (round 3: +0.071 RG, +0.049 CB-AO) although the worlds differ in one record. No code cause was found; the order of work in a paired job is the leading candidate. It can inflate both arms' Reference AUCs, so H1's (and H6's) difference carries an unquantified world effect. H2, H3 and the utility endpoints are unaffected, and H4's equivalence stands. The paired design assumes the worlds differ only by the target record; this finding questions that assumption for the weights-channel endpoints. Diagnosing it needs GPU work and is the researcher's decision.
 - **H1 sensitivity is post hoc.** RG's template-form and CB-AO's record-form Reference AUCs are reported as a labelled sensitivity. H1's decision stays on the frozen forms.
 - **DP jobs keep the causal passes.** Each DP paired job also runs the frozen-direction causal attack with release noise (secondary, the frontier), as the memo's cost estimates assumed.
 - **Timing.** Timing is a separate launch: one full paired RG job at ε = ∞ and one at ε = 16, on the V timing target.

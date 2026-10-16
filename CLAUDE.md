@@ -46,9 +46,14 @@ Every code or protocol change for this study must be recorded in the same commit
   - **H1 depends on RG's attack form.** RG's template-form Reference AUC is 0.917 (record 0.659), so template-vs-template CB-AO − RG is only 0.022 [−0.041, 0.081]; record-vs-record is 0.219.
   - **H3 is mostly CB-AO ignoring retrieved text.** CB-AO's NQ AUC is 0.497 and its RAG F1 0.085 is below P0's 0.167.
   - Also: the training-only cell is at chance; the verbatim baseline is at chance on the fine-tuned models; release-noise causal at ε = 16 reverses (+0.073 [0.016, 0.133], 10 targets); no refusals at ε = ∞; the gate would withhold 10% of F questions' top documents.
-  - **Open:** RG's member worlds score about 0.06 F1 above its non-member worlds (CB-AO does not). No code cause was found. A read-only paired check is in status.md and awaits the server.
+  - **Open, confirmed 2026-10-16: a systematic W1–W0 world difference at ε = ∞.**
+    - RG's W1 − W0 RAG F1 is 0.057 [0.031, 0.086] (43 of 60 targets).
+    - In both arms W0 ends training at a higher loss (round 3: +0.071 RG, +0.049 CB-AO), although the worlds differ by one record.
+    - No code cause was found; the order of work in a paired job is suspected.
+    - It can inflate both arms' Reference AUCs, which puts H1's (and H6's) validity in question. H2, H3, the utility endpoints and H4's equivalence are unaffected.
+    - Diagnosing it needs a GPU launch on V (reverse world order and/or no causal pass between the worlds): the researcher's decision.
 - **Done 2026-10-12: the structured related-work search** (`related_work.md`, Stage 0 item 1, done after the confirmation). 66 verified papers. No prior work found duplicates the three-channel design; still no "first" claim. DBLP and OpenReview blocked automated access, so a manual check is advised before submission.
-- **Next (the researcher's choice):** run the read-only W1–W0 gap check and record it; the write-up (report the H1 form sensitivity and the CB-AO-ignores-context reading next to H1/H3). A defense sized by these findings would be a follow-up study.
+- **Next (the researcher's choice):** whether to diagnose the W1–W0 world difference on V before the write-up; the write-up (report the H1 form sensitivity, the world difference and the CB-AO-ignores-context reading next to H1/H3). A defense sized by these findings would be a follow-up study.
   - Do not touch the frozen guard files or `causal_attack_validation.py`; keep changes opt-in so the guard studies' paths are unchanged; record every fingerprint change in `status.md`. Margins and rules may only be tightened.
 - **Decisions already made:**
   - accept GPU training non-determinism;
@@ -59,7 +64,7 @@ Every code or protocol change for this study must be recorded in the same commit
   - two clients training at once dropped (2026-10-06);
   - A = 60 targets at ε = ∞ and B2 (ε = 16 only), 2026-10-06.
 - **Open questions:**
-  - the W1–W0 utility gap for RG at ε = ∞ (unexplained; read-only check pending);
+  - the systematic W1–W0 world difference at ε = ∞ (confirmed, unexplained; bears on H1);
   - a manual DBLP/OpenReview check of the related-work search remains advisable.
 
 ## Commands
