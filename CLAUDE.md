@@ -23,7 +23,7 @@ Every code or protocol change for this study must be recorded in the same commit
 ## Current state (2026-10-12)
 
 - **Branch.** Stage 0 code lives on `feat/grounded-fl-stage0`, which is stacked on `proposal/retrieval-grounded-fl`, which is stacked on `analysis/matched-reference-controls`. `main` does **not** contain the grounded code yet.
-- **Core fingerprint.** `8b031bbfdcc1` (2026-10-06, the two observation speed-ups). The pilot ran on `4a001c5eb678`; the 3- and 6-epoch controls on `714ec988b38b`.
+- **Core fingerprint.** `0832ce3dbe5e` (2026-10-16, the opt-in world-order diagnostic). Stage 2 ran on `8b031bbfdcc1` (2026-10-06, the two observation speed-ups). The pilot ran on `4a001c5eb678`; the 3- and 6-epoch controls on `714ec988b38b`.
 - **Stage 0 complete on the server:**
   - build (study sha `d7eac161…`);
   - gate calibration (τ 0.45);
@@ -51,9 +51,10 @@ Every code or protocol change for this study must be recorded in the same commit
     - In both arms W0 ends training at a higher loss (round 3: +0.071 RG, +0.049 CB-AO), although the worlds differ by one record.
     - No code cause was found; the order of work in a paired job is suspected.
     - It can inflate both arms' Reference AUCs, which puts H1's (and H6's) validity in question. H2, H3, the utility endpoints and H4's equivalence are unaffected.
-    - Diagnosing it needs a GPU launch on V (reverse world order and/or no causal pass between the worlds): the researcher's decision.
+    - **Researcher's decision (2026-10-16): diagnose it first.** Built: the opt-in `diagnostic` job kind (`grounded_job._diagnostic`) and `prepare diagnostic [--targets N]`, in three orders: `W1-W1`, `W1-W0` without causal passes, and `W0-W1`. It uses V datastore-slice targets, utility and per-round losses only, and `analyze` reports second − first and W1 − W0 with 95% intervals.
+    - The readings are fixed in status.md ("World-order diagnostic"). 12 targets is 36 jobs, about 10–11 GPU-h. **Not run yet.**
 - **Done 2026-10-12: the structured related-work search** (`related_work.md`, Stage 0 item 1, done after the confirmation). 66 verified papers. No prior work found duplicates the three-channel design; still no "first" claim. DBLP and OpenReview blocked automated access, so a manual check is advised before submission.
-- **Next (the researcher's choice):** whether to diagnose the W1–W0 world difference on V before the write-up; the write-up (report the H1 form sensitivity, the world difference and the CB-AO-ignores-context reading next to H1/H3). A defense sized by these findings would be a follow-up study.
+- **Next:** run the world-order diagnostic on the server and record it against the fixed readings; then the write-up (report the H1 form sensitivity, the world difference and the CB-AO-ignores-context reading next to H1/H3). A defense sized by these findings would be a follow-up study.
   - Do not touch the frozen guard files or `causal_attack_validation.py`; keep changes opt-in so the guard studies' paths are unchanged; record every fingerprint change in `status.md`. Margins and rules may only be tightened.
 - **Decisions already made:**
   - accept GPU training non-determinism;
@@ -71,7 +72,7 @@ Every code or protocol change for this study must be recorded in the same commit
 
 The environment is `conda env create -f environment.yml` (env `peter_experiments_fl`). On a shared server env, use `pip install --user -r requirements.txt` instead, and drop the `torch` line if a CUDA torch is already installed. torch, transformers and `flwr[simulation]` are imported function-locally, so the toy path runs without them.
 
-Run the tests on the Mac with the project env. The base anaconda `python` lacks torch, and the grounded tests need it. On 2026-10-12 the suite gave 812 passed and 2 skipped.
+Run the tests on the Mac with the project env. The base anaconda `python` lacks torch, and the grounded tests need it. On 2026-10-16 the suite gave 816 passed and 2 skipped (`test_charts.py`'s timestamp test is flaky in full runs and unrelated).
 
 ```bash
 /opt/anaconda3/envs/peter_experiments_fl/bin/python -m pytest tests -q
@@ -87,7 +88,7 @@ The grounded study tool runs one subcommand per stage step:
 python -m master_script.tools.grounded_fl_study --help
 ```
 
-Its subcommands are `build`, `calibrate-gate`, `prepare {datastore|control|timing|pilot|final}`, `resolve`, `run --gpu N [--max-jobs N]`, `job`, `check`, `analyze` and `describe ROOT OUTPUT [--final-analysis FILE]` (read-only descriptive secondaries of a finished final launch).
+Its subcommands are `build`, `calibrate-gate`, `prepare {datastore|control|timing|pilot|final|diagnostic} [--targets N]`, `resolve`, `run --gpu N [--max-jobs N]`, `job`, `check`, `analyze` and `describe ROOT OUTPUT [--final-analysis FILE]` (read-only descriptive secondaries of a finished final launch).
 
 This is the toy smoke run of the older attack runner: no GPU, model download or credentials.
 

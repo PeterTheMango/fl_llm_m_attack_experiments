@@ -5,7 +5,8 @@ build           article-disjoint SQuAD splits, targets, probes, libraries and F,
 calibrate-gate  CPU calibration of the verbatim-overlap library gate on V
 prepare KIND    a frozen launch: datastore (P0 check), control (positive control),
                 timing (full paired jobs), pilot (Stage 1), final (Stage 2 confirmation,
-                from the frozen stage2_protocol.json). Nothing is resolved or run.
+                from the frozen stage2_protocol.json), diagnostic (the world-order
+                diagnostic on V). Nothing is resolved or run.
 resolve         CPU checks before any GPU work: targets, worlds, tokens, exclusions
 run             one job at a time in its own process; weights retire after verification
 job             execute one job (called by run)
@@ -35,7 +36,7 @@ from master_script.core import grounded
 from master_script.core.checkpoint_retention import file_digest, retire_checkpoints
 from master_script.core.config import implementation_fingerprint
 from master_script.core.defenses import privacy_bound
-from master_script.core.grounded_job import CAUSAL, JOB_SCHEMA, RESULT_SCHEMA, validate_job
+from master_script.core.grounded_job import CAUSAL, DIAGNOSTIC_ORDERS, JOB_SCHEMA, RESULT_SCHEMA, validate_job
 from master_script.core.queue import write_json
 from master_script.tools.build_guard_stage import ROOT
 from master_script.tools.causal_attack_validation import BASE as CAUSAL_BASE, DEFAULTS as CAUSAL_DEFAULTS
@@ -46,10 +47,11 @@ STAGE2_PROTOCOL = PROTOCOL.with_name("stage2_protocol.json")
 STAGE2_SCHEMA = "grounded_fl_stage2_protocol_v1"
 STUDY = "grounded_fl"
 LAUNCH_SCHEMA, COHORT_SCHEMA = "grounded_launch_v1", "grounded_cohort_v1"
-KINDS = ("datastore", "control", "timing", "pilot", "final")
+KINDS = ("datastore", "control", "timing", "pilot", "final", "diagnostic")
 V_SEED_BAND, FINAL_SEED_BAND = (8000, 8099), (9000, 9099)
 PUBLIC_SEEDS = (8095, 8096, 8097, 8098, 8099)
 DATASTORE_TARGETS, CONTROL_TARGETS, PILOT_TARGETS, BRIDGE_TARGETS = 60, 12, 4, 4
+DIAGNOSTIC_TARGETS = (12, 6, 60)  # world-order diagnostic: default, minimum and maximum datastore-slice V targets
 CONTROL_MIN_TOKENS, CONTROL_LEARNED, CONTROL_LR = 64, 10, 1e-4
 SIGMA = {"inf": 0.0, 64: 1.91, 16: 5.45}
 DELTA, CLIP = 1e-5, 1.0
@@ -287,7 +289,7 @@ def allocation(study):
 
 
 def job_document(study, kind, arm, cohort, epsilon="inf", target_index=None, seed=None, measurements=None,
-                 control=None, datastore_targets=None, gate=None):
+                 control=None, datastore_targets=None, gate=None, diagnostic=None):
     seed = seed if seed is not None else (V_SEED_BAND[0] if cohort == "V" else FINAL_SEED_BAND[0]) + (target_index or 0)
     band = V_SEED_BAND if cohort == "V" else FINAL_SEED_BAND
     if not band[0] <= seed <= band[1]:
@@ -304,6 +306,8 @@ def job_document(study, kind, arm, cohort, epsilon="inf", target_index=None, see
         job["datastore_targets"] = list(datastore_targets)
     if gate is not None:
         job["gate"] = {"threshold": gate["threshold"], "ngram": gate["ngram"], "sha256": gate["sha256"]}
+    if diagnostic is not None:
+        job["diagnostic"] = dict(diagnostic)
     validate_job(job)
     return job
 
@@ -325,7 +329,7 @@ def final_allocation(study, protocol):
     return {"inf": chosen, **{str(eps): chosen[:n] for eps, n in targets["dp"].items()}}
 
 
-def plan(kind, study, gate=None, previous=None, protocol=None):
+def plan(kind, study, gate=None, previous=None, protocol=None, targets=None):
     if kind == "final":
         if gate is None:
             raise ValueError("The final launch records the calibrated library gate")
@@ -356,6 +360,17 @@ def plan(kind, study, gate=None, previous=None, protocol=None):
             epochs = 6
         for index in slices["control"]:
             jobs.append(job_document(study, "control", "RG", "V", target_index=index, control={"epochs": epochs, "lr": CONTROL_LR}))
+    elif kind == "diagnostic":
+        # V targets that no paired job trained on (the P0 datastore slice); the same seed per target in every
+        # order, so the first-trained W1 of "W1-W1" and of "W1-W0" are the same setup.
+        count = DIAGNOSTIC_TARGETS[0] if targets is None else targets
+        if type(count) is not int or not DIAGNOSTIC_TARGETS[1] <= count <= min(DIAGNOSTIC_TARGETS[2], len(slices["datastore"])):
+            raise ValueError(f"The diagnostic takes {DIAGNOSTIC_TARGETS[1]}-{DIAGNOSTIC_TARGETS[2]} datastore-slice V targets")
+        slices["diagnostic"] = slices["datastore"][:count]
+        for order in DIAGNOSTIC_ORDERS:
+            for index in slices["diagnostic"]:
+                jobs.append(job_document(study, "diagnostic", "RG", "V", "inf", index, measurements={"utility": True},
+                                         gate=gate, diagnostic={"order": order}))
     elif kind == "timing":
         for epsilon in ("inf", 16):
             jobs.append(job_document(study, "paired", "RG", "V", epsilon, slices["timing"][0], measurements=FULL, gate=gate))
@@ -374,7 +389,7 @@ def plan(kind, study, gate=None, previous=None, protocol=None):
     return jobs, slices
 
 
-def prepare(kind, output, study_path, gate_path=None, previous=None):
+def prepare(kind, output, study_path, gate_path=None, previous=None, targets=None):
     """Write jobs and a frozen launch; nothing is resolved or run."""
     _protocol()  # refuses unless the Stage 0/1 protocol is present and frozen
     protocol = stage2_protocol() if kind == "final" else None
@@ -392,7 +407,9 @@ def prepare(kind, output, study_path, gate_path=None, previous=None):
         if gate.get("schema") != "grounded_gate_v1" or gate.get("study_sha256") != grounded.study_sha256(study):
             raise ValueError("Gate calibration belongs to another study")
     prior = json.loads(Path(previous).read_bytes()) if previous else None
-    jobs, slices = plan(kind, study, gate, prior, protocol)
+    if targets is not None and kind != "diagnostic":
+        raise ValueError("--targets applies to the diagnostic only; every other launch's targets are fixed by rule")
+    jobs, slices = plan(kind, study, gate, prior, protocol, targets)
     output = Path(output).resolve()
     output.mkdir(parents=True, exist_ok=False)
     shutil.copyfile(study_path, output / "study.json")
@@ -417,7 +434,8 @@ def prepare(kind, output, study_path, gate_path=None, previous=None):
               "gate": None if gate is None else {"file": "gate.json", "sha256": gate["sha256"]},
               "previous_analysis": None if previous is None else {"path": str(Path(previous).resolve()), "sha256": digest(previous)},
               "allocation": slices, "jobs": entries,
-              "role": "tuning and validation data (V); never reported as evidence" if kind != "final" else "confirmation",
+              "role": {"final": "confirmation", "diagnostic": "world-order diagnostic on V (tuning data); never evidence"}.get(
+                  kind, "tuning and validation data (V); never reported as evidence"),
               "retention": "retire model weights after each result is verified; keep JSON and private audit JSONL",
               "execution": "one job per process, one job per invocation by default"}
     write_json(output / "launch.json", launch)
@@ -466,7 +484,7 @@ def resolve_targets(study, launch, jobs, tokenizer=None, model_config=None):
         if job["study_sha256"] != launch["study_sha256"]:
             raise ValueError("A job names another study")
         cohort = study["cohorts"][job["cohort"]]
-        if job["kind"] in ("paired", "control"):
+        if job["kind"] in ("paired", "control", "diagnostic"):
             target = cohort["targets"][job["target_index"]]
             identities = {grounded.record_sha256(q) for q in [target["training"], *target["probes"]]}
             if identities & excluded:
@@ -583,7 +601,7 @@ def verify_result(result, launch, job, target):
         raise ValueError("Executed code differs from the frozen launch")
     if result["job_sha256"] != sha256(json.dumps(job, sort_keys=True).encode()).hexdigest():
         raise ValueError("Executed job differs from its declaration")
-    if job["kind"] in ("paired", "control") and result.get("target_sha256") != target:
+    if job["kind"] in ("paired", "control", "diagnostic") and result.get("target_sha256") != target:
         raise ValueError("Actual target differs from the resolved target")
     if job["kind"] == "p0" and sorted(r["target_sha256"] for r in result["worlds"]["P0"].get("datastore", [])) != target:
         raise ValueError("P0 datastore targets differ from the resolved targets")
@@ -934,6 +952,41 @@ def analyze_timing(rows):
                      for r in rows]}
 
 
+def analyze_diagnostic(rows):
+    """World-order diagnostic (V, tuning data): per order, the second training minus the first in RAG F1,
+    public-library F1 and each round's mean client loss, and W1 - W0 where the order holds both,
+    with 95% target-bootstrap intervals."""
+    import numpy as np
+    report = {"schema": "grounded_diagnostic_analysis_v1", "role": "world-order diagnostic on V; tuning data, never evidence",
+              "method": {"bootstrap": BOOTSTRAP, "rng_seed": RNG_SEED, "unit": "target", "intervals": "95%"},
+              "orders": {}}
+    for order, members in DIAGNOSTIC_ORDERS.items():
+        results = sorted((r["result"] for r in rows if r["result"].get("order") == order), key=lambda r: r["target_sha256"])
+        if not results:
+            continue
+        idx = target_indices(len(results))
+        f1 = lambda part: np.array([[np.mean([q["f1"] for q in r["worlds"][run]["utility"][part]]) for run in ("run1", "run2")]
+                                    for r in results])
+        loss = np.array([[[h["mean_client_loss"] for h in r[f"federated_history_{run}"]] for run in ("run1", "run2")]
+                         for r in results], float)
+        entry = {"targets": len(results), "members": {"run1": members[0], "run2": members[1]}}
+        for part, label in (("F", "rag_f1"), ("F_P", "public_f1")):
+            values = f1(part)
+            second = values[:, 1] - values[:, 0]
+            entry[label] = {"run1": float(values[:, 0].mean()), "run2": float(values[:, 1].mean()),
+                            "second_minus_first": _ci(second.mean(), second[idx].mean(axis=1)),
+                            "second_better": int((second > 0).sum())}
+            if members[0] != members[1]:
+                gap = second if members[1] else -second
+                entry[label]["W1_minus_W0"] = _ci(gap.mean(), gap[idx].mean(axis=1))
+        last = loss[:, 1, -1] - loss[:, 0, -1]
+        entry["mean_client_loss"] = {"run1": loss[:, 0].mean(axis=0).tolist(), "run2": loss[:, 1].mean(axis=0).tolist(),
+                                     "second_minus_first_last_round": _ci(last.mean(), last[idx].mean(axis=1)),
+                                     "second_higher_last_round": int((last > 0).sum())}
+        report["orders"][order] = entry
+    return report
+
+
 # --------------------------------------------------------------- pilot
 
 def choose(scores, standard):
@@ -1172,6 +1225,8 @@ def analyze(root, output, datastore=None, control=None, p0_launch=None):
         report = analyze_control(rows, datastore)
     elif launch["kind"] == "timing":
         report = analyze_timing(rows)
+    elif launch["kind"] == "diagnostic":
+        report = analyze_diagnostic(rows)
     else:
         if datastore is None or control is None or p0_launch is None:
             raise ValueError("The pilot analysis needs the datastore and control analyses and the P0 datastore launch")
@@ -1562,6 +1617,7 @@ def main(argv=None):
     pr = sub.add_parser("prepare", help="write a frozen launch"); pr.add_argument("kind", choices=KINDS)
     pr.add_argument("output"); pr.add_argument("--study", required=True); pr.add_argument("--gate")
     pr.add_argument("--previous-analysis", help="3-epoch control analysis, for the one 6-epoch rerun")
+    pr.add_argument("--targets", type=int, help="diagnostic only: V targets per order (default 12, 6-60)")
     r = sub.add_parser("resolve", help="CPU checks and frozen targets"); r.add_argument("launch")
     run = sub.add_parser("run", help="run the next job(s)"); run.add_argument("launch"); run.add_argument("--gpu", required=True)
     run.add_argument("--max-jobs", type=int, default=1); run.add_argument("--scratch-root")
@@ -1582,7 +1638,7 @@ def main(argv=None):
         gate = calibrate_gate(args.study, args.output)
         print(json.dumps({k: gate[k] for k in ("threshold", "gold_loss", "verbatim_probe_withheld_rate")}, indent=1))
     elif args.action == "prepare":
-        launch = prepare(args.kind, args.output, args.study, args.gate, args.previous_analysis)
+        launch = prepare(args.kind, args.output, args.study, args.gate, args.previous_analysis, args.targets)
         print(f"Prepared {len(launch['jobs'])} {args.kind} job(s). Nothing resolved or run.")
         print(f"Next: python -m master_script.tools.grounded_fl_study resolve {Path(args.output).resolve() / 'launch.json'}")
     elif args.action == "resolve":

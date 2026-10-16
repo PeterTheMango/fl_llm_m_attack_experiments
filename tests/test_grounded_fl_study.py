@@ -879,3 +879,118 @@ def test_describe_refuses_anything_but_a_finished_final_launch(built, tmp_path, 
     with pytest.raises(ValueError, match="changed or incomplete"):
         gs.describe(root, tmp_path / "z.json")
 
+
+
+# ------------------------------------------------- world-order diagnostic (V)
+
+def test_diagnostic_jobs_are_v_only_utility_only_with_a_declared_order(built):
+    study_path, _ = built
+    study = json.loads(study_path.read_bytes())
+    job = gs.job_document(study, "diagnostic", "RG", "V", "inf", 0, measurements={"utility": True},
+                          diagnostic={"order": "W0-W1"})
+    assert validate_job(job) and job["diagnostic"] == {"order": "W0-W1"}
+    for changes, message in (({"cohort": "final"}, "runs on V"), ({"measurements": {"utility": True, "nq": True}}, "utility only"),
+                             ({"diagnostic": {"order": "W0-W0"}}, "declares one order"), ({"diagnostic": {}}, "declares one order"),
+                             ({"arm": "RG-public"}, "diagnostic jobs train")):
+        with pytest.raises(ValueError, match=message):
+            validate_job({**job, **changes})
+    with pytest.raises(ValueError, match="causal attack runs in paired"):
+        validate_job({**job, "measurements": {"utility": True, "causal_directions": ["template"]}})
+
+
+def test_diagnostic_runner_trains_the_declared_order_without_causal_passes(monkeypatch, tmp_path):
+    from master_script.core import federation, grounded_job
+    events = []
+    monkeypatch.setattr(grounded_job, "_encoder", lambda config, arm, settings: ("tok", "cfg"))
+    monkeypatch.setattr(grounded_job, "_world", lambda job, study, config, session, arm, member, t, c: {"member": member})
+    monkeypatch.setattr(grounded_job, "_release", lambda: events.append("release"))
+    monkeypatch.setattr(grounded_job, "_bundle", lambda model, tok: {"model": model})
+
+    def train(job, config, world, directory, timings, name):
+        events.append(("train", name, world["member"]))
+        return "model", "tok", None, [{"round": 1, "mean_client_loss": 1.0}], "path", {"epsilon": "inf"}
+
+    class Model:
+        def to(self, device):
+            events.append(("reference_to", device))
+    monkeypatch.setattr(grounded_job, "_train", train)
+    monkeypatch.setattr(federation, "load_reference_bundle", lambda config: events.append("reference") or {"model": Model()})
+    monkeypatch.setattr(grounded_job, "_world_measures", lambda job, session, bundle, ref, target, closed, template, cells, world,
+                        timings: events.append(("measure", world)) or {"utility": {"F": [], "F_P": []}})
+    monkeypatch.setattr(grounded_job, "causal_passes", lambda *a, **k: pytest.fail("no causal pass in a diagnostic"))
+    session = SimpleNamespace(settings=None, cohort={"targets": [{"target_sha256": "t0"}]})
+    job = {"arm": "RG", "target_index": 0, "diagnostic": {"order": "W0-W1"}}
+    body = grounded_job._diagnostic(job, {}, None, session, tmp_path, {})
+    assert [e for e in events if e[0] == "train"] == [("train", "run1", False), ("train", "run2", True)]
+    # As in a paired job: the reference joins after the first training and is parked on the CPU for the second.
+    assert events.index("reference") < events.index(("measure", "run1")) < events.index(("train", "run2", True))
+    assert events.count("reference") == 1 and ("reference_to", "cpu") in events[:events.index(("train", "run2", True))]
+    assert body["order"] == "W0-W1" and body["worlds"]["run1"]["member"] is False and body["worlds"]["run2"]["member"] is True
+    assert body["federated_history_run2"] == [{"round": 1, "mean_client_loss": 1.0}] and body["target_sha256"] == "t0"
+
+
+def diagnostic_body(study, job, target, order_effect=0.05, member_effect=0.0):
+    """Second training worse by order_effect; a member world better by member_effect."""
+    rng = np.random.default_rng(job["config"]["seed"])
+    members = gs.DIAGNOSTIC_ORDERS[job["diagnostic"]["order"]]
+    v = study["cohorts"]["V"]
+
+    def run(position, member):
+        level = 0.4 - order_effect * (position - 1) + member_effect * member + rng.normal(0, 0.002)
+        return {"member": member, "utility": {"F": [{"query_id": q["id"], "f1": level} for q in v["F"]],
+                                              "F_P": [{"query_id": q["id"], "f1": level} for q in v["F_P"]]}}
+    body = {"order": job["diagnostic"]["order"], "privacy": {"run1": {"epsilon": "inf"}, "run2": {"epsilon": "inf"}},
+            "worlds": {f"run{i}": run(i, m) for i, m in enumerate(members, start=1)}}
+    for i in (1, 2):
+        body[f"federated_history_run{i}"] = [{"round": r, "mean_client_loss": 1.5 / r + 0.1 * (i - 1) * (r - 1)} for r in (1, 2, 3)]
+    return body
+
+
+def test_diagnostic_launch_prepares_every_order_and_analyzes_order_and_membership(built, tmp_path, monkeypatch):
+    study_path, _ = built
+    root = tmp_path / "diagnostic"
+    monkeypatch.setattr(gs, "DIAGNOSTIC_TARGETS", (2, 1, 60))
+    for count, message in ((0, "datastore-slice"), (3, "datastore-slice")):
+        with pytest.raises(ValueError, match=message):
+            gs.prepare("diagnostic", tmp_path / f"bad-{count}", study_path, targets=count)
+    with pytest.raises(ValueError, match="diagnostic only"):
+        gs.prepare("pilot", tmp_path / "bad-pilot", study_path, targets=2)
+    launch = gs.prepare("diagnostic", root, study_path, gate_file(tmp_path, study_path))
+    study = json.loads(study_path.read_bytes())
+    jobs = [json.loads((root / e["file"]).read_bytes()) for e in launch["jobs"]]
+    targets = gs.allocation(study)["datastore"]
+    assert launch["allocation"]["diagnostic"] == targets
+    assert launch["stage"] == 0 and "never evidence" in launch["role"]
+    assert len(jobs) == 3 * len(targets) and {j["diagnostic"]["order"] for j in jobs} == set(gs.DIAGNOSTIC_ORDERS)
+    assert all(j["kind"] == "diagnostic" and j["cohort"] == "V" and j["measurements"] == {"utility": True}
+               and j["config"]["seed"] == 8000 + j["target_index"] and j["target_index"] in targets for j in jobs)
+    gs.execute(root / "launch.json", resolve_only=True, tokenizer=WordTokenizer(), model_config=MODEL_CONFIG)
+    install_runner(monkeypatch, root, lambda job, target: diagnostic_body(study, job, target))
+    gs.execute(root / "launch.json", gpu="0", max_jobs=50, scratch_root=tmp_path)
+    text = json.dumps(gs.check(root))
+    assert "f1" not in text and "loss" not in text
+    report = gs.analyze(root, tmp_path / "diagnostic-analysis.json")
+    orders = report["orders"]
+    assert report["schema"] == "grounded_diagnostic_analysis_v1"
+    assert orders["W1-W1"]["rag_f1"]["second_minus_first"]["estimate"] == pytest.approx(-0.05, abs=0.005)
+    assert "W1_minus_W0" not in orders["W1-W1"]["rag_f1"]
+    # A pure order effect: W1 looks better when trained first and worse when trained second.
+    assert orders["W1-W0"]["rag_f1"]["W1_minus_W0"]["estimate"] == pytest.approx(0.05, abs=0.005)
+    assert orders["W0-W1"]["rag_f1"]["W1_minus_W0"]["estimate"] == pytest.approx(-0.05, abs=0.005)
+    loss = orders["W1-W1"]["mean_client_loss"]
+    assert loss["second_minus_first_last_round"]["estimate"] == pytest.approx(0.2)
+    assert loss["second_higher_last_round"] == len(targets) and loss["run1"][0] == pytest.approx(1.5)
+
+
+def test_diagnostic_analysis_separates_a_membership_effect():
+    study = {"cohorts": {"V": {"F": [{"id": "q"}], "F_P": [{"id": "p"}]}}}
+    rows = []
+    for order in gs.DIAGNOSTIC_ORDERS:
+        for t in range(6):
+            job = {"config": {"seed": 8000 + t}, "diagnostic": {"order": order}}
+            rows.append({"result": {"target_sha256": f"t{t}",
+                                    **diagnostic_body(study, job, None, order_effect=0.0, member_effect=0.05)}})
+    orders = gs.analyze_diagnostic(rows)["orders"]
+    assert orders["W1-W0"]["rag_f1"]["W1_minus_W0"]["estimate"] == pytest.approx(0.05, abs=0.005)
+    assert orders["W0-W1"]["rag_f1"]["W1_minus_W0"]["estimate"] == pytest.approx(0.05, abs=0.005)
+    assert orders["W1-W1"]["rag_f1"]["second_minus_first"]["estimate"] == pytest.approx(0.0, abs=0.005)

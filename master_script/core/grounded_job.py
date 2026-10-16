@@ -13,6 +13,8 @@ after the tool's CPU resolution. Measurements follow proposal §6 exactly:
   and a pinned NLI model from the same responses; refusals are flagged.
 - Retention: the same probes with an empty context slot.
 - Utility: RAG F1 on F, public-library F1 on F_P, no-context F1 and answer NLL.
+- World-order diagnostic (V only, opt-in kind "diagnostic"): two worlds trained one
+  after the other in this process, in a declared order, each measured for utility.
 
 Raw responses are written only to a mode-0600 private audit file; results carry
 scores, flags and hashes. Nothing here makes a privacy claim.
@@ -30,7 +32,9 @@ from .pipeline import Defense, Pipeline
 from .queue import write_json
 
 JOB_SCHEMA, RESULT_SCHEMA = "grounded_job_v1", "grounded_result_v1"
-KINDS = ("paired", "control", "public", "p0")
+KINDS = ("paired", "control", "public", "p0", "diagnostic")
+# Training order of the two worlds in a diagnostic job: membership of the first and second world.
+DIAGNOSTIC_ORDERS = {"W1-W1": (True, True), "W1-W0": (True, False), "W0-W1": (False, True)}
 DIRECTIONS = ("record", "template")
 CAUSAL = {"attack_variant": "causal_gradient_alignment", "causal_score": "cosine", "probe_epochs": 12,
           "probe_lr": 0.005, "attack_trials": 40, "counterbalance_trials": True, "attack_targets": 1}
@@ -57,7 +61,8 @@ def validate_job(job):
     if job.get("schema") != JOB_SCHEMA or job.get("kind") not in KINDS:
         raise ValueError("Not a grounded job")
     kind, arm, defense = job["kind"], job["arm"], job["defense"]
-    allowed = {"paired": ("RG", "CB-AO", "CB-LM"), "control": ("RG",), "public": ("RG-public",), "p0": ("P0",)}
+    allowed = {"paired": ("RG", "CB-AO", "CB-LM"), "control": ("RG",), "public": ("RG-public",), "p0": ("P0",),
+               "diagnostic": ("RG", "CB-AO")}
     if arm not in allowed[kind]:
         raise ValueError(f"{kind} jobs train {allowed[kind]}, not {arm!r}")
     if defense.get("mechanism") not in ("none", "dp_sgd") or (kind != "paired" and defense["mechanism"] != "none"):
@@ -78,8 +83,13 @@ def validate_job(job):
     if directions and any(config.get(k) != v for k, v in CAUSAL.items()):
         raise ValueError("The causal attack must use the validated configuration set explicitly: "
                          "cosine score, probe_epochs 12, probe_lr 0.005, 40 counterbalanced trials")
-    if kind in ("paired", "control") and not isinstance(job.get("target_index"), int):
-        raise ValueError("Paired and control jobs name one target")
+    if kind in ("paired", "control", "diagnostic") and not isinstance(job.get("target_index"), int):
+        raise ValueError("Paired, control and diagnostic jobs name one target")
+    if kind == "diagnostic":
+        if job["cohort"] != "V" or set(measurements) != {"utility"} or not measurements["utility"]:
+            raise ValueError("The world-order diagnostic runs on V and measures utility only")
+        if job.get("diagnostic", {}).get("order") not in DIAGNOSTIC_ORDERS:
+            raise ValueError(f"A diagnostic job declares one order of {sorted(DIAGNOSTIC_ORDERS)}")
     if kind == "p0" and not job.get("datastore_targets") and not measurements.get("utility"):
         raise ValueError("A P0 job measures the datastore, utility or both")
     if kind == "control":
@@ -442,7 +452,7 @@ def run_job(job, study, output_dir):
     session = Session(job, study, artifact / "private-audit", device)
     timings = {"setup_seconds": _now() - started}
     kind = job["kind"]
-    runner = {"paired": _paired, "control": _control, "public": _public, "p0": _p0}[kind]
+    runner = {"paired": _paired, "control": _control, "public": _public, "p0": _p0, "diagnostic": _diagnostic}[kind]
     body = runner(job, study, config, session, artifact, timings)
     job_digest = _sha(json.dumps(job, sort_keys=True))
     result = {"schema": RESULT_SCHEMA, "status": "complete", "run_id": f"grounded_{job_digest[:24]}",
@@ -548,6 +558,34 @@ def _paired(job, study, config, session, artifact, timings):
     if not grounded.same_epsilon(body["privacy"]["W1"], body["privacy"]["W0"]):
         raise RuntimeError("The paired worlds were accounted at different epsilon")
     del model, reference
+    _release()
+    return body
+
+
+def _diagnostic(job, study, config, session, artifact, timings):
+    """World-order diagnostic (V only, tuning data): two worlds trained one after the other in this
+    process, in the declared order, each measured for utility right after its training. As in a paired
+    job, the pretrained reference joins after the first training and is parked on the CPU during the
+    second; unlike a paired job, no causal pass runs between the two trainings."""
+    from .federation import load_reference_bundle
+    arm, order = job["arm"], job["diagnostic"]["order"]
+    tokenizer, model_config = _encoder(config, arm, session.settings)
+    target = session.cohort["targets"][job["target_index"]]
+    body = {"target_sha256": target["target_sha256"], "order": order, "worlds": {}, "privacy": {}}
+    reference = None
+    for position, member in enumerate(DIAGNOSTIC_ORDERS[order], start=1):
+        name = f"run{position}"
+        world = _world(job, study, config, session, arm, member, tokenizer, model_config)
+        model, tok, _, history, _, privacy = _train(job, config, world, artifact / name, timings, name)
+        if reference is None:
+            reference = load_reference_bundle(config)
+        body["privacy"][name], body[f"federated_history_{name}"] = privacy, history
+        body["worlds"][name] = {"member": member, **_world_measures(job, session, _bundle(model, tok), None, target,
+                                                                     None, None, {}, name, timings)}
+        del model
+        reference["model"].to("cpu")
+        _release()
+    del reference
     _release()
     return body
 

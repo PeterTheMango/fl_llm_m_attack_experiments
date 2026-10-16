@@ -2,8 +2,9 @@
 
 **2026-10-10.** **Stage 2 (confirmation) is complete and analysed once** (146 jobs on fresh final targets, core `8b031bbfdcc1`, frozen `stage2_protocol.json`). Results are below. Stage 0 and the Stage 1 pilot are complete; everything on V is tuning or validation data, never evidence.
 
-- **Core fingerprint:** `8b031bbfdcc1` (2026-10-06, the two observation speed-ups). The pilot ran on `4a001c5eb678`; the 3- and 6-epoch controls on `714ec988b38b`. Earlier results keep theirs.
-- **Tests:** 812 passed, 2 skipped (809 before `describe`; 789 before the Stage 2 tooling).
+- **Core fingerprint before the diagnostic:** `8b031bbfdcc1` (2026-10-06, the two observation speed-ups; Stage 2). The pilot ran on `4a001c5eb678`; the 3- and 6-epoch controls on `714ec988b38b`. Earlier results keep theirs.
+- **Tests:** 816 passed, 2 skipped (812 before the world-order diagnostic; 809 before `describe`). `tests/test_charts.py::test_chart_filenames_are_timestamped_so_runs_do_not_clobber` fails now and then in a full run (two renders within one timestamp); it passes alone and is unrelated to this study.
+- **Core fingerprint `0832ce3dbe5e` (2026-10-16):** an opt-in `diagnostic` job kind for the world-order diagnostic (below). The paired, control, public and P0 paths are unchanged. Stage 2 ran on `8b031bbfdcc1`; `describe` still reads it, because `frozen_results` checks each result against its own launch's fingerprint.
 - **2026-10-12:** a read-only `describe` subcommand for the descriptive secondaries (tool only; below). **Run on the server 2026-10-16:** results below. A read-only check then confirmed a systematic W1–W0 world difference at ε = ∞, which bears on H1's validity (see "Deviations and gaps").
 - **2026-10-12:** the structured related-work search is written ([`related_work.md`](related_work.md)); see "Deviations and gaps".
 
@@ -45,6 +46,46 @@
 - **ε covers only the accounted training releases** (§7), not the crafted-request releases, the RAG outputs or the library.
 - **Narrow setting:** one model (Qwen2.5-0.5B-Instruct), SQuAD, one FL setting; the datastore attacks are adaptations validated for sensitivity only.
 - **The other descriptive secondaries** are computed by the read-only `describe` (run 2026-10-16, below). Two of them qualify the primary readings: H1's reduction disappears when the attacker uses the template form against RG, and H3's difference comes mostly from CB-AO ignoring retrieved text (its RAG F1 is below P0's). A tool change makes `check` and `analyze` refuse this launch (tool hash), so descriptive extras read the results through `frozen_results` and never re-run `analyze`.
+
+## World-order diagnostic (2026-10-16; core `8b031bbfdcc1` → `0832ce3dbe5e`; nothing run yet)
+
+**Why.** The read-only check confirmed a systematic difference between the paired worlds at ε = ∞ (below, "Result of the W1–W0 check"): W0 ends training at a higher loss in both arms, and RG's W1 answers 0.057 F1 better, although the worlds differ in one record. No code cause was found. The leading suspect is the order of work in a paired job: W1 trains first in a fresh process; W0 trains after the W1 measurements and the causal passes in the same process. The researcher chose to diagnose it before the write-up (2026-10-16).
+
+**What was built (opt-in; every existing job path is unchanged).**
+- **`grounded_job._diagnostic`,** a new job kind `diagnostic` (V only, utility only, RG or CB-AO, no DP).
+  - It trains two worlds one after the other in one process, in a declared order, and measures each world's utility (F, F_P, no-context F1, NLL) right after its training.
+  - As in a paired job, the pretrained reference model is loaded after the first training and parked on the CPU during the second.
+  - Unlike a paired job, no causal pass and no other measurement runs between the two trainings.
+  - Each world's per-round training losses are kept (`federated_history_run1/run2`).
+- **Three orders:** `W1-W1` (the same world twice: any gap is pure order), `W1-W0` (Stage 2's order without the causal passes) and `W0-W1` (reversed).
+- **`prepare diagnostic [--targets N]`** (default 12, range 6–60).
+  - It uses the first N targets of V's P0 datastore slice, which no paired job has trained on, in every order (3N jobs).
+  - Each target keeps the same seed (8000 + index) in every order, so the first-trained W1 of `W1-W1` and of `W1-W0` is the same setup.
+  - `--targets` is refused for every other launch kind.
+- **`analyze` on a diagnostic launch** reports, per order:
+  - RAG F1 and public-library F1 of each run, second − first with a 95% target-bootstrap interval, and W1 − W0 where the order has both worlds;
+  - each round's mean client loss per run, and the last-round loss difference (second − first) with its interval.
+  It decides nothing. `check` shows timings only.
+- **Tests (4 new):**
+  - the job rules: V only, utility only, a declared order, no causal attack;
+  - the runner trains in the declared order, loads the reference once after the first training, parks it before the second, and never calls a causal pass;
+  - `prepare`/`resolve`/`run`/`check`/`analyze` on synthetic results recover a built-in pure order effect (W1 looks better first and worse second) and a built-in membership effect (W1 better in both orders).
+
+**Readings fixed before the run (tuning data on V; never evidence; no margins, 95% intervals).**
+1. **Order effect:** in `W1-W1`, the second training ends at a higher last-round loss (interval above 0) or answers worse (RAG F1 interval below 0). Then the second training in a job process trains worse, and Stage 2's W1–W0 difference is at least partly an artifact of training W0 second. `W0-W1` should then show W1 − W0 at or below 0.
+2. **Membership effect:** `W1-W1` shows no difference (intervals include 0) and both `W1-W0` and `W0-W1` show W1 better. Then the target record itself makes W1 train better, a real data effect that would need its own explanation.
+3. **Causal passes involved:** `W1-W1` and `W1-W0` show no difference here, although Stage 2 did. Then the causal passes between the worlds are the likely cause; the next step would add the causal passes to the diagnostic.
+4. **Otherwise:** inconclusive at this size.
+
+**Cost.** About 17–18 min per job (2 × about 300 s training, from `timing-5`, plus utility after each training, an estimate). At 12 targets, 36 jobs ≈ 10–11 GPU-h. Precision: in Stage 2 the per-target W1–W0 F1 difference has a standard deviation of about 0.11, so 12 targets give a 95% half-width of about ±0.06 F1, borderline for a 0.057 gap. The loss difference is probably steadier, but that is not known. 20 targets (60 jobs, about 18 GPU-h) would give about ±0.05.
+
+**What it means for Stage 2.** Nothing is re-run or re-analysed. If reading 1 holds, the paper must state that H1's and H6's Reference AUCs include a world-order effect of unknown sign for the difference, and future paired jobs should train each world in its own process.
+
+**Server steps** (the researcher runs these in tmux, in `/home/calc08/projects/LLMPrivacy/fl_grounded_stage0`, env `LLMPrivacy`, with `G` as above), after this commit is pushed:
+1. `git fetch origin` and `git checkout --detach origin/feat/grounded-fl-stage0`; confirm the core fingerprint prints `0832ce3dbe5e`.
+2. `prepare diagnostic "$G/diagnostic-1" --study "$G/build/study.json" --gate "$G/gate.json"` (add `--targets 20` for the larger option), then `resolve`.
+3. `run --gpu 0 --max-jobs 36` (or 60), repeated until complete; `check` at any time (timings only).
+4. `analyze "$G/diagnostic-1" "$G/diagnostic-1-analysis.json"`, and paste the output back.
 
 ## Descriptive secondaries: the `describe` tool (2026-10-12; tool only, core unchanged at `8b031bbfdcc1`)
 
@@ -223,7 +264,7 @@ Correlation of the per-target F1 gap with the round-3 loss gap: −0.54 (RG), �
   - **Unaffected:** H3 and the datastore secondaries (both cells are W0), H2 and the causal secondaries (W1 only), and every utility endpoint (H1's utility, H5, H7 use W1).
   - **H4:** retention is F1(W1) − F1(W0) closed-book. A world advantage would push R upward, and R is about 0.006, so H4's "equivalent" reading stands.
   - **H1 (and H6) can be affected.** The Reference score compares the target record under W1 and W0. If W1 is generally better trained, both arms' Reference AUCs are inflated by an unknown amount. Because both arms show the loss gap, the effect on H1's difference is unknown in sign and size. This is a validity question for H1, recorded here; the primary outcome is not changed.
-- **Diagnosing it needs GPU work** (the researcher's decision): for example, a small V launch that trains the two worlds in the reverse order, and one that skips the causal passes between them, comparing round losses and utility. It would be tuning data only, never evidence, and the change to `grounded_job.py` would be opt-in with a new core fingerprint.
+- **Diagnosis (researcher's decision, 2026-10-16: diagnose first).** The world-order diagnostic above is built and not yet run.
 
 ## Decisions A and B; Stage 2 protocol frozen (2026-10-06)
 
@@ -647,7 +688,7 @@ The executor keeps the collector's guarantees without changing `collect_guard_tr
   - the standard AUC against N pools each target's 16 N documents as negatives, scored by that target's W0 model;
   - the refusal-excluded H3 contrast and the verbatim baseline keep only targets whose two document scores or answers exist, with their own draws from the same seed;
   - the gate rate is the share of queries whose top-ranked document the gate would withhold.
-- **Systematic W1–W0 world difference at ε = ∞ (2026-10-16, open).** The read-only check confirms it: RG's member worlds answer 0.057 [0.031, 0.086] F1 better than its non-member worlds, and in both arms W0 ends training at a higher loss (round 3: +0.071 RG, +0.049 CB-AO) although the worlds differ in one record. No code cause was found; the order of work in a paired job is the leading candidate. It can inflate both arms' Reference AUCs, so H1's (and H6's) difference carries an unquantified world effect. H2, H3 and the utility endpoints are unaffected, and H4's equivalence stands. The paired design assumes the worlds differ only by the target record; this finding questions that assumption for the weights-channel endpoints. Diagnosing it needs GPU work and is the researcher's decision.
+- **Systematic W1–W0 world difference at ε = ∞ (2026-10-16, open).** The read-only check confirms it: RG's member worlds answer 0.057 [0.031, 0.086] F1 better than its non-member worlds, and in both arms W0 ends training at a higher loss (round 3: +0.071 RG, +0.049 CB-AO) although the worlds differ in one record. No code cause was found; the order of work in a paired job is the leading candidate. It can inflate both arms' Reference AUCs, so H1's (and H6's) difference carries an unquantified world effect. H2, H3 and the utility endpoints are unaffected, and H4's equivalence stands. The paired design assumes the worlds differ only by the target record; this finding questions that assumption for the weights-channel endpoints. The researcher chose to diagnose it before the write-up (2026-10-16); the world-order diagnostic is built (core `0832ce3dbe5e`) and awaits the server.
 - **H1 sensitivity is post hoc.** RG's template-form and CB-AO's record-form Reference AUCs are reported as a labelled sensitivity. H1's decision stays on the frozen forms.
 - **DP jobs keep the causal passes.** Each DP paired job also runs the frozen-direction causal attack with release noise (secondary, the frontier), as the memo's cost estimates assumed.
 - **Timing.** Timing is a separate launch: one full paired RG job at ε = ∞ and one at ε = 16, on the V timing target.
