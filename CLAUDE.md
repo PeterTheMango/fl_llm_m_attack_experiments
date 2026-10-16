@@ -41,9 +41,14 @@ Every code or protocol change for this study must be recorded in the same commit
 - **Stage 2 protocol frozen (2026-10-06):** A = 60 targets at ε = ∞, B2 (ε = 16 only, 10 targets), 146 jobs, about 76 GPU-h.
 - **Stage 2 complete and analysed once (2026-10-10)** — results in status.md, "Stage 2 confirmation results". H1 claimed (Reference AUC CB-AO − RG 0.28 [0.18, 0.37], utility +0.29 F1); H3 claimed (NQ AUC RG − CB-AO 0.35 [0.23, 0.46]); cross-channel claimed (H1 and H3); H2 inconclusive (−0.052 [−0.110, 0.006]); H4 equivalent (no retention beyond ±0.05 F1), not claimed; H5 not acceptable (−0.10); H6 not claimed (DP erases fine-tuning); H7 RG meaningfully better than P0 (−0.21).
 - **Never re-run or re-analyse the final launch.** A tool change makes `check`/`analyze` refuse it (tool hash); descriptive extras must read results via `frozen_results`.
-- **Done 2026-10-12 (tool only, core unchanged): `describe`**, a read-only subcommand for the §9.2 descriptive secondaries of `$G/final` (H1 form sensitivity, refusal rates and refusal-excluded H3, the "both" and training-only cells, the standard AUC against N, the entailment scorer, the gate, F_P / no-context F1 / NLL, R_CB-AO, causal AUCs at both budgets, the verbatim baseline). It reads through `frozen_results`, classifies nothing, labels every section "descriptive secondary; does not change any primary outcome", and with `--final-analysis` shows the primary values reproduce exactly. The tool hash changed, so `check`/`analyze` now refuse `$G/final` (expected). **Its results are pending the server run** (status.md, "Descriptive secondaries"); record the pasted output there.
+- **Done 2026-10-12 (tool only, core unchanged): `describe`**, a read-only subcommand for the §9.2 descriptive secondaries of `$G/final` (H1 form sensitivity, refusal rates and refusal-excluded H3, the "both" and training-only cells, the standard AUC against N, the entailment scorer, the gate, F_P / no-context F1 / NLL, R_CB-AO, causal AUCs at both budgets, the verbatim baseline). It reads through `frozen_results`, classifies nothing, labels every section "descriptive secondary; does not change any primary outcome", and with `--final-analysis` shows the primary values reproduce exactly. The tool hash changed, so `check`/`analyze` now refuse `$G/final` (expected; the server worktree now sits detached at `e4267b9`, and `git checkout --detach 748378d` restores the launch's code).
+- **`describe` results (server, 2026-10-16; status.md, "Descriptive secondaries"):** all ten primary values reproduce exactly. Two descriptive findings qualify the primary readings:
+  - **H1 depends on RG's attack form.** RG's template-form Reference AUC is 0.917 (record 0.659), so template-vs-template CB-AO − RG is only 0.022 [−0.041, 0.081]; record-vs-record is 0.219.
+  - **H3 is mostly CB-AO ignoring retrieved text.** CB-AO's NQ AUC is 0.497 and its RAG F1 0.085 is below P0's 0.167.
+  - Also: the training-only cell is at chance; the verbatim baseline is at chance on the fine-tuned models; release-noise causal at ε = 16 reverses (+0.073 [0.016, 0.133], 10 targets); no refusals at ε = ∞; the gate would withhold 10% of F questions' top documents.
+  - **Open:** RG's member worlds score about 0.06 F1 above its non-member worlds (CB-AO does not). No code cause was found. A read-only paired check is in status.md and awaits the server.
 - **Done 2026-10-12: the structured related-work search** (`related_work.md`, Stage 0 item 1, done after the confirmation). 66 verified papers. No prior work found duplicates the three-channel design; still no "first" claim. DBLP and OpenReview blocked automated access, so a manual check is advised before submission.
-- **Next (the researcher's choice):** record the `describe` output; the write-up. A defense sized by these findings would be a follow-up study.
+- **Next (the researcher's choice):** run the read-only W1–W0 gap check and record it; the write-up (report the H1 form sensitivity and the CB-AO-ignores-context reading next to H1/H3). A defense sized by these findings would be a follow-up study.
   - Do not touch the frozen guard files or `causal_attack_validation.py`; keep changes opt-in so the guard studies' paths are unchanged; record every fingerprint change in `status.md`. Margins and rules may only be tightened.
 - **Decisions already made:**
   - accept GPU training non-determinism;
@@ -54,7 +59,8 @@ Every code or protocol change for this study must be recorded in the same commit
   - two clients training at once dropped (2026-10-06);
   - A = 60 targets at ε = ∞ and B2 (ε = 16 only), 2026-10-06.
 - **Open questions:**
-  - none recorded (the related-work search is done; a manual DBLP/OpenReview check remains advisable).
+  - the W1–W0 utility gap for RG at ε = ∞ (unexplained; read-only check pending);
+  - a manual DBLP/OpenReview check of the related-work search remains advisable.
 
 ## Commands
 

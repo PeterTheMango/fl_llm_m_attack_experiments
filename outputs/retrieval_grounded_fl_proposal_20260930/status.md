@@ -4,7 +4,7 @@
 
 - **Core fingerprint:** `8b031bbfdcc1` (2026-10-06, the two observation speed-ups). The pilot ran on `4a001c5eb678`; the 3- and 6-epoch controls on `714ec988b38b`. Earlier results keep theirs.
 - **Tests:** 812 passed, 2 skipped (809 before `describe`; 789 before the Stage 2 tooling).
-- **2026-10-12:** a read-only `describe` subcommand for the descriptive secondaries (tool only; below). Its results are pending the server run.
+- **2026-10-12:** a read-only `describe` subcommand for the descriptive secondaries (tool only; below). **Run on the server 2026-10-16:** results below, with an unexplained W1–W0 utility gap for RG awaiting a read-only check.
 - **2026-10-12:** the structured related-work search is written ([`related_work.md`](related_work.md)); see "Deviations and gaps".
 
 ## Stage 2 confirmation results (2026-10-10)
@@ -44,7 +44,7 @@
 - **H2's primary was chosen after seeing the pilot (C2).** It measures leakage through releases protected by σ_obs 1.0 noise, not raw updates.
 - **ε covers only the accounted training releases** (§7), not the crafted-request releases, the RAG outputs or the library.
 - **Narrow setting:** one model (Qwen2.5-0.5B-Instruct), SQuAD, one FL setting; the datastore attacks are adaptations validated for sensitivity only.
-- **The other descriptive secondaries** are computed by the read-only `describe` (2026-10-12, below; results pending the server run). A tool change makes `check` and `analyze` refuse this launch (tool hash), so descriptive extras read the results through `frozen_results` and never re-run `analyze`.
+- **The other descriptive secondaries** are computed by the read-only `describe` (run 2026-10-16, below). Two of them qualify the primary readings: H1's reduction disappears when the attacker uses the template form against RG, and H3's difference comes mostly from CB-AO ignoring retrieved text (its RAG F1 is below P0's). A tool change makes `check` and `analyze` refuse this launch (tool hash), so descriptive extras read the results through `frozen_results` and never re-run `analyze`.
 
 ## Descriptive secondaries: the `describe` tool (2026-10-12; tool only, core unchanged at `8b031bbfdcc1`)
 
@@ -89,7 +89,114 @@
 2. `describe "$G/final" "$G/final-descriptives.json" --final-analysis "$G/final-analysis.json" | tee "$G/final-descriptives.txt"`.
 3. Paste the printed lines back; they are recorded here as descriptive results.
 
-**Results:** pending the server run.
+**Results (server, 2026-10-16).** Written to `$G/final-descriptives.json` (printed copy `$G/final-descriptives.txt`) from launch sha256 `c2a1b6f1…`, `final-analysis.json` sha256 `39bbd780…`, launch tool `3921ed6a…`, describe tool `9f93e903…`, core `8b031bbfdcc1`, study `d7eac161…`. **All ten `consistency_with_final_analysis` checks are `True`:** `describe` reproduced every primary estimate and 95% interval exactly. Everything below is a descriptive secondary with 95% target-bootstrap intervals (utility: crossed with article clusters). None of it changes a primary outcome. ε = ∞: 60 targets; ε = 16: 10 targets.
+
+*H1 sensitivity: Reference AUC in both attacker forms (ε = ∞).*
+
+| | Record form | Template form |
+|---|---|---|
+| RG | 0.659 [0.603, 0.722] (frozen) | **0.917 [0.873, 0.959]** |
+| CB-AO | 0.878 [0.818, 0.932] | 0.939 [0.894, 0.977] (frozen) |
+
+| CB-AO − RG, by pairing of forms | ε = ∞ | ε = 16 |
+|---|---|---|
+| CB-AO template − RG record (**frozen; H1 / H6**) | 0.280 [0.205, 0.346] | −0.100 [−0.430, 0.220] |
+| CB-AO record − RG record | 0.219 [0.143, 0.289] | 0.160 [−0.270, 0.590] |
+| CB-AO template − RG template | 0.022 [−0.041, 0.081] | −0.190 [−0.400, −0.030] |
+| CB-AO record − RG template | −0.039 [−0.117, 0.034] | 0.070 [−0.300, 0.420] |
+
+*Datastore (W0, library on vs off; ε = ∞).*
+
+| | RG | CB-AO | RG − CB-AO |
+|---|---|---|---|
+| NQ AUC, F1 scorer (H3's contrast) | 0.847 [0.782, 0.908] | 0.497 [0.443, 0.554] | 0.350 [0.263, 0.432] |
+| NQ AUC, entailment scorer | 0.829 [0.767, 0.889] | 0.606 [0.547, 0.670] | 0.222 [0.146, 0.302] |
+| Refusal-excluded (F1; all 60 targets kept) | 0.847 | 0.497 | 0.350 (identical: no refusals) |
+| Inserted passage vs the 16 N documents (F1) | 0.839 [0.771, 0.902] | 0.434 [0.385, 0.488] | 0.405 [0.319, 0.488] |
+| Inserted passage vs the 16 N documents (entailment) | 0.837 [0.780, 0.889] | 0.609 [0.539, 0.680] | 0.228 [0.169, 0.289] |
+| Mean F1 document score, library on / off | 0.369 / 0.022 | 0.023 / 0.019 | |
+| Verbatim yes/no baseline AUC (decided answers only) | 0.500 [0.467, 0.533] (45 targets) | 0.528 [0.458, 0.597] (36 targets) | |
+| Verbatim "yes" rate, library on / off | 0.91 / 0.92 | 0.76 / 0.71 | |
+
+*The four cells (natural-question AUCs, ε = ∞; F1 scorer, entailment in brackets).*
+
+| Contrast | RG | CB-AO |
+|---|---|---|
+| training-only vs neither (§6.4 secondary) | 0.516 (0.513) | 0.493 (0.562) |
+| both vs neither | 0.920 (0.828) | 0.584 (0.664) |
+| both vs library-only (does training add to the library?) | 0.524 (0.507) | 0.581 (0.551) |
+| both vs training-only (does the library add to training?) | 0.923 (0.835) | 0.588 (0.606) |
+
+*Client updates (causal attack, frozen template direction, mean per-target AUC).*
+
+| | ε = ∞ RG / CB-AO | CB-AO − RG | ε = 16 RG / CB-AO | CB-AO − RG |
+|---|---|---|---|---|
+| No noise | 0.993 / 0.995 | 0.002 [−0.006, 0.012] | 0.965 / 0.957 | −0.008 [−0.049, 0.027] |
+| Release noise (σ_obs 1.0) | 0.703 / 0.651 | −0.052 [−0.094, −0.010] | 0.584 / 0.657 | **+0.073 [0.016, 0.133]** |
+
+The release-noise pass accounts its own ε = 140.7 (δ 10⁻⁵, zCDP, 40 releases, per private batch), never merged with the training ε.
+
+*Utility per arm (ε = ∞, member world W1; W0 in brackets).*
+
+| | RG | CB-AO | RG-public (5 seeds) | P0 |
+|---|---|---|---|---|
+| RAG F1 on F | 0.378 (0.320) | 0.085 (0.082) | 0.281 | 0.167 |
+| RAG EM on F | 0.253 (0.212) | 0.029 (0.028) | 0.175 | 0.013 |
+| Public-library F1 on F_P | 0.404 (0.348) | 0.082 (0.080) | 0.315 | 0.192 |
+| No-context F1 | 0.051 (0.046) | 0.076 (0.076) | 0.041 | 0.037 |
+| Answer NLL (lower is better) | 3.77 (3.99) | 5.17 (5.28) | 4.29 | 5.64 |
+| P0 − arm, RAG F1 | −0.211 [−0.258, −0.162] | **+0.081 [0.053, 0.113]** | −0.115 [−0.212, −0.018] | |
+
+At ε = 16 every arm sits at P0's level: RAG F1 0.171 (RG) and 0.170 (CB-AO), F_P 0.197 / 0.196, P0 − arm −0.004 and −0.003.
+
+*Other secondaries.*
+- **R_CB-AO** (closed-book retention): 0.005 [−0.018, 0.030] at ε = ∞; 0.002 [−0.002, 0.008] at ε = 16.
+- **Refusals:** none in any natural-question, verbatim, retention or ε = ∞ utility query. At ε = 16, 0.3–0.4% of F answers are refusals; P0 0.3%.
+- **The gate** (recorded only; it withheld nothing in the jobs). It would withhold the top document for every verbatim query whose passage is in the library, for 11.1% of natural-question probes in the library-on cells (3.3% for the 10 ε = 16 targets), for none of the library-off probes, and for 10.0% of the F utility questions (every model; the gate depends only on the query and library). This is the share of F questions whose top document would be withheld, not the gold-document loss calibrated on V (4.4%), so the two numbers measure different things.
+- **ε = 16 datastore and verbatim:** NQ AUC (F1) RG 0.860, CB-AO 0.880, difference −0.020 [−0.060, 0.000]; verbatim AUC 0.70 / 0.80 (10 targets).
+
+**Readings (plain terms; descriptive only, they do not change any primary outcome).**
+1. **H1 depends on the attacker's form for RG.** Under the frozen forms, RG leaks much less (0.28). But RG's frozen record form was chosen by a pilot tie-break (0.611 vs 0.611), and on the final data the template form is much stronger against RG (0.917 vs 0.659). If the attacker uses the template form for both arms, the difference is 0.022 [−0.041, 0.081], which is not a reduction. With the record form for both, RG still leaks less (0.219 [0.143, 0.289]). So grounded training lowers weight leakage for an attacker who scores the plain question–answer record, but not for one who scores the answer given the passage and question. H1 stays claimed as pre-registered, but any write-up must report this sensitivity next to it, and it weakens the "leakage leaves the weights" half of the cross-channel reading.
+2. **H3 is mostly CB-AO ignoring the library.** CB-AO's natural-question AUC is at chance (0.497), its document scores are about 0.02 whether the passage is in the library or not, and its RAG F1 (0.085) is **below the untrained P0** (0.167; P0 − CB-AO +0.081 [0.053, 0.113]). Answer-only closed-book training taught the model to ignore retrieved text. RG's datastore AUC (0.847) is close to what P0 showed on V (0.90, a different cohort, so this is a rough comparison only). So the H3 difference reads better as "CB-AO hides the datastore by not using it" than as "RG adds datastore exposure beyond a normal RAG model". The entailment scorer and the N-document comparison agree on the direction.
+3. **Training adds no natural-question signal.** The training-only cell is at chance for both arms and both scorers, and "both" is no more detectable than "library-only". This fits H4's equivalence: we see no passage-fact membership in the weights through these probes.
+4. **The verbatim baseline fails on the fine-tuned models.** At ε = ∞ they answer "yes" to the yes/no question 70–90% of the time whether or not the passage is in the library (AUC about 0.5). On P0 (V) it reached 0.75.
+5. **Release noise at ε = 16 reverses the ε = ∞ direction** (RG now leaks less: +0.073 [0.016, 0.133], 10 targets). The no-noise attack stays near the ceiling at ε = 16 (0.96), as expected: DP-SGD's training ε does not cover crafted-request releases (§7).
+6. **Unexplained W1–W0 gap for RG (needs a check).** RG's member worlds answer better than its non-member worlds (RAG F1 0.378 vs 0.320; F_P 0.404 vs 0.348; NLL 3.77 vs 3.99). CB-AO shows no gap (0.085 vs 0.082), and neither arm does at ε = 16. The two worlds differ only in one of 128 training records, so a systematic utility gap is not expected.
+   - The code gives no cause: client training is seeded per client and round, nothing changes a global torch setting, and answers are greedy.
+   - The gap may be noise from the accepted training non-determinism (RG training diverges strongly between runs, as `timing-3`/`timing-4` showed), but the paired interval is not yet computed.
+   - **Why it matters:** the Reference and NQ endpoints compare W1 with W0 per target. A world-level difference beyond the target record would add to every s₁ − s₀ for RG. It would push RG's Reference AUCs up, so it would work against H1, not for it.
+   - A read-only check is below.
+
+**Read-only check of the W1–W0 gap (server; it reads result files only and prints paired utility differences and training losses).**
+
+```bash
+python - <<'PY'
+import json, os, glob
+import numpy as np
+G = os.environ['G']; rows = {}
+for f in sorted(glob.glob(G + '/final/results/*/result.json')):
+    r = json.load(open(f))
+    if r['kind'] != 'paired':
+        continue
+    w1, w0 = (np.mean([q['f1'] for q in r['worlds'][w]['utility']['F']]) for w in ('W1', 'W0'))
+    loss = [[h.get('mean_client_loss') for h in r[f'federated_history_{w}']] for w in ('W1', 'W0')]
+    rows.setdefault((r['arm'], str(r['epsilon_budget'])), []).append((w1 - w0, loss))
+rng = np.random.default_rng(20260930)
+for key in sorted(rows):
+    d = np.array([x[0] for x in rows[key]])
+    boot = d[rng.integers(0, len(d), (10000, len(d)))].mean(axis=1)
+    print(key, 'targets', len(d), 'mean W1-W0 F1', round(d.mean(), 3),
+          '95% CI', [round(float(q), 3) for q in np.quantile(boot, [0.025, 0.975])], 'W1 better in', int((d > 0).sum()))
+    losses = [x[1] for x in rows[key] if None not in x[1][0] + x[1][1]]
+    if losses:
+        l1, l0 = (np.array([l[w] for l in losses], float) for w in (0, 1))
+        print('   mean client loss per round  W1', l1.mean(axis=0).round(3).tolist(), ' W0', l0.mean(axis=0).round(3).tolist())
+        print('   corr(F1 gap, last-round loss gap W1-W0)',
+              round(float(np.corrcoef(d[:len(l1)], l1[:, -1] - l0[:, -1])[0, 1]), 3))
+PY
+```
+
+(The DP worlds record no per-round loss, so only the ε = ∞ rows print losses.)
 
 ## Decisions A and B; Stage 2 protocol frozen (2026-10-06)
 
@@ -507,12 +614,13 @@ The executor keeps the collector's guarantees without changing `collect_guard_tr
 - **60 targets, not 20, at ε = ∞ (decision A, 2026-10-06).** More targets than option (b) planned; this only narrows the intervals.
 - **H2's primary changed after the pilot (C2, 2026-10-05).** The release-noise causal pass is H2's primary; the no-noise pass is a reported secondary. This is a post-pilot definition change and a new pre-registration, stated openly in `stage2_protocol.json`; it is not a tightening.
 - **Stage 2 is analysed (2026-10-10).** The confirmation `analyze` ran once; its result is final. Nothing may be re-run or re-analysed to change an outcome.
-- **Confirmation analysis scope.** The confirmation `analyze` reports H1–H7, the cross-channel rule, H2's no-noise secondary and H5's DP secondaries. The other descriptive secondaries were not in it. **2026-10-12:** they are computed by the read-only `describe` subcommand from the finished launch (results pending the server run), after the confirmation analysis, so they are post hoc descriptive reports and change no primary outcome. The ε = 64 frontier (not run) and per-client results (not recorded) stay unavailable.
+- **Confirmation analysis scope.** The confirmation `analyze` reports H1–H7, the cross-channel rule, H2's no-noise secondary and H5's DP secondaries. The other descriptive secondaries were not in it. **2026-10-12:** they are computed by the read-only `describe` subcommand from the finished launch (run 2026-10-16), after the confirmation analysis, so they are post hoc descriptive reports and change no primary outcome. The ε = 64 frontier (not run) and per-client results (not recorded) stay unavailable.
 - **Descriptive constructions chosen in `describe` (2026-10-12).** The proposal names these secondaries but not their exact construction, so these are implementation choices, not pre-registered definitions:
   - the "both" cell is reported through three contrasts (both vs neither, vs library-only, vs training-only);
   - the standard AUC against N pools each target's 16 N documents as negatives, scored by that target's W0 model;
   - the refusal-excluded H3 contrast and the verbatim baseline keep only targets whose two document scores or answers exist, with their own draws from the same seed;
   - the gate rate is the share of queries whose top-ranked document the gate would withhold.
+- **Unexplained W1–W0 utility gap for RG (2026-10-16, open).** RG's member worlds score about 0.06 F1 higher than its non-member worlds at ε = ∞ (CB-AO and ε = 16 show none). No code cause was found; a read-only paired check is in "Descriptive secondaries". Until it is run, treat the paired-world comparisons for RG as possibly carrying a world-level difference (it would raise RG's membership AUCs, so it does not favour H1).
 - **H1 sensitivity is post hoc.** RG's template-form and CB-AO's record-form Reference AUCs are reported as a labelled sensitivity. H1's decision stays on the frozen forms.
 - **DP jobs keep the causal passes.** Each DP paired job also runs the frozen-direction causal attack with release noise (secondary, the frontier), as the memo's cost estimates assumed.
 - **Timing.** Timing is a separate launch: one full paired RG job at ε = ∞ and one at ε = 16, on the V timing target.
