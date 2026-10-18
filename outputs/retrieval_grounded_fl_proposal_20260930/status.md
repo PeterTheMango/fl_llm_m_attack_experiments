@@ -3,7 +3,7 @@
 **2026-10-10.** **Stage 2 (confirmation) is complete and analysed once** (146 jobs on fresh final targets, core `8b031bbfdcc1`, frozen `stage2_protocol.json`). Results are below. Stage 0 and the Stage 1 pilot are complete; everything on V is tuning or validation data, never evidence.
 
 - **Core fingerprint before the diagnostic:** `8b031bbfdcc1` (2026-10-06, the two observation speed-ups; Stage 2). The pilot ran on `4a001c5eb678`; the 3- and 6-epoch controls on `714ec988b38b`. Earlier results keep theirs.
-- **Tests:** 821 passed, 2 skipped (820 before the order-independent aggregation; 816 before the deterministic repeat; 812 before the world-order diagnostic; 809 before `describe`). `tests/test_charts.py::test_chart_filenames_are_timestamped_so_runs_do_not_clobber` fails now and then in a full run (two renders within one timestamp); it passes alone and is unrelated to this study.
+- **Tests:** 822 passed, 2 skipped (821 before the replicate; 820 before the order-independent aggregation; 816 before the deterministic repeat; 812 before the world-order diagnostic; 809 before `describe`). `tests/test_charts.py::test_chart_filenames_are_timestamped_so_runs_do_not_clobber` fails now and then in a full run (two renders within one timestamp); it passes alone and is unrelated to this study.
 - **Core fingerprint `2dc5fd6ca6e6` (2026-10-18):** in deterministic mode only, the server sums client updates in client-id order (`amia.aggregation_order`), for the repeat's rerun (below). Before it, `8a1aa7717e8c` (2026-10-18): opt-in deterministic client training and the `W1-S2-W1` order, for the deterministic repeat (below). Before it, `0832ce3dbe5e` (2026-10-16): an opt-in `diagnostic` job kind for the world-order diagnostic (below). The paired, control, public and P0 paths are unchanged. Stage 2 ran on `8b031bbfdcc1`; `describe` still reads it, because `frozen_results` checks each result against its own launch's fingerprint.
 - **2026-10-12:** a read-only `describe` subcommand for the descriptive secondaries (tool only; below). **Run on the server 2026-10-16:** results below. A read-only check then confirmed a systematic W1–W0 world difference at ε = ∞, which bears on H1's validity (see "Deviations and gaps").
 - **2026-10-12:** the structured related-work search is written ([`related_work.md`](related_work.md)); see "Deviations and gaps".
@@ -47,7 +47,36 @@
 - **Narrow setting:** one model (Qwen2.5-0.5B-Instruct), SQuAD, one FL setting; the datastore attacks are adaptations validated for sensitivity only.
 - **The other descriptive secondaries** are computed by the read-only `describe` (run 2026-10-16, below). Two of them qualify the primary readings: H1's reduction disappears when the attacker uses the template form against RG, and H3's difference comes mostly from CB-AO ignoring retrieved text (its RAG F1 is below P0's). A tool change makes `check` and `analyze` refuse this launch (tool hash), so descriptive extras read the results through `frozen_results` and never re-run `analyze`.
 
-## Deterministic same-world repeat (2026-10-18; core `0832ce3dbe5e` → `8a1aa7717e8c`; run 2026-10-18: control not valid)
+## Replicate: Stage 2 paired jobs vs no-causal pairs on V (2026-10-18; tool only, core unchanged at `2dc5fd6ca6e6`; nothing run yet)
+
+**Why.** The deterministic repeat shows no effect of the between-world work under deterministic kernels, which is inconclusive for Stage 2's normal-mode training. The researcher's rule (2026-10-18) is paired jobs next. This test asks directly whether Stage 2's world difference reproduces on fresh V targets, and whether it needs the between-world work.
+
+**Design (`prepare replicate [--targets N]`, default 60, range 20–60).** For each of the first N V datastore-slice targets, with one seed (8000 + index), in normal (non-deterministic) training:
+- **A Stage 2 RG paired job at ε = ∞:** the existing `paired` kind, with every measurement. Its between-world work is every W1 measurement, then the causal passes in the frozen template direction with release noise. W0 gets the natural questions and the 16 N documents, as in Stage 2.
+- **A no-causal pair:** the existing `diagnostic` kind, order `W1-W0`, not deterministic. Only W1's utility measurement runs between the two trainings.
+- **`analyze`** (`grounded_replicate_analysis_v1`) reports, for each set:
+  - W1 − W0 in RAG F1, with the count of targets where W1 is better;
+  - W0 − W1 in last-round client loss, with the count where W0 is higher;
+  - and "with minus without" for both, paired by target, with 95% target-bootstrap intervals.
+  It decides nothing.
+- **Test (1 new, 822 passed, 2 skipped):** `prepare` writes one paired job and one no-causal pair per target with the Stage 2 measurements and seeds; `analyze` recovers a built-in procedural effect (+0.06 with, 0 without).
+
+**Readings fixed before the run (V tuning data; never evidence; 95% intervals).**
+1. **Procedural:** the paired set's W1 − W0 RAG F1 is above 0, and "with minus without" is above 0. Then the between-world work of a paired job makes W0 worse, and Stage 2's world difference is a procedural artifact.
+2. **Real (membership):** both sets' W1 − W0 are above 0, and "with minus without" includes 0. Then training on the target record makes the world better, whatever runs between.
+3. **Not reproduced:** the paired set's W1 − W0 interval includes 0. Then Stage 2's world difference does not reproduce on V; it is most likely chance or specific to that cohort, and the write-up reports it as an unexplained, unreplicated difference.
+4. **Otherwise:** inconclusive.
+The loss differences are reported alongside, descriptively.
+
+**Cost and precision.** About 0.45 h per paired job (Stage 2 at ε = ∞) and about 0.28 h per no-causal pair, so 60 targets is 120 jobs, about 44 GPU-h (40 targets: about 29 GPU-h). Using Stage 2's per-target spread (about 0.11 F1), 60 targets give about ±0.03 on each set's W1 − W0, which is enough to see a 0.057 gap, and about ±0.04 on "with minus without".
+
+**Server steps** (the researcher runs these in tmux, in `/home/calc08/projects/LLMPrivacy/fl_grounded_stage0`, env `LLMPrivacy`, with `G` as above), after this commit is pushed:
+1. `git fetch origin` and `git checkout --detach origin/feat/grounded-fl-stage0`; confirm the core fingerprint still prints `2dc5fd6ca6e6`.
+2. `prepare replicate "$G/replicate-1" --study "$G/build/study.json" --gate "$G/gate.json"` (or `--targets 40`), then `resolve`.
+3. `run --gpu 0 --max-jobs 120`, repeated until complete; `check` at any time.
+4. `analyze "$G/replicate-1" "$G/replicate-1-analysis.json"`, and paste the output back.
+
+## Deterministic same-world repeat (2026-10-18; core `0832ce3dbe5e` → `8a1aa7717e8c` → `2dc5fd6ca6e6`; rerun 2026-10-18: control valid, no effect)
 
 **Why.** The world-order diagnostic left one suspect for Stage 2's world difference: the work a paired job does between its two trainings (every W1 measurement, then the causal passes). One trained world varies by about ±0.1–0.17 F1 per target from GPU non-determinism, so a statistical test would need about 60 targets. **The researcher's decision (2026-10-18):** first a deterministic repeat, then paired jobs (about 60 V targets) if that is inconclusive.
 
@@ -112,6 +141,30 @@
 1. `git fetch origin` and `git checkout --detach origin/feat/grounded-fl-stage0`; confirm the core fingerprint prints `2dc5fd6ca6e6`.
 2. `prepare repeat "$G/repeat-2" --study "$G/build/study.json" --gate "$G/gate.json"`, then `resolve`.
 3. `run --gpu 0 --max-jobs 8`, `check`, then `analyze "$G/repeat-2" "$G/repeat-2-analysis.json"`.
+
+**Result of the rerun (server, 2026-10-18; launch `$G/repeat-2`, sha256 `a145e1f3…`, tool `f1647d9f…`, core `2dc5fd6ca6e6`; 4 V targets; analysis `$G/repeat-2-analysis.json`).**
+
+| Order | Deterministic jobs / clients | Identical weights | Identical client losses (by id) | RAG F1 run 1 / run 2 | Round losses run 1 = run 2 |
+|---|---|---|---|---|---|
+| `W1-W1` (control) | 4 / yes | **4 of 4** | 4 of 4 | 0.31518630308161333 / same | 1.4594, 1.0154, 0.6953 (identical) |
+| `W1-S2-W1` | 4 / yes | **4 of 4** | 4 of 4 | 0.31518630308161333 / same | identical |
+
+**Against the fixed readings: reading 2.** The control is valid: every target reproduced its weights, its per-round losses and its answers exactly. The between order also reproduced every target exactly, and its first W1 is bit-identical to the control's.
+
+**So, under deterministic kernels, a Stage 2 member world's work between two trainings (every W1 measurement and the causal passes, in the same process) does not change the next training at all.** That rules out a direct carry-over of process state, for example a changed global setting, a mutated object or reused data.
+
+It does not settle Stage 2, which ran in normal mode. There the between-world work could still act through non-deterministic kernel choices, although no mechanism is known. A by-product: deterministic mode with ordered aggregation makes a whole paired training reproducible bit for bit.
+
+**What is now ruled out, and what remains.**
+- Ruled out:
+  - the target record making W1 better (world-order diagnostic, 12 targets; W1 led in neither mixed order);
+  - the causal attack altering W0's training data (the encoded records are separate per world and immutable);
+  - the between-world work changing the next training through process state (this repeat).
+- Remaining:
+  - an effect of the between-world work that exists only in non-deterministic training;
+  - a real effect of the target record too small for 12 targets;
+  - chance in Stage 2 (unlikely: 60 targets, both arms' losses agree).
+- **Next, per the researcher's rule (2026-10-18: paired jobs if the repeat is inconclusive):** real paired jobs on V in normal mode, against matching no-causal pairs on the same targets (below).
 
 **Cost.** About 17 min per control job and 25 min per between job at normal speed (from `timing-5`). Deterministic kernels and math attention may slow training, perhaps up to 2×. At 4 targets, 8 jobs take about 3–4 GPU-h. A deterministic-kernel refusal (an operation with no deterministic version) would stop the first job within minutes, with the error in its log.
 

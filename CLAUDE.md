@@ -64,9 +64,13 @@ Every code or protocol change for this study must be recorded in the same commit
       - The round-1 losses are identical, so the difference enters at aggregation: Flower's FedAvg sums client updates in arrival order.
       - The repeat cannot decide. Descriptively, the between order's second run ends at a higher loss in 3 of 4 targets (+0.028), against 1 of 4 in the control.
       - The "identical client losses" metric is order-sensitive and needs comparing by client id.
-      - **Researcher's decision (2026-10-18): fix the order and rerun.** Built: `amia.aggregation_order` (deterministic mode only), and the loss comparison now goes by client id. The rerun `$G/repeat-2` uses the same 4 targets and readings. **Not run yet.**
+      - **Researcher's decision (2026-10-18): fix the order and rerun.** Built: `amia.aggregation_order` (deterministic mode only), and the loss comparison now goes by client id.
+      - **Rerun `$G/repeat-2` (2026-10-18): control valid** (4 of 4 bit-identical), and the between order is also 4 of 4 identical. Under deterministic kernels, a paired job's between-world work does not change the next training. This is inconclusive for Stage 2's normal mode.
+    - **Next, per the researcher's rule: the replicate** (tool only; status.md, "Replicate").
+      - `prepare replicate [--targets N]` (default 60): per V target, a Stage 2 RG paired job at ε = ∞ plus a no-causal `W1-W0` pair, both in normal training. `analyze` reports W1 − W0 per set and "with minus without".
+      - The readings are fixed in status.md. 120 jobs, about 44 GPU-h (40 targets: about 29). **Not run yet.**
 - **Done 2026-10-12: the structured related-work search** (`related_work.md`, Stage 0 item 1, done after the confirmation). 66 verified papers. No prior work found duplicates the three-channel design; still no "first" claim. DBLP and OpenReview blocked automated access, so a manual check is advised before submission.
-- **Next:** run `$G/repeat-2` and record it against the fixed readings. If the control is valid, the in-between test decides; if not, paired jobs on about 60 V targets. Then the write-up. (report the H1 form sensitivity, the world difference and the CB-AO-ignores-context reading next to H1/H3). A defense sized by these findings would be a follow-up study.
+- **Next:** run the replicate (`$G/replicate-1`) and record it against the fixed readings; then the write-up. (report the H1 form sensitivity, the world difference and the CB-AO-ignores-context reading next to H1/H3). A defense sized by these findings would be a follow-up study.
   - Do not touch the frozen guard files or `causal_attack_validation.py`; keep changes opt-in so the guard studies' paths are unchanged; record every fingerprint change in `status.md`. Margins and rules may only be tightened.
 - **Decisions already made:**
   - accept GPU training non-determinism;
@@ -84,7 +88,7 @@ Every code or protocol change for this study must be recorded in the same commit
 
 The environment is `conda env create -f environment.yml` (env `peter_experiments_fl`). On a shared server env, use `pip install --user -r requirements.txt` instead, and drop the `torch` line if a CUDA torch is already installed. torch, transformers and `flwr[simulation]` are imported function-locally, so the toy path runs without them.
 
-Run the tests on the Mac with the project env. The base anaconda `python` lacks torch, and the grounded tests need it. On 2026-10-18 the suite gave 821 passed and 2 skipped (`test_charts.py`'s timestamp test is flaky in full runs and unrelated).
+Run the tests on the Mac with the project env. The base anaconda `python` lacks torch, and the grounded tests need it. On 2026-10-18 the suite gave 822 passed and 2 skipped (`test_charts.py`'s timestamp test is flaky in full runs and unrelated).
 
 ```bash
 /opt/anaconda3/envs/peter_experiments_fl/bin/python -m pytest tests -q
@@ -100,7 +104,7 @@ The grounded study tool runs one subcommand per stage step:
 python -m master_script.tools.grounded_fl_study --help
 ```
 
-Its subcommands are `build`, `calibrate-gate`, `prepare {datastore|control|timing|pilot|final|diagnostic|repeat} [--targets N]`, `resolve`, `run --gpu N [--max-jobs N]`, `job`, `check`, `analyze` and `describe ROOT OUTPUT [--final-analysis FILE]` (read-only descriptive secondaries of a finished final launch).
+Its subcommands are `build`, `calibrate-gate`, `prepare {datastore|control|timing|pilot|final|diagnostic|repeat|replicate} [--targets N]`, `resolve`, `run --gpu N [--max-jobs N]`, `job`, `check`, `analyze` and `describe ROOT OUTPUT [--final-analysis FILE]` (read-only descriptive secondaries of a finished final launch).
 
 This is the toy smoke run of the older attack runner: no GPU, model download or credentials.
 

@@ -6,7 +6,8 @@ calibrate-gate  CPU calibration of the verbatim-overlap library gate on V
 prepare KIND    a frozen launch: datastore (P0 check), control (positive control),
                 timing (full paired jobs), pilot (Stage 1), final (Stage 2 confirmation,
                 from the frozen stage2_protocol.json), diagnostic (the world-order
-                diagnostic on V), repeat (the deterministic same-world repeat on V).
+                diagnostic on V), repeat (the deterministic same-world repeat on V),
+                replicate (Stage 2 paired jobs vs no-causal pairs on V).
                 Nothing is resolved or run.
 resolve         CPU checks before any GPU work: targets, worlds, tokens, exclusions
 run             one job at a time in its own process; weights retire after verification
@@ -49,12 +50,13 @@ STAGE2_PROTOCOL = PROTOCOL.with_name("stage2_protocol.json")
 STAGE2_SCHEMA = "grounded_fl_stage2_protocol_v1"
 STUDY = "grounded_fl"
 LAUNCH_SCHEMA, COHORT_SCHEMA = "grounded_launch_v1", "grounded_cohort_v1"
-KINDS = ("datastore", "control", "timing", "pilot", "final", "diagnostic", "repeat")
+KINDS = ("datastore", "control", "timing", "pilot", "final", "diagnostic", "repeat", "replicate")
 V_SEED_BAND, FINAL_SEED_BAND = (8000, 8099), (9000, 9099)
 PUBLIC_SEEDS = (8095, 8096, 8097, 8098, 8099)
 DATASTORE_TARGETS, CONTROL_TARGETS, PILOT_TARGETS, BRIDGE_TARGETS = 60, 12, 4, 4
 DIAGNOSTIC_TARGETS = (12, 6, 60)  # world-order diagnostic: default, minimum and maximum datastore-slice V targets
 REPEAT_TARGETS = (4, 2, 12)  # deterministic repeat: default, minimum and maximum datastore-slice V targets
+REPLICATE_TARGETS = (60, 20, 60)  # Stage 2 paired jobs vs no-causal pairs: default, minimum and maximum V targets
 CONTROL_MIN_TOKENS, CONTROL_LEARNED, CONTROL_LR = 64, 10, 1e-4
 SIGMA = {"inf": 0.0, 64: 1.91, 16: 5.45}
 DELTA, CLIP = 1e-5, 1.0
@@ -385,6 +387,19 @@ def plan(kind, study, gate=None, previous=None, protocol=None, targets=None):
             for index in slices["repeat"]:
                 jobs.append(job_document(study, "diagnostic", "RG", "V", "inf", index, measurements=measurements,
                                          gate=gate, diagnostic={"order": order, "deterministic": True}))
+    elif kind == "replicate":
+        # Per target, in normal (non-deterministic) training: a Stage 2 RG paired job at epsilon inf (every
+        # measurement, the causal passes in the frozen template direction between the worlds) and a W1-W0
+        # pair with nothing but utility between the worlds, on the same seed.
+        count = REPLICATE_TARGETS[0] if targets is None else targets
+        if type(count) is not int or not REPLICATE_TARGETS[1] <= count <= min(REPLICATE_TARGETS[2], len(slices["datastore"])):
+            raise ValueError(f"The replicate takes {REPLICATE_TARGETS[1]}-{REPLICATE_TARGETS[2]} datastore-slice V targets")
+        slices["replicate"] = slices["datastore"][:count]
+        for index in slices["replicate"]:
+            jobs.append(job_document(study, "paired", "RG", "V", "inf", index, gate=gate,
+                                     measurements={**FULL, "causal_directions": ["template"]}))
+            jobs.append(job_document(study, "diagnostic", "RG", "V", "inf", index, measurements={"utility": True},
+                                     gate=gate, diagnostic={"order": "W1-W0"}))
     elif kind == "timing":
         for epsilon in ("inf", 16):
             jobs.append(job_document(study, "paired", "RG", "V", epsilon, slices["timing"][0], measurements=FULL, gate=gate))
@@ -421,7 +436,7 @@ def prepare(kind, output, study_path, gate_path=None, previous=None, targets=Non
         if gate.get("schema") != "grounded_gate_v1" or gate.get("study_sha256") != grounded.study_sha256(study):
             raise ValueError("Gate calibration belongs to another study")
     prior = json.loads(Path(previous).read_bytes()) if previous else None
-    if targets is not None and kind not in ("diagnostic", "repeat"):
+    if targets is not None and kind not in ("diagnostic", "repeat", "replicate"):
         raise ValueError("--targets applies to the diagnostic and the repeat only; every other launch's targets are fixed by rule")
     jobs, slices = plan(kind, study, gate, prior, protocol, targets)
     output = Path(output).resolve()
@@ -449,7 +464,8 @@ def prepare(kind, output, study_path, gate_path=None, previous=None, targets=Non
               "previous_analysis": None if previous is None else {"path": str(Path(previous).resolve()), "sha256": digest(previous)},
               "allocation": slices, "jobs": entries,
               "role": {"final": "confirmation", "diagnostic": "world-order diagnostic on V (tuning data); never evidence",
-                       "repeat": "deterministic same-world repeat on V (tuning data); never evidence"}.get(
+                       "repeat": "deterministic same-world repeat on V (tuning data); never evidence",
+                       "replicate": "Stage 2 paired jobs vs no-causal pairs on V (tuning data); never evidence"}.get(
                   kind, "tuning and validation data (V); never reported as evidence"),
               "retention": "retire model weights after each result is verified; keep JSON and private audit JSONL",
               "execution": "one job per process, one job per invocation by default"}
@@ -1017,6 +1033,38 @@ def analyze_diagnostic(rows):
     return report
 
 
+def analyze_replicate(rows):
+    """Stage 2 paired jobs (between-world work: every W1 measurement and the causal passes) against
+    no-causal W1-W0 pairs on the same V targets and seeds: W1 - W0 in RAG F1 and W0 - W1 in last-round
+    client loss for each set, and the paired difference between the sets, with 95% target-bootstrap intervals."""
+    import numpy as np
+    paired = {r["result"]["target_sha256"]: r["result"] for r in rows if r["result"]["kind"] == "paired"}
+    plain = {r["result"]["target_sha256"]: r["result"] for r in rows if r["result"]["kind"] == "diagnostic"}
+    if set(paired) != set(plain) or any(r["order"] != "W1-W0" for r in plain.values()):
+        raise ValueError("The replicate needs one paired job and one W1-W0 pair per target")
+    order = sorted(paired)
+    f1 = lambda result, world: float(np.mean([q["f1"] for q in result["worlds"][world]["utility"]["F"]]))
+    last = lambda result, world: float(result[f"federated_history_{world}"][-1]["mean_client_loss"])
+    sets = {"with_between_work": (paired, "W1", "W0"), "without_between_work": (plain, "run1", "run2")}
+    gaps = {name: (np.array([f1(results[t], w1) - f1(results[t], w0) for t in order]),
+                   np.array([last(results[t], w0) - last(results[t], w1) for t in order]))
+            for name, (results, w1, w0) in sets.items()}
+    idx = target_indices(len(order))
+    summary = lambda v: _ci(v.mean(), v[idx].mean(axis=1))
+    report = {"schema": "grounded_replicate_analysis_v1",
+              "role": "Stage 2 paired jobs vs no-causal pairs on V; tuning data, never evidence",
+              "method": {"bootstrap": BOOTSTRAP, "rng_seed": RNG_SEED, "unit": "target (paired across the two sets)",
+                         "intervals": "95%"}, "targets": len(order)}
+    for name, (f1_gap, loss_gap) in gaps.items():
+        report[name] = {"W1_minus_W0_rag_f1": summary(f1_gap), "W1_better": int((f1_gap > 0).sum()),
+                        "W0_minus_W1_last_round_loss": summary(loss_gap), "W0_higher_loss": int((loss_gap > 0).sum())}
+    with_f1, with_loss = gaps["with_between_work"]
+    without_f1, without_loss = gaps["without_between_work"]
+    report["with_minus_without"] = {"W1_minus_W0_rag_f1": summary(with_f1 - without_f1),
+                                    "W0_minus_W1_last_round_loss": summary(with_loss - without_loss)}
+    return report
+
+
 # --------------------------------------------------------------- pilot
 
 def choose(scores, standard):
@@ -1257,6 +1305,8 @@ def analyze(root, output, datastore=None, control=None, p0_launch=None):
         report = analyze_timing(rows)
     elif launch["kind"] in ("diagnostic", "repeat"):
         report = analyze_diagnostic(rows)
+    elif launch["kind"] == "replicate":
+        report = analyze_replicate(rows)
     else:
         if datastore is None or control is None or p0_launch is None:
             raise ValueError("The pilot analysis needs the datastore and control analyses and the P0 datastore launch")
@@ -1647,7 +1697,8 @@ def main(argv=None):
     pr = sub.add_parser("prepare", help="write a frozen launch"); pr.add_argument("kind", choices=KINDS)
     pr.add_argument("output"); pr.add_argument("--study", required=True); pr.add_argument("--gate")
     pr.add_argument("--previous-analysis", help="3-epoch control analysis, for the one 6-epoch rerun")
-    pr.add_argument("--targets", type=int, help="diagnostic (default 12, 6-60) or repeat (default 4, 2-12): V targets per order")
+    pr.add_argument("--targets", type=int, help="V targets: diagnostic (default 12, 6-60), repeat (default 4, 2-12), "
+                                                 "replicate (default 60, 20-60)")
     r = sub.add_parser("resolve", help="CPU checks and frozen targets"); r.add_argument("launch")
     run = sub.add_parser("run", help="run the next job(s)"); run.add_argument("launch"); run.add_argument("--gpu", required=True)
     run.add_argument("--max-jobs", type=int, default=1); run.add_argument("--scratch-root")

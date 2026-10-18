@@ -1140,3 +1140,53 @@ def test_deterministic_mode_aggregates_client_updates_in_client_order(monkeypatc
     ordered = [amia.aggregation_order(a) for a in arrivals]
     assert all([r.metrics["partition_id"] for _, r in o] == [0, 1, 2, 3] for o in ordered)
     assert len({total(o) for o in ordered}) == 1
+
+
+# --------------------------------------- replicate: paired jobs vs no-causal pairs (V)
+
+def replicate_body(study, job, target, procedural=0.06):
+    """W0 trains worse only when the paired job's between-world work runs (a built-in procedural effect)."""
+    rng = np.random.default_rng(job["config"]["seed"] * 3 + (job["kind"] == "paired"))
+    v = study["cohorts"]["V"]
+    gap = procedural if job["kind"] == "paired" else 0.0
+    world = lambda level: {"utility": {"F": [{"query_id": q["id"], "f1": level} for q in v["F"]], "F_P": []}}
+    noise = rng.normal(0, 0.002)
+    history = lambda extra: [{"round": r, "mean_client_loss": 1.0 / r + extra} for r in (1, 2, 3)]
+    if job["kind"] == "paired":
+        return {"privacy": {"W1": {"epsilon": "inf"}, "W0": {"epsilon": "inf"}},
+                "worlds": {"W1": world(0.4 + noise), "W0": world(0.4 - gap)},
+                "federated_history_W1": history(0.0), "federated_history_W0": history(gap)}
+    return {"order": "W1-W0", "privacy": {"run1": {"epsilon": "inf"}, "run2": {"epsilon": "inf"}},
+            "worlds": {"run1": {"member": True, **world(0.4 + noise)}, "run2": {"member": False, **world(0.4)}},
+            "federated_history_run1": history(0.0), "federated_history_run2": history(0.0)}
+
+
+def test_replicate_pairs_stage2_paired_jobs_with_no_causal_pairs_and_compares_them(built, tmp_path, monkeypatch):
+    study_path, _ = built
+    monkeypatch.setattr(gs, "REPLICATE_TARGETS", (2, 1, 60))
+    with pytest.raises(ValueError, match="datastore-slice"):
+        gs.prepare("replicate", tmp_path / "bad", study_path, targets=3)
+    root = tmp_path / "replicate"
+    launch = gs.prepare("replicate", root, study_path, gate_file(tmp_path, study_path))
+    study = json.loads(study_path.read_bytes())
+    jobs = [json.loads((root / e["file"]).read_bytes()) for e in launch["jobs"]]
+    targets = gs.allocation(study)["datastore"][:2]
+    assert launch["allocation"]["replicate"] == targets and "never evidence" in launch["role"]
+    paired = [j for j in jobs if j["kind"] == "paired"]
+    plain = [j for j in jobs if j["kind"] == "diagnostic"]
+    assert sorted(j["target_index"] for j in paired) == sorted(j["target_index"] for j in plain) == sorted(targets)
+    assert all(j["arm"] == "RG" and j["epsilon"] == "inf" and j["defense"] == {"mechanism": "none"}
+               and j["measurements"]["causal_directions"] == ["template"] and j["measurements"]["release_noise"]
+               and j["measurements"]["reference"] and j["measurements"]["nq"] for j in paired)
+    assert all(j["diagnostic"] == {"order": "W1-W0"} for j in plain)  # normal (non-deterministic) training
+    assert all(j["config"]["seed"] == 8000 + j["target_index"] for j in jobs)
+    gs.execute(root / "launch.json", resolve_only=True, tokenizer=WordTokenizer(), model_config=MODEL_CONFIG)
+    install_runner(monkeypatch, root, lambda job, target: replicate_body(study, job, target))
+    gs.execute(root / "launch.json", gpu="0", max_jobs=10, scratch_root=tmp_path)
+    report = gs.analyze(root, tmp_path / "replicate-analysis.json")
+    assert report["schema"] == "grounded_replicate_analysis_v1" and report["targets"] == 2
+    assert report["with_between_work"]["W1_minus_W0_rag_f1"]["estimate"] == pytest.approx(0.06, abs=0.005)
+    assert report["without_between_work"]["W1_minus_W0_rag_f1"]["estimate"] == pytest.approx(0.0, abs=0.005)
+    assert report["with_minus_without"]["W1_minus_W0_rag_f1"]["estimate"] == pytest.approx(0.06, abs=0.005)
+    assert report["with_minus_without"]["W0_minus_W1_last_round_loss"]["estimate"] == pytest.approx(0.06)
+    assert report["with_between_work"]["W0_higher_loss"] == 2 and report["without_between_work"]["W0_higher_loss"] == 0
