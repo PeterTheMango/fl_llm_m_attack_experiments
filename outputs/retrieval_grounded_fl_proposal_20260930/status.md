@@ -79,6 +79,32 @@
 
 **Cost.** About 17–18 min per job (2 × about 300 s training, from `timing-5`, plus utility after each training, an estimate). At 12 targets, 36 jobs ≈ 10–11 GPU-h. Precision: in Stage 2 the per-target W1–W0 F1 difference has a standard deviation of about 0.11, so 12 targets give a 95% half-width of about ±0.06 F1, borderline for a 0.057 gap. The loss difference is probably steadier, but that is not known. 20 targets (60 jobs, about 18 GPU-h) would give about ±0.05.
 
+**Result (server, 2026-10-18; launch `$G/diagnostic-1`, sha256 `40d7f93c…`, tool `258ba17b…`, core `0832ce3dbe5e`; analysis `$G/diagnostic-1-analysis.json`).** It ran at the default 12 targets (36 jobs): `--targets 20` was not passed to `prepare`, because the first command list given to the researcher omitted it. V tuning data; 95% target-bootstrap intervals.
+
+| Order (run 1 → run 2) | RAG F1 run 1 / run 2 | Second − first, RAG F1 | W1 − W0, RAG F1 | Round-3 client loss run 1 / run 2 | Second − first, round-3 loss |
+|---|---|---|---|---|---|
+| W1 → W1 | 0.363 / 0.322 | −0.041 [−0.135, 0.056] (second better in 5 of 12) | n/a | 0.542 / 0.631 | +0.089 [−0.057, 0.234] (higher in 5) |
+| W1 → W0 (no causal pass) | 0.332 / 0.402 | +0.070 [0.025, 0.119] (9 of 12) | **−0.070 [−0.119, −0.025]** | 0.606 / 0.511 | −0.095 [−0.220, 0.036] (higher in 3) |
+| W0 → W1 | 0.334 / 0.333 | −0.001 [−0.087, 0.090] (5 of 12) | −0.001 [−0.087, 0.090] | 0.593 / 0.613 | +0.020 [−0.097, 0.132] (higher in 8) |
+
+Public-library F1 moves the same way: W1 → W1 −0.029 [−0.118, 0.059]; W1 → W0 +0.058 [0.008, 0.111]; W0 → W1 +0.003 [−0.076, 0.086].
+
+**Against the fixed readings: inconclusive (reading 4).**
+- Reading 1 (order effect) needs W1 → W1's second run to be worse with an interval excluding 0. The point estimates lean that way (−0.041 F1, +0.089 loss), but both intervals include 0. Not met.
+- Reading 2 (membership effect) needs W1 better in both mixed orders. W1 is worse in W1 → W0 (−0.070) and level in W0 → W1 (−0.001). Not met, and the data point against it.
+- Reading 3 (causal passes involved) needs no difference in W1 → W1 and W1 → W0. W1 → W1 shows none, but W1 → W0 shows a nominal difference **in the opposite direction to Stage 2** (W0 better). Not met as written.
+
+**Descriptive reading (plain terms; tuning data).**
+1. **Without the causal passes between the two trainings, the Stage 2 pattern does not appear.**
+   - In Stage 2, W1 beat W0 by 0.057 [0.031, 0.086] (60 targets), and W0 ended at a higher loss in both arms.
+   - Here no order shows W1 ahead. Across the three orders, "second minus first" has no consistent sign: F1 −0.041, +0.070 and −0.001; loss +0.089, −0.095 and +0.020.
+   - The one nominal result (W1 → W0, W0 better) is one of six comparisons at 95% and runs against Stage 2's direction, so it is probably chance.
+2. **The target record does not make W1 train better.** If it did, W1 would lead in both mixed orders; it leads in neither.
+3. **Training-to-training noise is large.** The first-trained W1 is the same setup (same target, seed and world) in W1 → W1 and W1 → W0, yet its 12-target mean RAG F1 is 0.363 in one and 0.332 in the other. One trained world is a noisy draw, about ±0.1 F1 per target, which is why 12 targets cannot resolve a 0.06 gap.
+4. **What remains.** Stage 2's world difference is most plausibly tied to the work a paired job does between the two trainings: the causal passes and the W1 measurements (Reference scoring, retention, natural questions with the NLI model). Chance is not ruled out, but it is unlikely: Stage 2's interval excludes 0 with 60 targets, and both arms' losses agree. **This is not shown**: the diagnostic left out exactly those steps, so it can only say they are the remaining suspects.
+
+**Next step (the researcher's decision).** A direct test would run real Stage 2 paired jobs (RG, ε = ∞, frozen template direction with release noise, every measurement) on the same 12 V targets and seeds. Their W1 − W0 can then be compared with the no-causal W1 → W0 above. This uses only the existing paired job kind, so it is a tool change only, with no core change; about 12 × 0.45 h ≈ 5.5 GPU-h. A separate question is how much a world difference moves the Reference AUC. That needs a control record that is in neither world, scored in both. The Stage 2 weights are retired, so it would be a new measurement (core change) on new runs.
+
 **What it means for Stage 2.** Nothing is re-run or re-analysed. If reading 1 holds, the paper must state that H1's and H6's Reference AUCs include a world-order effect of unknown sign for the difference, and future paired jobs should train each world in its own process.
 
 **Server steps** (the researcher runs these in tmux, in `/home/calc08/projects/LLMPrivacy/fl_grounded_stage0`, env `LLMPrivacy`, with `G` as above), after this commit is pushed:
@@ -264,7 +290,7 @@ Correlation of the per-target F1 gap with the round-3 loss gap: −0.54 (RG), �
   - **Unaffected:** H3 and the datastore secondaries (both cells are W0), H2 and the causal secondaries (W1 only), and every utility endpoint (H1's utility, H5, H7 use W1).
   - **H4:** retention is F1(W1) − F1(W0) closed-book. A world advantage would push R upward, and R is about 0.006, so H4's "equivalent" reading stands.
   - **H1 (and H6) can be affected.** The Reference score compares the target record under W1 and W0. If W1 is generally better trained, both arms' Reference AUCs are inflated by an unknown amount. Because both arms show the loss gap, the effect on H1's difference is unknown in sign and size. This is a validity question for H1, recorded here; the primary outcome is not changed.
-- **Diagnosis (researcher's decision, 2026-10-16: diagnose first).** The world-order diagnostic above is built and not yet run.
+- **Diagnosis (2026-10-18):** the world-order diagnostic (12 V targets) is inconclusive by its fixed readings. Without the causal passes between the trainings, no order shows W1 ahead, and the target record does not make W1 train better. The work a paired job does between the worlds (causal passes, W1 measurements) remains the suspect; it is not shown.
 
 ## Decisions A and B; Stage 2 protocol frozen (2026-10-06)
 
@@ -688,7 +714,7 @@ The executor keeps the collector's guarantees without changing `collect_guard_tr
   - the standard AUC against N pools each target's 16 N documents as negatives, scored by that target's W0 model;
   - the refusal-excluded H3 contrast and the verbatim baseline keep only targets whose two document scores or answers exist, with their own draws from the same seed;
   - the gate rate is the share of queries whose top-ranked document the gate would withhold.
-- **Systematic W1–W0 world difference at ε = ∞ (2026-10-16, open).** The read-only check confirms it: RG's member worlds answer 0.057 [0.031, 0.086] F1 better than its non-member worlds, and in both arms W0 ends training at a higher loss (round 3: +0.071 RG, +0.049 CB-AO) although the worlds differ in one record. No code cause was found; the order of work in a paired job is the leading candidate. It can inflate both arms' Reference AUCs, so H1's (and H6's) difference carries an unquantified world effect. H2, H3 and the utility endpoints are unaffected, and H4's equivalence stands. The paired design assumes the worlds differ only by the target record; this finding questions that assumption for the weights-channel endpoints. The researcher chose to diagnose it before the write-up (2026-10-16); the world-order diagnostic is built (core `0832ce3dbe5e`) and awaits the server.
+- **Systematic W1–W0 world difference at ε = ∞ (2026-10-16, open).** The read-only check confirms it: RG's member worlds answer 0.057 [0.031, 0.086] F1 better than its non-member worlds, and in both arms W0 ends training at a higher loss (round 3: +0.071 RG, +0.049 CB-AO) although the worlds differ in one record. No code cause was found; the order of work in a paired job is the leading candidate. It can inflate both arms' Reference AUCs, so H1's (and H6's) difference carries an unquantified world effect. H2, H3 and the utility endpoints are unaffected, and H4's equivalence stands. The paired design assumes the worlds differ only by the target record; this finding questions that assumption for the weights-channel endpoints. The world-order diagnostic (2026-10-18, 12 V targets, no causal passes between the trainings) is inconclusive by its fixed readings. It shows no membership effect and no consistent order effect, so the between-world work of a paired job remains the suspect; this is not shown. A direct test with real paired jobs on the same V targets is the researcher's decision.
 - **H1 sensitivity is post hoc.** RG's template-form and CB-AO's record-form Reference AUCs are reported as a labelled sensitivity. H1's decision stays on the frozen forms.
 - **DP jobs keep the causal passes.** Each DP paired job also runs the frozen-direction causal attack with release noise (secondary, the frontier), as the memo's cost estimates assumed.
 - **Timing.** Timing is a separate launch: one full paired RG job at ε = ∞ and one at ε = 16, on the V timing target.

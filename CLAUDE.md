@@ -52,9 +52,15 @@ Every code or protocol change for this study must be recorded in the same commit
     - No code cause was found; the order of work in a paired job is suspected.
     - It can inflate both arms' Reference AUCs, which puts H1's (and H6's) validity in question. H2, H3, the utility endpoints and H4's equivalence are unaffected.
     - **Researcher's decision (2026-10-16): diagnose it first.** Built: the opt-in `diagnostic` job kind (`grounded_job._diagnostic`) and `prepare diagnostic [--targets N]`, in three orders: `W1-W1`, `W1-W0` without causal passes, and `W0-W1`. It uses V datastore-slice targets, utility and per-round losses only, and `analyze` reports second − first and W1 − W0 with 95% intervals.
-    - The readings are fixed in status.md ("World-order diagnostic"). 12 targets is 36 jobs, about 10–11 GPU-h. **Not run yet.**
+    - **Diagnostic result (2026-10-18; 12 V targets, `$G/diagnostic-1`): inconclusive by its fixed readings.**
+      - W1 → W1: second − first RAG F1 −0.041 [−0.135, 0.056].
+      - W1 → W0 without causal passes: W1 − W0 −0.070 [−0.119, −0.025], the opposite of Stage 2.
+      - W0 → W1: −0.001 [−0.087, 0.090].
+      - No membership effect and no consistent order effect. Training-to-training noise is about ±0.1 F1 per target.
+      - The between-world work of a paired job (causal passes, W1 measurements) remains the suspect, not shown.
+      - Proposed next: real paired jobs on the same 12 V targets (tool-only change, about 5.5 GPU-h). The researcher's decision.
 - **Done 2026-10-12: the structured related-work search** (`related_work.md`, Stage 0 item 1, done after the confirmation). 66 verified papers. No prior work found duplicates the three-channel design; still no "first" claim. DBLP and OpenReview blocked automated access, so a manual check is advised before submission.
-- **Next:** run the world-order diagnostic on the server and record it against the fixed readings; then the write-up (report the H1 form sensitivity, the world difference and the CB-AO-ignores-context reading next to H1/H3). A defense sized by these findings would be a follow-up study.
+- **Next (the researcher's choice):** whether to test the paired-job hypothesis directly (real paired jobs on the 12 diagnostic V targets); then the write-up (report the H1 form sensitivity, the world difference and the CB-AO-ignores-context reading next to H1/H3). A defense sized by these findings would be a follow-up study.
   - Do not touch the frozen guard files or `causal_attack_validation.py`; keep changes opt-in so the guard studies' paths are unchanged; record every fingerprint change in `status.md`. Margins and rules may only be tightened.
 - **Decisions already made:**
   - accept GPU training non-determinism;
