@@ -291,10 +291,19 @@ def _ami_flower_client_cls():
 
 AMIFlowerClient = None  # populated lazily; see federated_fine_tune
 
-# Opt-in deterministic client training (grounded world-order diagnostic only). The job process sets both
-# variables before the simulation starts; client processes inherit them. Unset, training is unchanged.
+# Opt-in deterministic training (grounded world-order diagnostic only). The job process sets both
+# variables before the simulation starts; client processes inherit them, and the server then aggregates
+# the client updates in client-id order. Unset, training and aggregation are unchanged.
 DETERMINISTIC_ENV = "GROUNDED_DETERMINISTIC_TRAINING"
 CUBLAS_WORKSPACE = ":4096:8"
+
+
+def aggregation_order(results):
+    """In deterministic mode, client updates in client-id order: FedAvg sums them in list order, and a
+    floating-point sum depends on its order, so arrival order would change the aggregate's last bits."""
+    if os.environ.get(DETERMINISTIC_ENV) != "1":
+        return results
+    return sorted(results, key=lambda item: int(item[1].metrics["partition_id"]))
 
 
 def deterministic_training():
@@ -365,6 +374,7 @@ def federated_fine_tune(config, artifact_dir=None, pipeline=None, world=None):
 
     class SaveModelFedAvg(FedAvg):
         def aggregate_fit(self, server_round, results, failures):
+            results = aggregation_order(results)
             if guard_runtime is not None:
                 from ..guard_runtime import reject_training_round, record_training_round
                 try:

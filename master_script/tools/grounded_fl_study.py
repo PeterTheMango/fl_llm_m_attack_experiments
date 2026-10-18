@@ -1001,7 +1001,8 @@ def analyze_diagnostic(rows):
         if all("parameters_sha256" in r["worlds"]["run1"] for r in results):
             # Exact comparisons: identical final weights and identical per-round client losses.
             same = lambda r: r["worlds"]["run1"]["parameters_sha256"] == r["worlds"]["run2"]["parameters_sha256"]
-            client = lambda r, run: [h.get("client_losses") for h in r[f"federated_history_{run}"]]
+            client = lambda r, run: [dict(zip(h.get("selected_clients", []), h.get("client_losses", [])))
+                                     for h in r[f"federated_history_{run}"]]  # by client id, not arrival order
             entry["exact"] = {
                 "deterministic_jobs": sum(bool(r.get("deterministic")) for r in results),
                 "deterministic_clients": all(o.get("deterministic") for r in results for run in ("run1", "run2")

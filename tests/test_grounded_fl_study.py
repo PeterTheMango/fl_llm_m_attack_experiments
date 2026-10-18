@@ -1090,7 +1090,10 @@ def repeat_body(study, job, target, drift=0.0):
     run = lambda i: {"member": True, "parameters_sha256": f"w-{job['target_index']}" + ("-moved" if i == 2 and shift else ""),
                      "utility": {"F": [{"query_id": q["id"], "f1": 0.4 - (i - 1) * shift} for q in v["F"]],
                                  "F_P": [{"query_id": q["id"], "f1": 0.3} for q in v["F_P"]]}}
-    history = lambda i: [{"round": r, "mean_client_loss": 1.0 / r + (i - 1) * shift, "client_losses": [1.0 / r + (i - 1) * shift],
+    # Arrival order differs between runs; the comparison is by client id.
+    history = lambda i: [{"round": r, "mean_client_loss": 1.0 / r + (i - 1) * shift,
+                          "selected_clients": [0, 1] if i == 1 else [1, 0],
+                          "client_losses": [1.0 / r + (i - 1) * shift, 2.0 / r] if i == 1 else [2.0 / r, 1.0 / r + (i - 1) * shift],
                           "client_outcomes": [{"client_id": 0, "deterministic": True}]} for r in (1, 2, 3)]
     return {"order": order, "deterministic": True, "privacy": {"run1": {"epsilon": "inf"}, "run2": {"epsilon": "inf"}},
             "worlds": {"run1": run(1), "run2": run(2)}, "federated_history_run1": history(1), "federated_history_run2": history(2)}
@@ -1119,3 +1122,21 @@ def test_repeat_launch_prepares_both_orders_deterministically_and_reports_exact_
     assert between["identical_weights"] == 0 and between["identical_client_losses"] == 0
     assert all(t["last_round_loss_second_minus_first"] == pytest.approx(0.05) for t in between["per_target"])
     assert orders[gs.BETWEEN]["rag_f1"]["second_minus_first"]["estimate"] == pytest.approx(-0.05)
+
+
+def test_deterministic_mode_aggregates_client_updates_in_client_order(monkeypatch):
+    from flwr.common import ndarrays_to_parameters
+    from flwr.server.strategy.aggregate import aggregate
+    from master_script.core.attacks import amia
+    rng = np.random.default_rng(0)
+    updates = [[rng.normal(0, 1, 1000).astype(np.float32) * 10 ** k] for k in range(4)]
+    fit = lambda pid: SimpleNamespace(metrics={"partition_id": pid}, parameters=ndarrays_to_parameters(updates[pid]))
+    arrivals = [[(None, fit(p)) for p in order] for order in ([0, 1, 2, 3], [3, 1, 0, 2], [2, 3, 1, 0])]
+    total = lambda results: aggregate([(updates[r.metrics["partition_id"]], 33) for _, r in results])[0].tobytes()
+    monkeypatch.delenv(amia.DETERMINISTIC_ENV, raising=False)
+    assert amia.aggregation_order(arrivals[1]) is arrivals[1]  # unchanged unless opted in
+    assert len({total(a) for a in arrivals}) > 1  # arrival order changes the float32 aggregate's bits
+    monkeypatch.setenv(amia.DETERMINISTIC_ENV, "1")
+    ordered = [amia.aggregation_order(a) for a in arrivals]
+    assert all([r.metrics["partition_id"] for _, r in o] == [0, 1, 2, 3] for o in ordered)
+    assert len({total(o) for o in ordered}) == 1

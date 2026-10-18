@@ -3,8 +3,8 @@
 **2026-10-10.** **Stage 2 (confirmation) is complete and analysed once** (146 jobs on fresh final targets, core `8b031bbfdcc1`, frozen `stage2_protocol.json`). Results are below. Stage 0 and the Stage 1 pilot are complete; everything on V is tuning or validation data, never evidence.
 
 - **Core fingerprint before the diagnostic:** `8b031bbfdcc1` (2026-10-06, the two observation speed-ups; Stage 2). The pilot ran on `4a001c5eb678`; the 3- and 6-epoch controls on `714ec988b38b`. Earlier results keep theirs.
-- **Tests:** 820 passed, 2 skipped (816 before the deterministic repeat; 812 before the world-order diagnostic; 809 before `describe`). `tests/test_charts.py::test_chart_filenames_are_timestamped_so_runs_do_not_clobber` fails now and then in a full run (two renders within one timestamp); it passes alone and is unrelated to this study.
-- **Core fingerprint `8a1aa7717e8c` (2026-10-18):** opt-in deterministic client training and the `W1-S2-W1` order, for the deterministic repeat (below). Before it, `0832ce3dbe5e` (2026-10-16): an opt-in `diagnostic` job kind for the world-order diagnostic (below). The paired, control, public and P0 paths are unchanged. Stage 2 ran on `8b031bbfdcc1`; `describe` still reads it, because `frozen_results` checks each result against its own launch's fingerprint.
+- **Tests:** 821 passed, 2 skipped (820 before the order-independent aggregation; 816 before the deterministic repeat; 812 before the world-order diagnostic; 809 before `describe`). `tests/test_charts.py::test_chart_filenames_are_timestamped_so_runs_do_not_clobber` fails now and then in a full run (two renders within one timestamp); it passes alone and is unrelated to this study.
+- **Core fingerprint `2dc5fd6ca6e6` (2026-10-18):** in deterministic mode only, the server sums client updates in client-id order (`amia.aggregation_order`), for the repeat's rerun (below). Before it, `8a1aa7717e8c` (2026-10-18): opt-in deterministic client training and the `W1-S2-W1` order, for the deterministic repeat (below). Before it, `0832ce3dbe5e` (2026-10-16): an opt-in `diagnostic` job kind for the world-order diagnostic (below). The paired, control, public and P0 paths are unchanged. Stage 2 ran on `8b031bbfdcc1`; `describe` still reads it, because `frozen_results` checks each result against its own launch's fingerprint.
 - **2026-10-12:** a read-only `describe` subcommand for the descriptive secondaries (tool only; below). **Run on the server 2026-10-16:** results below. A read-only check then confirmed a systematic W1–W0 world difference at ε = ∞, which bears on H1's validity (see "Deviations and gaps").
 - **2026-10-12:** the structured related-work search is written ([`related_work.md`](related_work.md)); see "Deviations and gaps".
 
@@ -100,6 +100,18 @@
 **Descriptive (4 targets, tuning data).** The between order's second run ends at a higher loss in 3 of 4 targets (+0.028), while the control's does in 1 of 4 (−0.010). That is Stage 2's direction, but 4 targets with an invalid control show nothing.
 
 **Next (the researcher's decision).** The fixed plan says paired jobs on about 60 V targets (about 27 GPU-h plus a matching no-causal set). The alternative is to make the aggregation order-independent in deterministic mode (sum the client updates in client-id order; opt-in, a small core change), fix the loss comparison, and rerun the repeat (about 3–4 GPU-h). That could give the exact answer the repeat was designed for.
+
+**Researcher's decision (2026-10-18): fix the order and rerun the repeat** (instead of moving to paired jobs).
+- **`amia.aggregation_order(results)`.** In deterministic mode only (`GROUNDED_DETERMINISTIC_TRAINING=1`, which the job process sets, so the in-process server sees it), the server sorts client updates by client id before FedAvg sums them. Unset, the arrival order is kept, so every other path is unchanged.
+- **The analysis's "identical client losses"** now compares each round's losses by client id, not by arrival order.
+- **Test:** four float32 updates averaged by Flower's `aggregate` in three arrival orders give different bits, and after `aggregation_order` they give one identical result. The repeat test now permutes arrival order and still counts identical losses. 821 passed, 2 skipped.
+- **Core fingerprint** `8a1aa7717e8c` → `2dc5fd6ca6e6`.
+- **The rerun** is a new launch, `$G/repeat-2`, with the same 4 targets and seeds and the same readings as above. The control must give identical weights for every target, or the repeat again cannot decide.
+
+**Server steps for the rerun:**
+1. `git fetch origin` and `git checkout --detach origin/feat/grounded-fl-stage0`; confirm the core fingerprint prints `2dc5fd6ca6e6`.
+2. `prepare repeat "$G/repeat-2" --study "$G/build/study.json" --gate "$G/gate.json"`, then `resolve`.
+3. `run --gpu 0 --max-jobs 8`, `check`, then `analyze "$G/repeat-2" "$G/repeat-2-analysis.json"`.
 
 **Cost.** About 17 min per control job and 25 min per between job at normal speed (from `timing-5`). Deterministic kernels and math attention may slow training, perhaps up to 2×. At 4 targets, 8 jobs take about 3–4 GPU-h. A deterministic-kernel refusal (an operation with no deterministic version) would stop the first job within minutes, with the error in its log.
 
