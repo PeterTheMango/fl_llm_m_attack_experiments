@@ -23,7 +23,7 @@ Every code or protocol change for this study must be recorded in the same commit
 ## Current state (2026-10-12)
 
 - **Branch.** Stage 0 code lives on `feat/grounded-fl-stage0`, which is stacked on `proposal/retrieval-grounded-fl`, which is stacked on `analysis/matched-reference-controls`. `main` does **not** contain the grounded code yet.
-- **Core fingerprint.** `0832ce3dbe5e` (2026-10-16, the opt-in world-order diagnostic). Stage 2 ran on `8b031bbfdcc1` (2026-10-06, the two observation speed-ups). The pilot ran on `4a001c5eb678`; the 3- and 6-epoch controls on `714ec988b38b`.
+- **Core fingerprint.** `8a1aa7717e8c` (2026-10-18, opt-in deterministic client training and the `W1-S2-W1` order); before it `0832ce3dbe5e` (2026-10-16, the opt-in world-order diagnostic). Stage 2 ran on `8b031bbfdcc1` (2026-10-06, the two observation speed-ups). The pilot ran on `4a001c5eb678`; the 3- and 6-epoch controls on `714ec988b38b`.
 - **Stage 0 complete on the server:**
   - build (study sha `d7eac161…`);
   - gate calibration (τ 0.45);
@@ -58,9 +58,11 @@ Every code or protocol change for this study must be recorded in the same commit
       - W0 → W1: −0.001 [−0.087, 0.090].
       - No membership effect and no consistent order effect. Training-to-training noise is about ±0.1 F1 per target.
       - The between-world work of a paired job (causal passes, W1 measurements) remains the suspect, not shown.
-      - Proposed next: real paired jobs on the same 12 V targets (tool-only change, about 5.5 GPU-h). The researcher's decision.
+      - **Researcher's decision (2026-10-18): a deterministic same-world repeat first, then paired jobs (about 60 V targets) if it is inconclusive.**
+      - Built (status.md, "Deterministic same-world repeat"): `amia.deterministic_training()` (opt-in through `GROUNDED_DETERMINISTIC_TRAINING=1` plus `CUBLAS_WORKSPACE_CONFIG`), the `W1-S2-W1` order (a Stage 2 RG member world's measurements and causal passes between two W1 trainings), a weight digest per world, and `prepare repeat [--targets N]` (default 4).
+      - The readings are fixed in status.md. 8 jobs, about 3–4 GPU-h. **Not run yet.**
 - **Done 2026-10-12: the structured related-work search** (`related_work.md`, Stage 0 item 1, done after the confirmation). 66 verified papers. No prior work found duplicates the three-channel design; still no "first" claim. DBLP and OpenReview blocked automated access, so a manual check is advised before submission.
-- **Next (the researcher's choice):** whether to test the paired-job hypothesis directly (real paired jobs on the 12 diagnostic V targets); then the write-up (report the H1 form sensitivity, the world difference and the CB-AO-ignores-context reading next to H1/H3). A defense sized by these findings would be a follow-up study.
+- **Next:** run the deterministic repeat (`$G/repeat-1`) and record it against the fixed readings; paired jobs on about 60 V targets if it is inconclusive; then the write-up (report the H1 form sensitivity, the world difference and the CB-AO-ignores-context reading next to H1/H3). A defense sized by these findings would be a follow-up study.
   - Do not touch the frozen guard files or `causal_attack_validation.py`; keep changes opt-in so the guard studies' paths are unchanged; record every fingerprint change in `status.md`. Margins and rules may only be tightened.
 - **Decisions already made:**
   - accept GPU training non-determinism;
@@ -78,7 +80,7 @@ Every code or protocol change for this study must be recorded in the same commit
 
 The environment is `conda env create -f environment.yml` (env `peter_experiments_fl`). On a shared server env, use `pip install --user -r requirements.txt` instead, and drop the `torch` line if a CUDA torch is already installed. torch, transformers and `flwr[simulation]` are imported function-locally, so the toy path runs without them.
 
-Run the tests on the Mac with the project env. The base anaconda `python` lacks torch, and the grounded tests need it. On 2026-10-16 the suite gave 816 passed and 2 skipped (`test_charts.py`'s timestamp test is flaky in full runs and unrelated).
+Run the tests on the Mac with the project env. The base anaconda `python` lacks torch, and the grounded tests need it. On 2026-10-18 the suite gave 820 passed and 2 skipped (`test_charts.py`'s timestamp test is flaky in full runs and unrelated).
 
 ```bash
 /opt/anaconda3/envs/peter_experiments_fl/bin/python -m pytest tests -q
@@ -94,7 +96,7 @@ The grounded study tool runs one subcommand per stage step:
 python -m master_script.tools.grounded_fl_study --help
 ```
 
-Its subcommands are `build`, `calibrate-gate`, `prepare {datastore|control|timing|pilot|final|diagnostic} [--targets N]`, `resolve`, `run --gpu N [--max-jobs N]`, `job`, `check`, `analyze` and `describe ROOT OUTPUT [--final-analysis FILE]` (read-only descriptive secondaries of a finished final launch).
+Its subcommands are `build`, `calibrate-gate`, `prepare {datastore|control|timing|pilot|final|diagnostic|repeat} [--targets N]`, `resolve`, `run --gpu N [--max-jobs N]`, `job`, `check`, `analyze` and `describe ROOT OUTPUT [--final-analysis FILE]` (read-only descriptive secondaries of a finished final launch).
 
 This is the toy smoke run of the older attack runner: no GPU, model download or credentials.
 

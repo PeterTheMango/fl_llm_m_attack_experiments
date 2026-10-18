@@ -894,8 +894,18 @@ def test_diagnostic_jobs_are_v_only_utility_only_with_a_declared_order(built):
                              ({"arm": "RG-public"}, "diagnostic jobs train")):
         with pytest.raises(ValueError, match=message):
             validate_job({**job, **changes})
-    with pytest.raises(ValueError, match="causal attack runs in paired"):
+    with pytest.raises(ValueError, match="measures utility only"):
         validate_job({**job, "measurements": {"utility": True, "causal_directions": ["template"]}})
+    with pytest.raises(ValueError, match="declares one order"):
+        validate_job({**job, "diagnostic": {"order": "W1-W1", "deterministic": "yes"}})
+    # The W1-S2-W1 order carries a Stage 2 RG member world's measurements, with the validated causal config.
+    between = gs.job_document(study, "diagnostic", "RG", "V", "inf", 0, measurements=gs.BETWEEN_MEASUREMENTS,
+                              diagnostic={"order": gs.BETWEEN, "deterministic": True})
+    assert between["measurements"]["causal_directions"] == ["template"] and between["measurements"]["release_noise"]
+    with pytest.raises(ValueError, match="Stage 2 RG member"):
+        validate_job({**between, "measurements": {"utility": True}})
+    with pytest.raises(ValueError, match="validated configuration"):
+        validate_job({**between, "config": {**between["config"], "probe_epochs": 3}})
 
 
 def test_diagnostic_runner_trains_the_declared_order_without_causal_passes(monkeypatch, tmp_path):
@@ -905,6 +915,7 @@ def test_diagnostic_runner_trains_the_declared_order_without_causal_passes(monke
     monkeypatch.setattr(grounded_job, "_world", lambda job, study, config, session, arm, member, t, c: {"member": member})
     monkeypatch.setattr(grounded_job, "_release", lambda: events.append("release"))
     monkeypatch.setattr(grounded_job, "_bundle", lambda model, tok: {"model": model})
+    monkeypatch.setattr(grounded_job, "parameters_sha256", lambda model: "digest")
 
     def train(job, config, world, directory, timings, name):
         events.append(("train", name, world["member"]))
@@ -953,7 +964,7 @@ def test_diagnostic_launch_prepares_every_order_and_analyzes_order_and_membershi
     for count, message in ((0, "datastore-slice"), (3, "datastore-slice")):
         with pytest.raises(ValueError, match=message):
             gs.prepare("diagnostic", tmp_path / f"bad-{count}", study_path, targets=count)
-    with pytest.raises(ValueError, match="diagnostic only"):
+    with pytest.raises(ValueError, match="diagnostic and the repeat only"):
         gs.prepare("pilot", tmp_path / "bad-pilot", study_path, targets=2)
     launch = gs.prepare("diagnostic", root, study_path, gate_file(tmp_path, study_path))
     study = json.loads(study_path.read_bytes())
@@ -961,7 +972,7 @@ def test_diagnostic_launch_prepares_every_order_and_analyzes_order_and_membershi
     targets = gs.allocation(study)["datastore"]
     assert launch["allocation"]["diagnostic"] == targets
     assert launch["stage"] == 0 and "never evidence" in launch["role"]
-    assert len(jobs) == 3 * len(targets) and {j["diagnostic"]["order"] for j in jobs} == set(gs.DIAGNOSTIC_ORDERS)
+    assert len(jobs) == 3 * len(targets) and {j["diagnostic"]["order"] for j in jobs} == {"W1-W1", "W1-W0", "W0-W1"}
     assert all(j["kind"] == "diagnostic" and j["cohort"] == "V" and j["measurements"] == {"utility": True}
                and j["config"]["seed"] == 8000 + j["target_index"] and j["target_index"] in targets for j in jobs)
     gs.execute(root / "launch.json", resolve_only=True, tokenizer=WordTokenizer(), model_config=MODEL_CONFIG)
@@ -985,7 +996,7 @@ def test_diagnostic_launch_prepares_every_order_and_analyzes_order_and_membershi
 def test_diagnostic_analysis_separates_a_membership_effect():
     study = {"cohorts": {"V": {"F": [{"id": "q"}], "F_P": [{"id": "p"}]}}}
     rows = []
-    for order in gs.DIAGNOSTIC_ORDERS:
+    for order in ("W1-W1", "W1-W0", "W0-W1"):
         for t in range(6):
             job = {"config": {"seed": 8000 + t}, "diagnostic": {"order": order}}
             rows.append({"result": {"target_sha256": f"t{t}",
@@ -994,3 +1005,117 @@ def test_diagnostic_analysis_separates_a_membership_effect():
     assert orders["W1-W0"]["rag_f1"]["W1_minus_W0"]["estimate"] == pytest.approx(0.05, abs=0.005)
     assert orders["W0-W1"]["rag_f1"]["W1_minus_W0"]["estimate"] == pytest.approx(0.05, abs=0.005)
     assert orders["W1-W1"]["rag_f1"]["second_minus_first"]["estimate"] == pytest.approx(0.0, abs=0.005)
+
+
+# ------------------------------------------------ deterministic repeat (V)
+
+def test_deterministic_client_training_is_opt_in_and_strict(monkeypatch):
+    import torch
+    from master_script.core.attacks import amia
+    monkeypatch.delenv(amia.DETERMINISTIC_ENV, raising=False)
+    before = torch.are_deterministic_algorithms_enabled()
+    assert amia.deterministic_training() is False and torch.are_deterministic_algorithms_enabled() == before
+    monkeypatch.setenv(amia.DETERMINISTIC_ENV, "1")
+    monkeypatch.delenv("CUBLAS_WORKSPACE_CONFIG", raising=False)
+    with pytest.raises(RuntimeError, match="CUBLAS_WORKSPACE_CONFIG"):
+        amia.deterministic_training()
+    monkeypatch.setenv("CUBLAS_WORKSPACE_CONFIG", amia.CUBLAS_WORKSPACE)
+    benchmark, cudnn_deterministic = torch.backends.cudnn.benchmark, torch.backends.cudnn.deterministic
+    try:
+        assert amia.deterministic_training() is True and torch.are_deterministic_algorithms_enabled()
+    finally:
+        torch.use_deterministic_algorithms(before)
+        torch.backends.cudnn.benchmark, torch.backends.cudnn.deterministic = benchmark, cudnn_deterministic
+
+
+def test_parameters_digest_changes_with_any_weight():
+    import torch
+    from master_script.core import grounded_job
+    model = torch.nn.Linear(3, 2)
+    first = grounded_job.parameters_sha256(model)
+    assert grounded_job.parameters_sha256(model) == first
+    with torch.no_grad():
+        model.weight[0, 0] += 1e-7
+    assert grounded_job.parameters_sha256(model) != first
+
+
+def test_the_between_order_runs_a_stage2_member_worlds_work_between_two_trainings(monkeypatch, tmp_path):
+    from master_script.core import federation, grounded, grounded_job
+    from master_script.core.attacks import amia
+    events = []
+    monkeypatch.delenv(amia.DETERMINISTIC_ENV, raising=False)
+    monkeypatch.delenv("CUBLAS_WORKSPACE_CONFIG", raising=False)
+    monkeypatch.setattr(grounded_job, "_encoder", lambda config, arm, settings: ("tok", "cfg"))
+    monkeypatch.setattr(grounded_job, "_world", lambda job, study, config, session, arm, member, t, c: {"member": member, "target": "enc"})
+    monkeypatch.setattr(grounded_job, "_release", lambda: None)
+    monkeypatch.setattr(grounded_job, "_bundle", lambda model, tok: {"model": model})
+    monkeypatch.setattr(grounded_job, "parameters_sha256", lambda model: f"digest-{model}")
+    monkeypatch.setattr(grounded, "closed_book_record", lambda q, a: "closed")
+    monkeypatch.setattr(grounded, "template_example", lambda *a: "template")
+
+    def train(job, config, world, directory, timings, name):
+        events.append(("train", name, os.environ.get(amia.DETERMINISTIC_ENV), os.environ.get("CUBLAS_WORKSPACE_CONFIG")))
+        return name, "tok", ["clients"], [], f"path-{name}", {"epsilon": "inf"}
+
+    class Model:
+        def to(self, device):
+            pass
+    monkeypatch.setattr(grounded_job, "_train", train)
+    monkeypatch.setattr(federation, "load_reference_bundle", lambda config: {"model": Model()})
+    monkeypatch.setattr(grounded_job, "_world_measures", lambda job, session, bundle, ref, target, closed, template, cells,
+                        world, timings: events.append(("measure", world, sorted(job["measurements"]), sorted(cells))) or {})
+    monkeypatch.setattr(grounded_job, "causal_passes", lambda config, path, tok, clients, member, candidates, noise, d:
+                        events.append(("causal", path, candidates, noise)) or {"template": {}})
+    session = SimpleNamespace(settings=None, passage=lambda pid: "passage",
+                              cohort={"targets": [{"target_sha256": "t0", "passage": "p", "training": {"question": "q", "answer": "a"}}]})
+    job = {"arm": "RG", "target_index": 0, "measurements": dict(grounded_job.BETWEEN_MEASUREMENTS),
+           "diagnostic": {"order": grounded_job.BETWEEN, "deterministic": True}}
+    import os
+    body = grounded_job._diagnostic(job, {}, SimpleNamespace(max_length=512), session, tmp_path, {})
+    full = sorted(grounded_job.BETWEEN_MEASUREMENTS)
+    assert events == [("train", "run1", "1", amia.CUBLAS_WORKSPACE),
+                      ("measure", "run1", full, ["both", "training_only"]),
+                      ("causal", "path-run1", {"template": "template"}, True),
+                      ("train", "run2", "1", amia.CUBLAS_WORKSPACE),
+                      ("measure", "run2", ["utility"], [])]
+    assert body["deterministic"] is True and body["causal"] == {"template": {}}
+    assert body["worlds"]["run1"]["parameters_sha256"] == "digest-run1" and body["worlds"]["run2"]["member"] is True
+
+
+def repeat_body(study, job, target, drift=0.0):
+    """Deterministic repeat: identical trainings, unless the between order adds drift to the second."""
+    order = job["diagnostic"]["order"]
+    shift = drift if order == gs.BETWEEN else 0.0
+    v = study["cohorts"]["V"]
+    run = lambda i: {"member": True, "parameters_sha256": f"w-{job['target_index']}" + ("-moved" if i == 2 and shift else ""),
+                     "utility": {"F": [{"query_id": q["id"], "f1": 0.4 - (i - 1) * shift} for q in v["F"]],
+                                 "F_P": [{"query_id": q["id"], "f1": 0.3} for q in v["F_P"]]}}
+    history = lambda i: [{"round": r, "mean_client_loss": 1.0 / r + (i - 1) * shift, "client_losses": [1.0 / r + (i - 1) * shift],
+                          "client_outcomes": [{"client_id": 0, "deterministic": True}]} for r in (1, 2, 3)]
+    return {"order": order, "deterministic": True, "privacy": {"run1": {"epsilon": "inf"}, "run2": {"epsilon": "inf"}},
+            "worlds": {"run1": run(1), "run2": run(2)}, "federated_history_run1": history(1), "federated_history_run2": history(2)}
+
+
+def test_repeat_launch_prepares_both_orders_deterministically_and_reports_exact_matches(built, tmp_path, monkeypatch):
+    study_path, _ = built
+    root = tmp_path / "repeat"
+    with pytest.raises(ValueError, match="datastore-slice"):
+        gs.prepare("repeat", tmp_path / "bad", study_path, targets=1)
+    launch = gs.prepare("repeat", root, study_path, gate_file(tmp_path, study_path), targets=2)
+    study = json.loads(study_path.read_bytes())
+    jobs = [json.loads((root / e["file"]).read_bytes()) for e in launch["jobs"]]
+    assert "never evidence" in launch["role"] and launch["allocation"]["repeat"] == gs.allocation(study)["datastore"][:2]
+    assert sorted(j["diagnostic"]["order"] for j in jobs) == sorted(["W1-W1"] * 2 + [gs.BETWEEN] * 2)
+    assert all(j["diagnostic"]["deterministic"] and j["config"]["seed"] == 8000 + j["target_index"] for j in jobs)
+    assert all(j["measurements"] == (gs.BETWEEN_MEASUREMENTS if j["diagnostic"]["order"] == gs.BETWEEN else {"utility": True})
+               for j in jobs)
+    gs.execute(root / "launch.json", resolve_only=True, tokenizer=WordTokenizer(), model_config=MODEL_CONFIG)
+    install_runner(monkeypatch, root, lambda job, target: repeat_body(study, job, target, drift=0.05))
+    gs.execute(root / "launch.json", gpu="0", max_jobs=10, scratch_root=tmp_path)
+    orders = gs.analyze(root, tmp_path / "repeat-analysis.json")["orders"]
+    control, between = orders["W1-W1"]["exact"], orders[gs.BETWEEN]["exact"]
+    assert control == {**control, "deterministic_jobs": 2, "deterministic_clients": True, "identical_weights": 2,
+                       "identical_client_losses": 2}
+    assert between["identical_weights"] == 0 and between["identical_client_losses"] == 0
+    assert all(t["last_round_loss_second_minus_first"] == pytest.approx(0.05) for t in between["per_target"])
+    assert orders[gs.BETWEEN]["rag_f1"]["second_minus_first"]["estimate"] == pytest.approx(-0.05)

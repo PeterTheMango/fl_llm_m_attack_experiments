@@ -14,7 +14,8 @@ after the tool's CPU resolution. Measurements follow proposal §6 exactly:
 - Retention: the same probes with an empty context slot.
 - Utility: RAG F1 on F, public-library F1 on F_P, no-context F1 and answer NLL.
 - World-order diagnostic (V only, opt-in kind "diagnostic"): two worlds trained one
-  after the other in this process, in a declared order, each measured for utility.
+  after the other in this process, in a declared order, each measured for utility;
+  optionally with a paired job's W1 work in between and deterministic client training.
 
 Raw responses are written only to a mode-0600 private audit file; results carry
 scores, flags and hashes. Nothing here makes a privacy claim.
@@ -34,7 +35,12 @@ from .queue import write_json
 JOB_SCHEMA, RESULT_SCHEMA = "grounded_job_v1", "grounded_result_v1"
 KINDS = ("paired", "control", "public", "p0", "diagnostic")
 # Training order of the two worlds in a diagnostic job: membership of the first and second world.
-DIAGNOSTIC_ORDERS = {"W1-W1": (True, True), "W1-W0": (True, False), "W0-W1": (False, True)}
+# "W1-S2-W1": W1 twice with a Stage 2 paired job's W1 work (measurements and causal passes) in between.
+DIAGNOSTIC_ORDERS = {"W1-W1": (True, True), "W1-W0": (True, False), "W0-W1": (False, True), "W1-S2-W1": (True, True)}
+BETWEEN = "W1-S2-W1"
+# The measurements of a Stage 2 RG paired job's member world (frozen template direction, release noise).
+BETWEEN_MEASUREMENTS = {"reference": True, "retention": True, "utility": True, "nq": True,
+                        "causal_directions": ["template"], "release_noise": True}
 DIRECTIONS = ("record", "template")
 CAUSAL = {"attack_variant": "causal_gradient_alignment", "causal_score": "cosine", "probe_epochs": 12,
           "probe_lr": 0.005, "attack_trials": 40, "counterbalance_trials": True, "attack_targets": 1}
@@ -75,7 +81,7 @@ def validate_job(job):
     directions = measurements.get("causal_directions", [])
     if any(d not in DIRECTIONS for d in directions) or len(set(directions)) != len(directions):
         raise ValueError("causal_directions must be distinct record/template")
-    if directions and kind != "paired":
+    if directions and kind not in ("paired", "diagnostic"):
         raise ValueError("The causal attack runs in paired member worlds only")
     if measurements.get("release_noise") and not directions:
         raise ValueError("Release noise is a second pass of the causal attack")
@@ -86,10 +92,14 @@ def validate_job(job):
     if kind in ("paired", "control", "diagnostic") and not isinstance(job.get("target_index"), int):
         raise ValueError("Paired, control and diagnostic jobs name one target")
     if kind == "diagnostic":
-        if job["cohort"] != "V" or set(measurements) != {"utility"} or not measurements["utility"]:
-            raise ValueError("The world-order diagnostic runs on V and measures utility only")
-        if job.get("diagnostic", {}).get("order") not in DIAGNOSTIC_ORDERS:
-            raise ValueError(f"A diagnostic job declares one order of {sorted(DIAGNOSTIC_ORDERS)}")
+        diagnostic = job.get("diagnostic", {})
+        if diagnostic.get("order") not in DIAGNOSTIC_ORDERS or set(diagnostic) - {"order", "deterministic"} \
+                or not isinstance(diagnostic.get("deterministic", False), bool):
+            raise ValueError(f"A diagnostic job declares one order of {sorted(DIAGNOSTIC_ORDERS)} (and optionally deterministic)")
+        expected = BETWEEN_MEASUREMENTS if diagnostic["order"] == BETWEEN else {"utility": True}
+        if job["cohort"] != "V" or measurements != expected:
+            raise ValueError("The world-order diagnostic runs on V and measures utility only "
+                             "(the W1-S2-W1 order: a Stage 2 RG member world's measurements)")
     if kind == "p0" and not job.get("datastore_targets") and not measurements.get("utility"):
         raise ValueError("A P0 job measures the datastore, utility or both")
     if kind == "control":
@@ -562,29 +572,69 @@ def _paired(job, study, config, session, artifact, timings):
     return body
 
 
+def parameters_sha256(model):
+    """One digest over every named tensor, so two trainings compare bit for bit."""
+    from .model_io import tensor_array
+    digest = sha256()
+    for name, value in model.state_dict().items():
+        digest.update(name.encode())
+        digest.update(tensor_array(value).tobytes())
+    return digest.hexdigest()
+
+
 def _diagnostic(job, study, config, session, artifact, timings):
     """World-order diagnostic (V only, tuning data): two worlds trained one after the other in this
-    process, in the declared order, each measured for utility right after its training. As in a paired
-    job, the pretrained reference joins after the first training and is parked on the CPU during the
-    second; unlike a paired job, no causal pass runs between the two trainings."""
+    process, in the declared order, each measured right after its training, with a digest of its final
+    weights. As in a paired job, the pretrained reference joins after the first training and is parked on
+    the CPU during the second. Orders other than W1-S2-W1 run nothing else between the two trainings;
+    W1-S2-W1 runs a Stage 2 RG member world's work in between: every W1 measurement, then the causal
+    passes (frozen template direction, release noise). With deterministic set, client training uses strict
+    deterministic kernels (amia.deterministic_training), so two trainings of one world should match exactly."""
+    import os
     from .federation import load_reference_bundle
     arm, order = job["arm"], job["diagnostic"]["order"]
+    deterministic = job["diagnostic"].get("deterministic", False)
+    if deterministic:
+        # Set before the first simulation starts, so every client process inherits both.
+        os.environ[amia.DETERMINISTIC_ENV] = "1"
+        os.environ["CUBLAS_WORKSPACE_CONFIG"] = amia.CUBLAS_WORKSPACE
     tokenizer, model_config = _encoder(config, arm, session.settings)
     target = session.cohort["targets"][job["target_index"]]
-    body = {"target_sha256": target["target_sha256"], "order": order, "worlds": {}, "privacy": {}}
+    body = {"target_sha256": target["target_sha256"], "order": order, "deterministic": deterministic,
+            "worlds": {}, "privacy": {}}
+    utility_only = {**job, "measurements": {"utility": True}}
     reference = None
     for position, member in enumerate(DIAGNOSTIC_ORDERS[order], start=1):
         name = f"run{position}"
         world = _world(job, study, config, session, arm, member, tokenizer, model_config)
-        model, tok, _, history, _, privacy = _train(job, config, world, artifact / name, timings, name)
+        model, tok, clients, history, path, privacy = _train(job, config, world, artifact / name, timings, name)
         if reference is None:
             reference = load_reference_bundle(config)
         body["privacy"][name], body[f"federated_history_{name}"] = privacy, history
-        body["worlds"][name] = {"member": member, **_world_measures(job, session, _bundle(model, tok), None, target,
-                                                                     None, None, {}, name, timings)}
+        digest = parameters_sha256(model)
+        between = order == BETWEEN and position == 1
+        if between:
+            closed = grounded.closed_book_record(target["training"]["question"], target["training"]["answer"])
+            template = grounded.template_example(tokenizer, model_config, target["training"],
+                                                 session.passage(target["passage"]), arm, session.settings,
+                                                 config.max_length)
+            measures = _world_measures(job, session, _bundle(model, tok), reference, target, closed, template,
+                                       {"both": True, "training_only": False}, name, timings)
+        else:
+            measures = _world_measures(utility_only, session, _bundle(model, tok), None, target, None, None, {},
+                                       name, timings)
+        body["worlds"][name] = {"member": member, "parameters_sha256": digest, **measures}
         del model
         reference["model"].to("cpu")
         _release()
+        if between:
+            started = _now()
+            m = job["measurements"]
+            body["causal"] = causal_passes(config, path, tok, clients, world["target"],
+                                           {d: {"record": closed, "template": template}[d] for d in m["causal_directions"]},
+                                           m.get("release_noise"),
+                                           artifact / "observations")
+            timings["causal_seconds"] = _now() - started
     del reference
     _release()
     return body

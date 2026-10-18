@@ -6,7 +6,8 @@ calibrate-gate  CPU calibration of the verbatim-overlap library gate on V
 prepare KIND    a frozen launch: datastore (P0 check), control (positive control),
                 timing (full paired jobs), pilot (Stage 1), final (Stage 2 confirmation,
                 from the frozen stage2_protocol.json), diagnostic (the world-order
-                diagnostic on V). Nothing is resolved or run.
+                diagnostic on V), repeat (the deterministic same-world repeat on V).
+                Nothing is resolved or run.
 resolve         CPU checks before any GPU work: targets, worlds, tokens, exclusions
 run             one job at a time in its own process; weights retire after verification
 job             execute one job (called by run)
@@ -36,7 +37,8 @@ from master_script.core import grounded
 from master_script.core.checkpoint_retention import file_digest, retire_checkpoints
 from master_script.core.config import implementation_fingerprint
 from master_script.core.defenses import privacy_bound
-from master_script.core.grounded_job import CAUSAL, DIAGNOSTIC_ORDERS, JOB_SCHEMA, RESULT_SCHEMA, validate_job
+from master_script.core.grounded_job import (BETWEEN, BETWEEN_MEASUREMENTS, CAUSAL, DIAGNOSTIC_ORDERS, JOB_SCHEMA,
+                                             RESULT_SCHEMA, validate_job)
 from master_script.core.queue import write_json
 from master_script.tools.build_guard_stage import ROOT
 from master_script.tools.causal_attack_validation import BASE as CAUSAL_BASE, DEFAULTS as CAUSAL_DEFAULTS
@@ -47,11 +49,12 @@ STAGE2_PROTOCOL = PROTOCOL.with_name("stage2_protocol.json")
 STAGE2_SCHEMA = "grounded_fl_stage2_protocol_v1"
 STUDY = "grounded_fl"
 LAUNCH_SCHEMA, COHORT_SCHEMA = "grounded_launch_v1", "grounded_cohort_v1"
-KINDS = ("datastore", "control", "timing", "pilot", "final", "diagnostic")
+KINDS = ("datastore", "control", "timing", "pilot", "final", "diagnostic", "repeat")
 V_SEED_BAND, FINAL_SEED_BAND = (8000, 8099), (9000, 9099)
 PUBLIC_SEEDS = (8095, 8096, 8097, 8098, 8099)
 DATASTORE_TARGETS, CONTROL_TARGETS, PILOT_TARGETS, BRIDGE_TARGETS = 60, 12, 4, 4
 DIAGNOSTIC_TARGETS = (12, 6, 60)  # world-order diagnostic: default, minimum and maximum datastore-slice V targets
+REPEAT_TARGETS = (4, 2, 12)  # deterministic repeat: default, minimum and maximum datastore-slice V targets
 CONTROL_MIN_TOKENS, CONTROL_LEARNED, CONTROL_LR = 64, 10, 1e-4
 SIGMA = {"inf": 0.0, 64: 1.91, 16: 5.45}
 DELTA, CLIP = 1e-5, 1.0
@@ -367,10 +370,21 @@ def plan(kind, study, gate=None, previous=None, protocol=None, targets=None):
         if type(count) is not int or not DIAGNOSTIC_TARGETS[1] <= count <= min(DIAGNOSTIC_TARGETS[2], len(slices["datastore"])):
             raise ValueError(f"The diagnostic takes {DIAGNOSTIC_TARGETS[1]}-{DIAGNOSTIC_TARGETS[2]} datastore-slice V targets")
         slices["diagnostic"] = slices["datastore"][:count]
-        for order in DIAGNOSTIC_ORDERS:
+        for order in ("W1-W1", "W1-W0", "W0-W1"):
             for index in slices["diagnostic"]:
                 jobs.append(job_document(study, "diagnostic", "RG", "V", "inf", index, measurements={"utility": True},
                                          gate=gate, diagnostic={"order": order}))
+    elif kind == "repeat":
+        # W1 trained twice per target with deterministic client kernels: once with nothing in between (the
+        # determinism control), once with a Stage 2 RG member world's work in between.
+        count = REPEAT_TARGETS[0] if targets is None else targets
+        if type(count) is not int or not REPEAT_TARGETS[1] <= count <= min(REPEAT_TARGETS[2], len(slices["datastore"])):
+            raise ValueError(f"The repeat takes {REPEAT_TARGETS[1]}-{REPEAT_TARGETS[2]} datastore-slice V targets")
+        slices["repeat"] = slices["datastore"][:count]
+        for order, measurements in (("W1-W1", {"utility": True}), (BETWEEN, BETWEEN_MEASUREMENTS)):
+            for index in slices["repeat"]:
+                jobs.append(job_document(study, "diagnostic", "RG", "V", "inf", index, measurements=measurements,
+                                         gate=gate, diagnostic={"order": order, "deterministic": True}))
     elif kind == "timing":
         for epsilon in ("inf", 16):
             jobs.append(job_document(study, "paired", "RG", "V", epsilon, slices["timing"][0], measurements=FULL, gate=gate))
@@ -407,8 +421,8 @@ def prepare(kind, output, study_path, gate_path=None, previous=None, targets=Non
         if gate.get("schema") != "grounded_gate_v1" or gate.get("study_sha256") != grounded.study_sha256(study):
             raise ValueError("Gate calibration belongs to another study")
     prior = json.loads(Path(previous).read_bytes()) if previous else None
-    if targets is not None and kind != "diagnostic":
-        raise ValueError("--targets applies to the diagnostic only; every other launch's targets are fixed by rule")
+    if targets is not None and kind not in ("diagnostic", "repeat"):
+        raise ValueError("--targets applies to the diagnostic and the repeat only; every other launch's targets are fixed by rule")
     jobs, slices = plan(kind, study, gate, prior, protocol, targets)
     output = Path(output).resolve()
     output.mkdir(parents=True, exist_ok=False)
@@ -434,7 +448,8 @@ def prepare(kind, output, study_path, gate_path=None, previous=None, targets=Non
               "gate": None if gate is None else {"file": "gate.json", "sha256": gate["sha256"]},
               "previous_analysis": None if previous is None else {"path": str(Path(previous).resolve()), "sha256": digest(previous)},
               "allocation": slices, "jobs": entries,
-              "role": {"final": "confirmation", "diagnostic": "world-order diagnostic on V (tuning data); never evidence"}.get(
+              "role": {"final": "confirmation", "diagnostic": "world-order diagnostic on V (tuning data); never evidence",
+                       "repeat": "deterministic same-world repeat on V (tuning data); never evidence"}.get(
                   kind, "tuning and validation data (V); never reported as evidence"),
               "retention": "retire model weights after each result is verified; keep JSON and private audit JSONL",
               "execution": "one job per process, one job per invocation by default"}
@@ -983,6 +998,20 @@ def analyze_diagnostic(rows):
         entry["mean_client_loss"] = {"run1": loss[:, 0].mean(axis=0).tolist(), "run2": loss[:, 1].mean(axis=0).tolist(),
                                      "second_minus_first_last_round": _ci(last.mean(), last[idx].mean(axis=1)),
                                      "second_higher_last_round": int((last > 0).sum())}
+        if all("parameters_sha256" in r["worlds"]["run1"] for r in results):
+            # Exact comparisons: identical final weights and identical per-round client losses.
+            same = lambda r: r["worlds"]["run1"]["parameters_sha256"] == r["worlds"]["run2"]["parameters_sha256"]
+            client = lambda r, run: [h.get("client_losses") for h in r[f"federated_history_{run}"]]
+            entry["exact"] = {
+                "deterministic_jobs": sum(bool(r.get("deterministic")) for r in results),
+                "deterministic_clients": all(o.get("deterministic") for r in results for run in ("run1", "run2")
+                                             for h in r[f"federated_history_{run}"] for o in h.get("client_outcomes", [])),
+                "identical_weights": sum(same(r) for r in results),
+                "identical_client_losses": sum(client(r, "run1") == client(r, "run2") for r in results),
+                "per_target": [{"target": r["target_sha256"][:12], "identical_weights": same(r),
+                                "last_round_loss_second_minus_first": float(
+                                    r["federated_history_run2"][-1]["mean_client_loss"]
+                                    - r["federated_history_run1"][-1]["mean_client_loss"])} for r in results]}
         report["orders"][order] = entry
     return report
 
@@ -1225,7 +1254,7 @@ def analyze(root, output, datastore=None, control=None, p0_launch=None):
         report = analyze_control(rows, datastore)
     elif launch["kind"] == "timing":
         report = analyze_timing(rows)
-    elif launch["kind"] == "diagnostic":
+    elif launch["kind"] in ("diagnostic", "repeat"):
         report = analyze_diagnostic(rows)
     else:
         if datastore is None or control is None or p0_launch is None:
@@ -1617,7 +1646,7 @@ def main(argv=None):
     pr = sub.add_parser("prepare", help="write a frozen launch"); pr.add_argument("kind", choices=KINDS)
     pr.add_argument("output"); pr.add_argument("--study", required=True); pr.add_argument("--gate")
     pr.add_argument("--previous-analysis", help="3-epoch control analysis, for the one 6-epoch rerun")
-    pr.add_argument("--targets", type=int, help="diagnostic only: V targets per order (default 12, 6-60)")
+    pr.add_argument("--targets", type=int, help="diagnostic (default 12, 6-60) or repeat (default 4, 2-12): V targets per order")
     r = sub.add_parser("resolve", help="CPU checks and frozen targets"); r.add_argument("launch")
     run = sub.add_parser("run", help="run the next job(s)"); run.add_argument("launch"); run.add_argument("--gpu", required=True)
     run.add_argument("--max-jobs", type=int, default=1); run.add_argument("--scratch-root")

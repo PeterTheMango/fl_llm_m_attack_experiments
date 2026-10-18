@@ -3,8 +3,8 @@
 **2026-10-10.** **Stage 2 (confirmation) is complete and analysed once** (146 jobs on fresh final targets, core `8b031bbfdcc1`, frozen `stage2_protocol.json`). Results are below. Stage 0 and the Stage 1 pilot are complete; everything on V is tuning or validation data, never evidence.
 
 - **Core fingerprint before the diagnostic:** `8b031bbfdcc1` (2026-10-06, the two observation speed-ups; Stage 2). The pilot ran on `4a001c5eb678`; the 3- and 6-epoch controls on `714ec988b38b`. Earlier results keep theirs.
-- **Tests:** 816 passed, 2 skipped (812 before the world-order diagnostic; 809 before `describe`). `tests/test_charts.py::test_chart_filenames_are_timestamped_so_runs_do_not_clobber` fails now and then in a full run (two renders within one timestamp); it passes alone and is unrelated to this study.
-- **Core fingerprint `0832ce3dbe5e` (2026-10-16):** an opt-in `diagnostic` job kind for the world-order diagnostic (below). The paired, control, public and P0 paths are unchanged. Stage 2 ran on `8b031bbfdcc1`; `describe` still reads it, because `frozen_results` checks each result against its own launch's fingerprint.
+- **Tests:** 820 passed, 2 skipped (816 before the deterministic repeat; 812 before the world-order diagnostic; 809 before `describe`). `tests/test_charts.py::test_chart_filenames_are_timestamped_so_runs_do_not_clobber` fails now and then in a full run (two renders within one timestamp); it passes alone and is unrelated to this study.
+- **Core fingerprint `8a1aa7717e8c` (2026-10-18):** opt-in deterministic client training and the `W1-S2-W1` order, for the deterministic repeat (below). Before it, `0832ce3dbe5e` (2026-10-16): an opt-in `diagnostic` job kind for the world-order diagnostic (below). The paired, control, public and P0 paths are unchanged. Stage 2 ran on `8b031bbfdcc1`; `describe` still reads it, because `frozen_results` checks each result against its own launch's fingerprint.
 - **2026-10-12:** a read-only `describe` subcommand for the descriptive secondaries (tool only; below). **Run on the server 2026-10-16:** results below. A read-only check then confirmed a systematic W1–W0 world difference at ε = ∞, which bears on H1's validity (see "Deviations and gaps").
 - **2026-10-12:** the structured related-work search is written ([`related_work.md`](related_work.md)); see "Deviations and gaps".
 
@@ -46,6 +46,48 @@
 - **ε covers only the accounted training releases** (§7), not the crafted-request releases, the RAG outputs or the library.
 - **Narrow setting:** one model (Qwen2.5-0.5B-Instruct), SQuAD, one FL setting; the datastore attacks are adaptations validated for sensitivity only.
 - **The other descriptive secondaries** are computed by the read-only `describe` (run 2026-10-16, below). Two of them qualify the primary readings: H1's reduction disappears when the attacker uses the template form against RG, and H3's difference comes mostly from CB-AO ignoring retrieved text (its RAG F1 is below P0's). A tool change makes `check` and `analyze` refuse this launch (tool hash), so descriptive extras read the results through `frozen_results` and never re-run `analyze`.
+
+## Deterministic same-world repeat (2026-10-18; core `0832ce3dbe5e` → `8a1aa7717e8c`; nothing run yet)
+
+**Why.** The world-order diagnostic left one suspect for Stage 2's world difference: the work a paired job does between its two trainings (every W1 measurement, then the causal passes). One trained world varies by about ±0.1–0.17 F1 per target from GPU non-determinism, so a statistical test would need about 60 targets. **The researcher's decision (2026-10-18):** first a deterministic repeat, then paired jobs (about 60 V targets) if that is inconclusive.
+
+**Design.** The same member world W1 is trained twice in one job, with deterministic client kernels, so two trainings of one world should give bit-identical weights. Two versions per target:
+- **`W1-W1` (the determinism control):** nothing between the two trainings.
+- **`W1-S2-W1`:** between the two trainings, exactly what a Stage 2 RG member world does:
+  - every W1 measurement: Reference, retention, the natural-question cells "both" and "training-only" with the NLI model, and utility;
+  - then the causal passes (frozen template direction, no-noise and release-noise passes) on the first W1 model.
+  After that, W1 is trained again and its utility is measured.
+- Each world's final weights get a digest (`grounded_job.parameters_sha256`), and the per-round client losses are kept.
+- Default 4 V targets (`--targets`, 2–12), from the P0 datastore slice, with the same seeds as the diagnostic (8000 + index).
+
+**What was built (opt-in; every existing path is unchanged unless the variable is set).**
+- **`amia.deterministic_training()`** (shared machinery, opt-in). When the job process sets `GROUNDED_DETERMINISTIC_TRAINING=1`, each training client turns on:
+  - strict `torch.use_deterministic_algorithms(True)`;
+  - deterministic cuDNN;
+  - the math attention kernel (flash and memory-efficient attention backward passes are not deterministic).
+  It refuses unless `CUBLAS_WORKSPACE_CONFIG=:4096:8` is set. Each client reports `deterministic: true` in its round outcome, so the analysis can confirm the clients really ran deterministically. Unset, nothing changes.
+- **`grounded_job._diagnostic`:**
+  - the new order `W1-S2-W1`, whose job carries a Stage 2 RG member world's measurements and the validated causal configuration;
+  - the `deterministic` flag, which sets both variables before the first simulation;
+  - the weight digest of every trained world.
+- **`prepare repeat [--targets N]`** writes 2N deterministic diagnostic jobs. `analyze` adds, per order: deterministic jobs and clients, identical weights, identical per-round client losses, and per target the last-round loss difference.
+- **Tests (4 new, 820 passed, 2 skipped):**
+  - the deterministic switch is opt-in and strict (it refuses without the cuBLAS workspace);
+  - the weight digest changes with any weight;
+  - the between order runs exactly train → full W1 measurements → causal passes → train → utility, with both variables set before each training;
+  - `prepare`/`resolve`/`run`/`analyze` of a repeat launch report exact matches for the control and a built-in drift for the between order.
+
+**Readings fixed before the run (V tuning data; never evidence).**
+1. **Validity:** the control (`W1-W1`) is valid only if every one of its jobs ran deterministic clients and gave identical weights for every target. If not, determinism was not achieved, the repeat cannot decide, and the next step is paired jobs.
+2. **Not shown:** the control is valid and `W1-S2-W1` also gives identical weights for every target. Then the between-world work does not change the next training through deterministic kernels. In normal (non-deterministic) training it could still act through kernel choices, so this is inconclusive for Stage 2, and the next step is paired jobs.
+3. **Shown:** the control is valid and `W1-S2-W1` gives different weights for any target. Then the between-world work changes the next training, a procedural cause of Stage 2's world difference. The direction and size (loss and F1, second − first) are reported descriptively.
+
+**Cost.** About 17 min per control job and 25 min per between job at normal speed (from `timing-5`). Deterministic kernels and math attention may slow training, perhaps up to 2×. At 4 targets, 8 jobs take about 3–4 GPU-h. A deterministic-kernel refusal (an operation with no deterministic version) would stop the first job within minutes, with the error in its log.
+
+**Server steps** (the researcher runs these in tmux, in `/home/calc08/projects/LLMPrivacy/fl_grounded_stage0`, env `LLMPrivacy`, with `G` as above), after this commit is pushed:
+1. `git fetch origin` and `git checkout --detach origin/feat/grounded-fl-stage0`; confirm the core fingerprint prints `8a1aa7717e8c`.
+2. `prepare repeat "$G/repeat-1" --study "$G/build/study.json" --gate "$G/gate.json"`, then `resolve`.
+3. `run --gpu 0 --max-jobs 8`, then `check` and `analyze "$G/repeat-1" "$G/repeat-1-analysis.json"`; paste the output back.
 
 ## World-order diagnostic (2026-10-16; core `8b031bbfdcc1` → `0832ce3dbe5e`; nothing run yet)
 

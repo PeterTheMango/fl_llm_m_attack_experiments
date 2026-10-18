@@ -10,6 +10,7 @@ suite. Only `predict_member` and the other pure-Python helpers are safe to
 import eagerly.
 """
 import math
+import os
 import random
 from hashlib import sha256
 from dataclasses import dataclass, replace
@@ -262,6 +263,7 @@ def _ami_flower_client_cls():
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
                 return updated, len(self.client_texts), {"partition_id": self.partition_id, "dp_steps": steps}
+            deterministic = deterministic_training()
             loader = make_loader(self.client_texts, tokenizer, self.config, shuffle=True)
             optimizer = torch.optim.AdamW(model.parameters(), lr=self.config.client_lr)
             losses: list = []
@@ -279,12 +281,37 @@ def _ami_flower_client_cls():
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
             # Weight client updates by their actual training record counts.
-            return updated, len(self.client_texts), {"partition_id": self.partition_id, "train_loss": mean_loss, "model_load_seconds": model_load_seconds}
+            metrics = {"partition_id": self.partition_id, "train_loss": mean_loss, "model_load_seconds": model_load_seconds}
+            if deterministic:
+                metrics["deterministic"] = True
+            return updated, len(self.client_texts), metrics
 
     return AMIFlowerClient
 
 
 AMIFlowerClient = None  # populated lazily; see federated_fine_tune
+
+# Opt-in deterministic client training (grounded world-order diagnostic only). The job process sets both
+# variables before the simulation starts; client processes inherit them. Unset, training is unchanged.
+DETERMINISTIC_ENV = "GROUNDED_DETERMINISTIC_TRAINING"
+CUBLAS_WORKSPACE = ":4096:8"
+
+
+def deterministic_training():
+    """Strict deterministic kernels for this process when the opt-in variable is set; True if enabled."""
+    if os.environ.get(DETERMINISTIC_ENV) != "1":
+        return False
+    import torch
+    if os.environ.get("CUBLAS_WORKSPACE_CONFIG") != CUBLAS_WORKSPACE:
+        raise RuntimeError("Deterministic training needs CUBLAS_WORKSPACE_CONFIG set before CUDA starts")
+    torch.use_deterministic_algorithms(True)
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+    if torch.cuda.is_available():
+        # Flash and memory-efficient attention backward passes are not deterministic; use the math kernel.
+        torch.backends.cuda.enable_flash_sdp(False)
+        torch.backends.cuda.enable_mem_efficient_sdp(False)
+    return True
 
 
 def federated_fine_tune(config, artifact_dir=None, pipeline=None, world=None):
@@ -373,7 +400,8 @@ def federated_fine_tune(config, artifact_dir=None, pipeline=None, world=None):
                 capture["history"][-1]["round_seconds"] = time.perf_counter() - capture["round_started"]
                 capture["history"][-1]["client_outcomes"] = [
                     {"client_id": r.metrics.get("partition_id"), "examples": r.num_examples,
-                     "train_loss": r.metrics.get("train_loss"), "model_load_seconds": r.metrics.get("model_load_seconds")}
+                     "train_loss": r.metrics.get("train_loss"), "model_load_seconds": r.metrics.get("model_load_seconds"),
+                     **({"deterministic": True} if r.metrics.get("deterministic") else {})}
                     for _, r in results]
                 capture["history"][-1]["received_parameter_bytes"] = sum(
                     len(tensor) for _, response in results for tensor in response.parameters.tensors)
