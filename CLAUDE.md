@@ -60,9 +60,13 @@ Every code or protocol change for this study must be recorded in the same commit
       - The between-world work of a paired job (causal passes, W1 measurements) remains the suspect, not shown.
       - **Researcher's decision (2026-10-18): a deterministic same-world repeat first, then paired jobs (about 60 V targets) if it is inconclusive.**
       - Built (status.md, "Deterministic same-world repeat"): `amia.deterministic_training()` (opt-in through `GROUNDED_DETERMINISTIC_TRAINING=1` plus `CUBLAS_WORKSPACE_CONFIG`), the `W1-S2-W1` order (a Stage 2 RG member world's measurements and causal passes between two W1 trainings), a weight digest per world, and `prepare repeat [--targets N]` (default 4).
-      - The readings are fixed in status.md. 8 jobs, about 3–4 GPU-h. **Not run yet.**
+      - The readings are fixed in status.md. **Run 2026-10-18 (`$G/repeat-1`): the control is not valid** (0 of 4 identical weights, although every client was deterministic).
+      - The round-1 losses are identical, so the difference enters at aggregation: Flower's FedAvg sums client updates in arrival order.
+      - The repeat cannot decide. Descriptively, the between order's second run ends at a higher loss in 3 of 4 targets (+0.028), against 1 of 4 in the control.
+      - The "identical client losses" metric is order-sensitive and needs comparing by client id.
+      - Next, the researcher's decision: paired jobs (the fixed plan), or make the aggregation order-independent in deterministic mode and rerun the repeat.
 - **Done 2026-10-12: the structured related-work search** (`related_work.md`, Stage 0 item 1, done after the confirmation). 66 verified papers. No prior work found duplicates the three-channel design; still no "first" claim. DBLP and OpenReview blocked automated access, so a manual check is advised before submission.
-- **Next:** run the deterministic repeat (`$G/repeat-1`) and record it against the fixed readings; paired jobs on about 60 V targets if it is inconclusive; then the write-up (report the H1 form sensitivity, the world difference and the CB-AO-ignores-context reading next to H1/H3). A defense sized by these findings would be a follow-up study.
+- **Next (the researcher's decision):** paired jobs on about 60 V targets (the fixed plan after an inconclusive repeat), or an order-independent aggregation fix and a rerun of the repeat; then the write-up (report the H1 form sensitivity, the world difference and the CB-AO-ignores-context reading next to H1/H3). A defense sized by these findings would be a follow-up study.
   - Do not touch the frozen guard files or `causal_attack_validation.py`; keep changes opt-in so the guard studies' paths are unchanged; record every fingerprint change in `status.md`. Margins and rules may only be tightened.
 - **Decisions already made:**
   - accept GPU training non-determinism;

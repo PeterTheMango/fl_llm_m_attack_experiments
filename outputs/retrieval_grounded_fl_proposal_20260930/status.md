@@ -47,7 +47,7 @@
 - **Narrow setting:** one model (Qwen2.5-0.5B-Instruct), SQuAD, one FL setting; the datastore attacks are adaptations validated for sensitivity only.
 - **The other descriptive secondaries** are computed by the read-only `describe` (run 2026-10-16, below). Two of them qualify the primary readings: H1's reduction disappears when the attacker uses the template form against RG, and H3's difference comes mostly from CB-AO ignoring retrieved text (its RAG F1 is below P0's). A tool change makes `check` and `analyze` refuse this launch (tool hash), so descriptive extras read the results through `frozen_results` and never re-run `analyze`.
 
-## Deterministic same-world repeat (2026-10-18; core `0832ce3dbe5e` → `8a1aa7717e8c`; nothing run yet)
+## Deterministic same-world repeat (2026-10-18; core `0832ce3dbe5e` → `8a1aa7717e8c`; run 2026-10-18: control not valid)
 
 **Why.** The world-order diagnostic left one suspect for Stage 2's world difference: the work a paired job does between its two trainings (every W1 measurement, then the causal passes). One trained world varies by about ±0.1–0.17 F1 per target from GPU non-determinism, so a statistical test would need about 60 targets. **The researcher's decision (2026-10-18):** first a deterministic repeat, then paired jobs (about 60 V targets) if that is inconclusive.
 
@@ -81,6 +81,25 @@
 1. **Validity:** the control (`W1-W1`) is valid only if every one of its jobs ran deterministic clients and gave identical weights for every target. If not, determinism was not achieved, the repeat cannot decide, and the next step is paired jobs.
 2. **Not shown:** the control is valid and `W1-S2-W1` also gives identical weights for every target. Then the between-world work does not change the next training through deterministic kernels. In normal (non-deterministic) training it could still act through kernel choices, so this is inconclusive for Stage 2, and the next step is paired jobs.
 3. **Shown:** the control is valid and `W1-S2-W1` gives different weights for any target. Then the between-world work changes the next training, a procedural cause of Stage 2's world difference. The direction and size (loss and F1, second − first) are reported descriptively.
+
+**Result (server, 2026-10-18; launch `$G/repeat-1`, sha256 `edfdbac2…`, tool `d5018040…`, core `8a1aa7717e8c`; 4 V targets; analysis `$G/repeat-1-analysis.json`).**
+
+| Order | Deterministic jobs / clients | Identical weights | Round-by-round mean client loss, run 1 → run 2 | Last-round loss, second − first | RAG F1, second − first |
+|---|---|---|---|---|---|
+| `W1-W1` (control) | 4 / yes | **0 of 4** | 1.4594 → 1.4594; 1.014 → 1.045; 0.722 → 0.712 | −0.010 [−0.032, 0.022] (higher in 1 of 4) | +0.022 [0.001, 0.059] |
+| `W1-S2-W1` | 4 / yes | 0 of 4 | 1.4594 → 1.4594; 1.048 → 1.045; 0.609 → 0.637 | +0.028 [−0.006, 0.077] (higher in 3 of 4) | +0.007 [−0.006, 0.020] |
+
+**Against the fixed readings: reading 1, the control is not valid, so the repeat cannot decide.** Every client confirmed deterministic kernels, yet no control target reproduced its weights.
+
+**Why (found 2026-10-18).**
+- The round-1 mean client loss is identical to every printed digit in every run (1.459396449769188), so client training from the same start is deterministic.
+- The runs part from round 2 on, so the difference enters between rounds. Flower's FedAvg (`aggregate_fit`, used unchanged by `SaveModelFedAvg`) sums the client updates in the order they arrive. The order depends on which client finishes first, and floating-point sums depend on order, so the aggregated model differs in its last bits; chaotic training then amplifies that.
+- This is a source of Stage 2's accepted training non-determinism too. Nothing makes it directional by itself.
+- **A flaw in the new metric:** "identical client losses" compares each round's client losses in arrival order, so it can report a difference where only the order differs. It needs to compare by client id.
+
+**Descriptive (4 targets, tuning data).** The between order's second run ends at a higher loss in 3 of 4 targets (+0.028), while the control's does in 1 of 4 (−0.010). That is Stage 2's direction, but 4 targets with an invalid control show nothing.
+
+**Next (the researcher's decision).** The fixed plan says paired jobs on about 60 V targets (about 27 GPU-h plus a matching no-causal set). The alternative is to make the aggregation order-independent in deterministic mode (sum the client updates in client-id order; opt-in, a small core change), fix the loss comparison, and rerun the repeat (about 3–4 GPU-h). That could give the exact answer the repeat was designed for.
 
 **Cost.** About 17 min per control job and 25 min per between job at normal speed (from `timing-5`). Deterministic kernels and math attention may slow training, perhaps up to 2×. At 4 targets, 8 jobs take about 3–4 GPU-h. A deterministic-kernel refusal (an operation with no deterministic version) would stop the first job within minutes, with the error in its log.
 
