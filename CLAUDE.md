@@ -68,9 +68,12 @@ Every code or protocol change for this study must be recorded in the same commit
       - **Rerun `$G/repeat-2` (2026-10-18): control valid** (4 of 4 bit-identical), and the between order is also 4 of 4 identical. Under deterministic kernels, a paired job's between-world work does not change the next training. This is inconclusive for Stage 2's normal mode.
     - **Next, per the researcher's rule: the replicate** (tool only; status.md, "Replicate").
       - `prepare replicate [--targets N]` (default 60): per V target, a Stage 2 RG paired job at ε = ∞ plus a no-causal `W1-W0` pair, both in normal training. `analyze` reports W1 − W0 per set and "with minus without".
-      - The readings are fixed in status.md. 120 jobs, about 44 GPU-h (40 targets: about 29). **Not run yet.**
+      - **Run 2026-10-22 (`$G/replicate-1`, 60 V targets): inconclusive by its fixed readings.**
+        - W1 − W0 RAG F1 is +0.037 [0.001, 0.074] with the between-world work and +0.007 [−0.037, 0.050] without; with minus without is 0.031 [−0.025, 0.086]. W1 is better in 33 of 60 targets in both sets.
+        - Every with-work set shows W1 ahead (Stage 2, the replicate); no without-work set does. That suggests a procedural effect of about 0.03–0.05 F1 that acts only in non-deterministic training, but it is not shown.
+    - **Proposed next (no GPU):** a read-only check of whether the world gap moves the Reference scores (the correlation of s₁ − s₀ with the per-target F1 and loss gaps, in both launches). The snippet and its fixed reading are in status.md, "Replicate". Then the write-up.
 - **Done 2026-10-12: the structured related-work search** (`related_work.md`, Stage 0 item 1, done after the confirmation). 66 verified papers. No prior work found duplicates the three-channel design; still no "first" claim. DBLP and OpenReview blocked automated access, so a manual check is advised before submission.
-- **Next:** run the replicate (`$G/replicate-1`) and record it against the fixed readings; then the write-up. (report the H1 form sensitivity, the world difference and the CB-AO-ignores-context reading next to H1/H3). A defense sized by these findings would be a follow-up study.
+- **Next:** the read-only Reference-score check (status.md, "Replicate"), then the write-up. (report the H1 form sensitivity, the world difference and the CB-AO-ignores-context reading next to H1/H3). A defense sized by these findings would be a follow-up study.
   - Do not touch the frozen guard files or `causal_attack_validation.py`; keep changes opt-in so the guard studies' paths are unchanged; record every fingerprint change in `status.md`. Margins and rules may only be tightened.
 - **Decisions already made:**
   - accept GPU training non-determinism;

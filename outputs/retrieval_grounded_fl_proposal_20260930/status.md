@@ -47,7 +47,7 @@
 - **Narrow setting:** one model (Qwen2.5-0.5B-Instruct), SQuAD, one FL setting; the datastore attacks are adaptations validated for sensitivity only.
 - **The other descriptive secondaries** are computed by the read-only `describe` (run 2026-10-16, below). Two of them qualify the primary readings: H1's reduction disappears when the attacker uses the template form against RG, and H3's difference comes mostly from CB-AO ignoring retrieved text (its RAG F1 is below P0's). A tool change makes `check` and `analyze` refuse this launch (tool hash), so descriptive extras read the results through `frozen_results` and never re-run `analyze`.
 
-## Replicate: Stage 2 paired jobs vs no-causal pairs on V (2026-10-18; tool only, core unchanged at `2dc5fd6ca6e6`; nothing run yet)
+## Replicate: Stage 2 paired jobs vs no-causal pairs on V (2026-10-18; tool only, core unchanged at `2dc5fd6ca6e6`; run 2026-10-22: inconclusive)
 
 **Why.** The deterministic repeat shows no effect of the between-world work under deterministic kernels, which is inconclusive for Stage 2's normal-mode training. The researcher's rule (2026-10-18) is paired jobs next. This test asks directly whether Stage 2's world difference reproduces on fresh V targets, and whether it needs the between-world work.
 
@@ -75,6 +75,73 @@ The loss differences are reported alongside, descriptively.
 2. `prepare replicate "$G/replicate-1" --study "$G/build/study.json" --gate "$G/gate.json"` (or `--targets 40`), then `resolve`.
 3. `run --gpu 0 --max-jobs 120`, repeated until complete; `check` at any time.
 4. `analyze "$G/replicate-1" "$G/replicate-1-analysis.json"`, and paste the output back.
+
+**Result (server, 2026-10-22; launch `$G/replicate-1`, sha256 `6cee5816…`, tool `83e5559c…`, core `2dc5fd6ca6e6`; 60 V targets, 120 jobs; analysis `$G/replicate-1-analysis.json`).**
+
+| Set (normal training) | W1 − W0 RAG F1 | W1 better | W0 − W1 last-round loss | W0 higher |
+|---|---|---:|---|---:|
+| With the between-world work (Stage 2 paired jobs) | **0.037 [0.001, 0.074]** | 33 of 60 | 0.047 [−0.011, 0.105] | 30 of 60 |
+| Without it (no-causal `W1-W0` pairs) | 0.007 [−0.037, 0.050] | 33 of 60 | 0.031 [−0.035, 0.097] | 31 of 60 |
+| With minus without (paired by target) | 0.031 [−0.025, 0.086] | | 0.016 [−0.046, 0.077] | |
+
+**Against the fixed readings: inconclusive (reading 4).**
+- Reading 1 (procedural) needs the paired set's W1 − W0 above 0 (it is, barely: lower end 0.001) **and** "with minus without" above 0. That interval includes 0. Not met.
+- Reading 2 (real) needs both sets above 0. The no-causal set is not. Not met.
+- Reading 3 (not reproduced) needs the paired set's interval to include 0. It does not, by 0.001. Not met.
+
+**Descriptive reading (plain terms; tuning data).**
+1. **On fresh V targets, Stage 2's world difference reappears in paired jobs, smaller:** W1 leads by 0.037 F1, against 0.057 in Stage 2. Without the causal passes and W1's other measurements between the trainings, it nearly vanishes (0.007).
+2. **All the evidence points the same way, but no single test decides it.**
+   - With the between-world work, W1 leads in Stage 2 (+0.057, 60 final targets) and in the replicate (+0.037, 60 V targets).
+   - Without it, W1 does not lead: the replicate's no-causal pairs (+0.007), the 12-target diagnostic's W1 → W0 (−0.070) and W0 → W1 (−0.001).
+   - The direct comparison, 0.031 [−0.025, 0.086], is about the gap expected if the work causes it, but it is too noisy to show.
+3. **The lead comes from a minority of targets.** W1 is better in only 33 of 60 targets in both sets. The mean gap is driven by a few large differences, as expected when one trained world is a noisy draw.
+4. **Under deterministic kernels the between-world work changes nothing** (the repeat). If the effect is real, it acts only through non-deterministic training; no mechanism is known.
+5. **Several tests have been run on this question,** so a single nominal result should not be over-read.
+
+**What this means for H1.** The question that matters for the paper is not the cause but whether the world difference moves the Reference scores that H1 compares. A read-only check of both launches answers that without GPU work:
+- **If the world difference contaminates the Reference attack,** a target whose W1 answers better than its W0 (or whose W0 ends at a higher loss) should also have a larger s₁ − s₀.
+
+**Proposed read-only check (server; it reads result files only).** Per launch, arm and Reference form at ε = ∞, it prints:
+- the mean s₁ − s₀ and the share of targets with s₁ > s₀;
+- the correlation of s₁ − s₀ with the W1 − W0 RAG F1 gap and with the W0 − W1 last-round loss gap, with 95% target-bootstrap intervals.
+
+The replicate holds RG only. **Reading fixed before it runs:**
+- In the final launch, a positive correlation with an interval above 0 for an arm's frozen form (RG record, CB-AO template) means that arm's H1 Reference AUC carries a world component.
+- Intervals that include 0 mean there is no evidence that the world difference moves the Reference scores (it cannot be ruled out).
+
+```bash
+python - <<'PY'
+import json, os, glob
+import numpy as np
+G = os.environ['G']
+rng = np.random.default_rng(20260930)
+
+def rows(launch):
+    out = {}
+    for f in sorted(glob.glob(f"{G}/{launch}/results/*/result.json")):
+        r = json.load(open(f))
+        if r['kind'] != 'paired' or str(r['epsilon_budget']) != 'inf':
+            continue
+        w1, w0 = r['worlds']['W1'], r['worlds']['W0']
+        f1 = np.mean([q['f1'] for q in w1['utility']['F']]) - np.mean([q['f1'] for q in w0['utility']['F']])
+        loss = r['federated_history_W0'][-1]['mean_client_loss'] - r['federated_history_W1'][-1]['mean_client_loss']
+        for form in ('record', 'template'):
+            out.setdefault((r['arm'], form), []).append((w1['reference'][form] - w0['reference'][form], f1, loss))
+    return out
+
+def corr(x, y):
+    idx = rng.integers(0, len(x), (10000, len(x)))
+    boot = [np.corrcoef(x[i], y[i])[0, 1] for i in idx]
+    return round(float(np.corrcoef(x, y)[0, 1]), 3), [round(float(q), 3) for q in np.nanquantile(boot, [0.025, 0.975])]
+
+for launch in ('final', 'replicate-1'):
+    for key, values in sorted(rows(launch).items()):
+        d, f1, loss = (np.array(v, float) for v in zip(*values))
+        print(launch, key, 'targets', len(d), 'mean s1-s0', round(d.mean(), 3), 's1>s0 share', round(float((d > 0).mean()), 3),
+              '| corr with W1-W0 F1', *corr(d, f1), '| corr with W0-W1 loss', *corr(d, loss))
+PY
+```
 
 ## Deterministic same-world repeat (2026-10-18; core `0832ce3dbe5e` → `8a1aa7717e8c` → `2dc5fd6ca6e6`; rerun 2026-10-18: control valid, no effect)
 
@@ -840,7 +907,7 @@ The executor keeps the collector's guarantees without changing `collect_guard_tr
   - the standard AUC against N pools each target's 16 N documents as negatives, scored by that target's W0 model;
   - the refusal-excluded H3 contrast and the verbatim baseline keep only targets whose two document scores or answers exist, with their own draws from the same seed;
   - the gate rate is the share of queries whose top-ranked document the gate would withhold.
-- **Systematic W1–W0 world difference at ε = ∞ (2026-10-16, open).** The read-only check confirms it: RG's member worlds answer 0.057 [0.031, 0.086] F1 better than its non-member worlds, and in both arms W0 ends training at a higher loss (round 3: +0.071 RG, +0.049 CB-AO) although the worlds differ in one record. No code cause was found; the order of work in a paired job is the leading candidate. It can inflate both arms' Reference AUCs, so H1's (and H6's) difference carries an unquantified world effect. H2, H3 and the utility endpoints are unaffected, and H4's equivalence stands. The paired design assumes the worlds differ only by the target record; this finding questions that assumption for the weights-channel endpoints. The world-order diagnostic (2026-10-18, 12 V targets, no causal passes between the trainings) is inconclusive by its fixed readings. It shows no membership effect and no consistent order effect, so the between-world work of a paired job remains the suspect; this is not shown. A direct test with real paired jobs on the same V targets is the researcher's decision.
+- **Systematic W1–W0 world difference at ε = ∞ (2026-10-16, open; diagnosed 2026-10-16 to 2026-10-22, cause not shown).** The replicate (60 V targets) reproduces the gap in paired jobs (+0.037 [0.001, 0.074]) but not in no-causal pairs (+0.007), and the paired comparison is inconclusive (0.031 [−0.025, 0.086]). A read-only check of whether the gap moves the Reference scores is proposed in "Replicate". The read-only check confirms it: RG's member worlds answer 0.057 [0.031, 0.086] F1 better than its non-member worlds, and in both arms W0 ends training at a higher loss (round 3: +0.071 RG, +0.049 CB-AO) although the worlds differ in one record. No code cause was found; the order of work in a paired job is the leading candidate. It can inflate both arms' Reference AUCs, so H1's (and H6's) difference carries an unquantified world effect. H2, H3 and the utility endpoints are unaffected, and H4's equivalence stands. The paired design assumes the worlds differ only by the target record; this finding questions that assumption for the weights-channel endpoints. The world-order diagnostic (2026-10-18, 12 V targets, no causal passes between the trainings) is inconclusive by its fixed readings. It shows no membership effect and no consistent order effect, so the between-world work of a paired job remains the suspect; this is not shown. A direct test with real paired jobs on the same V targets is the researcher's decision.
 - **H1 sensitivity is post hoc.** RG's template-form and CB-AO's record-form Reference AUCs are reported as a labelled sensitivity. H1's decision stays on the frozen forms.
 - **DP jobs keep the causal passes.** Each DP paired job also runs the frozen-direction causal attack with release noise (secondary, the frontier), as the memo's cost estimates assumed.
 - **Timing.** Timing is a separate launch: one full paired RG job at ε = ∞ and one at ε = 16, on the V timing target.
