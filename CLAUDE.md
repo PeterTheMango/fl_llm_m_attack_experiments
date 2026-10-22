@@ -71,9 +71,13 @@ Every code or protocol change for this study must be recorded in the same commit
       - **Run 2026-10-22 (`$G/replicate-1`, 60 V targets): inconclusive by its fixed readings.**
         - W1 − W0 RAG F1 is +0.037 [0.001, 0.074] with the between-world work and +0.007 [−0.037, 0.050] without; with minus without is 0.031 [−0.025, 0.086]. W1 is better in 33 of 60 targets in both sets.
         - Every with-work set shows W1 ahead (Stage 2, the replicate); no without-work set does. That suggests a procedural effect of about 0.03–0.05 F1 that acts only in non-deterministic training, but it is not shown.
-    - **Proposed next (no GPU):** a read-only check of whether the world gap moves the Reference scores (the correlation of s₁ − s₀ with the per-target F1 and loss gaps, in both launches). The snippet and its fixed reading are in status.md, "Replicate". Then the write-up.
+    - **Reference-score check (2026-10-22, read-only):** there is no positive association between the world gap and either arm's frozen-form s₁ − s₀, so no sign of inflated AUCs.
+      - Post hoc: RG's record form correlates **negatively** with the W1 − W0 F1 gap in Stage 2 (−0.35 [−0.54, −0.15]; replicate −0.14, interval includes 0). If real, it favours H1.
+      - The template forms show no association, and no H1 reduction.
+      - **Write-up reading:** H1's reduction depends on RG's weaker, tie-broken record form; there is none under matched template forms. The cross-channel claim inherits this.
+      - **The diagnosis stops here.** Future paired studies can train deterministically (`amia.deterministic_training` plus `amia.aggregation_order`).
 - **Done 2026-10-12: the structured related-work search** (`related_work.md`, Stage 0 item 1, done after the confirmation). 66 verified papers. No prior work found duplicates the three-channel design; still no "first" claim. DBLP and OpenReview blocked automated access, so a manual check is advised before submission.
-- **Next:** the read-only Reference-score check (status.md, "Replicate"), then the write-up. (report the H1 form sensitivity, the world difference and the CB-AO-ignores-context reading next to H1/H3). A defense sized by these findings would be a follow-up study.
+- **Next:** the write-up. Report H1 as attack-form dependent, with the world difference and the Reference-score check, and the CB-AO-ignores-context reading next to H3. The generalization study's branch must be merged with `feat/grounded-fl-stage0` before its first launch, and it may adopt deterministic training. (report the H1 form sensitivity, the world difference and the CB-AO-ignores-context reading next to H1/H3). A defense sized by these findings would be a follow-up study.
   - Do not touch the frozen guard files or `causal_attack_validation.py`; keep changes opt-in so the guard studies' paths are unchanged; record every fingerprint change in `status.md`. Margins and rules may only be tightened.
 - **Decisions already made:**
   - accept GPU training non-determinism;
@@ -84,7 +88,7 @@ Every code or protocol change for this study must be recorded in the same commit
   - two clients training at once dropped (2026-10-06);
   - A = 60 targets at ε = ∞ and B2 (ε = 16 only), 2026-10-06.
 - **Open questions:**
-  - the systematic W1–W0 world difference at ε = ∞ (confirmed, unexplained; bears on H1);
+  - the cause of the W1–W0 world difference at ε = ∞ (diagnosis stopped 2026-10-22; procedural effect suspected, not shown; reported as a caveat on H1);
   - a manual DBLP/OpenReview check of the related-work search remains advisable.
 
 ## Commands

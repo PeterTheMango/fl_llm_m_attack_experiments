@@ -143,6 +143,35 @@ for launch in ('final', 'replicate-1'):
 PY
 ```
 
+**Result of the Reference-score check (server, 2026-10-22; read-only, both launches, ε = ∞).**
+
+| Launch, arm, form | Targets | Mean s₁ − s₀ | s₁ > s₀ | Corr. with W1 − W0 F1 | Corr. with W0 − W1 loss |
+|---|---:|---:|---:|---|---|
+| final, RG, **record (frozen)** | 60 | 0.038 | 0.77 | **−0.346 [−0.540, −0.153]** | −0.189 [−0.396, 0.017] |
+| final, RG, template | 60 | 0.317 | 0.98 | −0.035 [−0.297, 0.262] | 0.024 [−0.185, 0.291] |
+| final, CB-AO, record | 60 | 0.136 | 0.90 | −0.054 [−0.263, 0.187] | −0.019 [−0.231, 0.202] |
+| final, CB-AO, **template (frozen)** | 60 | 0.471 | 0.97 | 0.122 [−0.105, 0.324] | −0.095 [−0.284, 0.100] |
+| replicate (V), RG, record | 60 | 0.027 | 0.68 | −0.137 [−0.361, 0.085] | −0.098 [−0.345, 0.138] |
+| replicate (V), RG, template | 60 | 0.319 | 0.98 | 0.161 [−0.076, 0.382] | 0.058 [−0.170, 0.305] |
+
+**Against the fixed reading: no evidence of the feared contamination.** Neither arm's frozen form shows a positive correlation with an interval above 0, so nothing suggests the world gap inflates a Reference AUC.
+
+**Not anticipated by the reading (post hoc; treat with caution).**
+- RG's frozen **record** form shows a **negative** correlation in Stage 2: −0.346 [−0.540, −0.153]. Targets whose W1 answered better than their W0 had a *smaller* s₁ − s₀.
+- The replicate points the same way but more weakly (−0.137, interval includes 0).
+- Every other arm and form is near 0.
+- Twelve correlations were computed, so one nominal result is not strong evidence on its own.
+
+**If it is real, it works in H1's favour.** In Stage 2, W1 was on average the better-trained world, so a negative association would push RG's record-form s₁ − s₀ down and make RG look less leaky. That is the direction H1 claims. The template form, which shows no association with the world gap, also shows no H1 reduction (CB-AO − RG 0.022 [−0.041, 0.081]).
+
+**Reading for the write-up (descriptive; the pre-registered H1 outcome stands).** H1's reduction rests on RG's record-form Reference score. That form is:
+- the weaker attack against RG (AUC 0.659 against 0.917 for the template form);
+- a pilot tie-break choice;
+- in Stage 2, the only form whose per-target score moves against the world gap.
+With matched template forms there is no reduction. The robust statement is therefore: **grounded training did not clearly reduce weight-channel record membership under a matched, stronger attack; the pre-registered H1 claim depends on the attack form.** The cross-channel claim inherits this caveat.
+
+**The diagnosis stops here (2026-10-22).** The cause of the world gap is not shown; the evidence points to a procedural effect of about 0.03–0.05 F1 that appears only in non-deterministic training. The weights of Stage 2 are retired, so no adjusted H1 can be computed without new runs. A future paired study can avoid the issue by training deterministically with ordered aggregation (`amia.deterministic_training` and `amia.aggregation_order`), which makes a whole paired training reproducible bit for bit.
+
 ## Deterministic same-world repeat (2026-10-18; core `0832ce3dbe5e` → `8a1aa7717e8c` → `2dc5fd6ca6e6`; rerun 2026-10-18: control valid, no effect)
 
 **Why.** The world-order diagnostic left one suspect for Stage 2's world difference: the work a paired job does between its two trainings (every W1 measurement, then the causal passes). One trained world varies by about ±0.1–0.17 F1 per target from GPU non-determinism, so a statistical test would need about 60 targets. **The researcher's decision (2026-10-18):** first a deterministic repeat, then paired jobs (about 60 V targets) if that is inconclusive.
@@ -907,7 +936,7 @@ The executor keeps the collector's guarantees without changing `collect_guard_tr
   - the standard AUC against N pools each target's 16 N documents as negatives, scored by that target's W0 model;
   - the refusal-excluded H3 contrast and the verbatim baseline keep only targets whose two document scores or answers exist, with their own draws from the same seed;
   - the gate rate is the share of queries whose top-ranked document the gate would withhold.
-- **Systematic W1–W0 world difference at ε = ∞ (2026-10-16, open; diagnosed 2026-10-16 to 2026-10-22, cause not shown).** The replicate (60 V targets) reproduces the gap in paired jobs (+0.037 [0.001, 0.074]) but not in no-causal pairs (+0.007), and the paired comparison is inconclusive (0.031 [−0.025, 0.086]). A read-only check of whether the gap moves the Reference scores is proposed in "Replicate". The read-only check confirms it: RG's member worlds answer 0.057 [0.031, 0.086] F1 better than its non-member worlds, and in both arms W0 ends training at a higher loss (round 3: +0.071 RG, +0.049 CB-AO) although the worlds differ in one record. No code cause was found; the order of work in a paired job is the leading candidate. It can inflate both arms' Reference AUCs, so H1's (and H6's) difference carries an unquantified world effect. H2, H3 and the utility endpoints are unaffected, and H4's equivalence stands. The paired design assumes the worlds differ only by the target record; this finding questions that assumption for the weights-channel endpoints. The world-order diagnostic (2026-10-18, 12 V targets, no causal passes between the trainings) is inconclusive by its fixed readings. It shows no membership effect and no consistent order effect, so the between-world work of a paired job remains the suspect; this is not shown. A direct test with real paired jobs on the same V targets is the researcher's decision.
+- **Systematic W1–W0 world difference at ε = ∞ (2026-10-16, open; diagnosed 2026-10-16 to 2026-10-22, cause not shown).** The replicate (60 V targets) reproduces the gap in paired jobs (+0.037 [0.001, 0.074]) but not in no-causal pairs (+0.007), and the paired comparison is inconclusive (0.031 [−0.025, 0.086]). The read-only Reference-score check (2026-10-22) finds no positive association between the world gap and either arm's frozen-form s₁ − s₀. RG's record form shows a negative one in Stage 2 (−0.35 [−0.54, −0.15]; post hoc), which would favour H1. H1 is therefore reported as attack-form dependent ("Replicate"). The diagnosis stops here. The read-only check confirms it: RG's member worlds answer 0.057 [0.031, 0.086] F1 better than its non-member worlds, and in both arms W0 ends training at a higher loss (round 3: +0.071 RG, +0.049 CB-AO) although the worlds differ in one record. No code cause was found; the order of work in a paired job is the leading candidate. It can inflate both arms' Reference AUCs, so H1's (and H6's) difference carries an unquantified world effect. H2, H3 and the utility endpoints are unaffected, and H4's equivalence stands. The paired design assumes the worlds differ only by the target record; this finding questions that assumption for the weights-channel endpoints. The world-order diagnostic (2026-10-18, 12 V targets, no causal passes between the trainings) is inconclusive by its fixed readings. It shows no membership effect and no consistent order effect, so the between-world work of a paired job remains the suspect; this is not shown. A direct test with real paired jobs on the same V targets is the researcher's decision.
 - **H1 sensitivity is post hoc.** RG's template-form and CB-AO's record-form Reference AUCs are reported as a labelled sensitivity. H1's decision stays on the frozen forms.
 - **DP jobs keep the causal passes.** Each DP paired job also runs the frozen-direction causal attack with release noise (secondary, the frontier), as the memo's cost estimates assumed.
 - **Timing.** Timing is a separate launch: one full paired RG job at ε = ∞ and one at ε = 16, on the V timing target.
